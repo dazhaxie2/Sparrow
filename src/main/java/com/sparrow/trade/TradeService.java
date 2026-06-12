@@ -18,7 +18,6 @@ public class TradeService {
 
     private static final Logger log = LoggerFactory.getLogger(TradeService.class);
 
-    /** Phase 1 商品目录直接硬编码:只有两个会员 SKU */
     public record Product(String code, String name, int amountCent, int memberDays) {
     }
 
@@ -27,13 +26,13 @@ public class TradeService {
             "MEMBER_YEAR", new Product("MEMBER_YEAR", "Sparrow 年度会员", 9900, 365)
     );
 
-    private final OrderRepository orderRepository;
+    private final OrderMapper orderMapper;
     private final PaymentClient paymentClient;
     private final MembershipGrantService membershipGrantService;
 
-    public TradeService(OrderRepository orderRepository, PaymentClient paymentClient,
+    public TradeService(OrderMapper orderMapper, PaymentClient paymentClient,
                         MembershipGrantService membershipGrantService) {
-        this.orderRepository = orderRepository;
+        this.orderMapper = orderMapper;
         this.paymentClient = paymentClient;
         this.membershipGrantService = membershipGrantService;
     }
@@ -54,21 +53,17 @@ public class TradeService {
         order.setProductName(product.name());
         order.setAmountCent(product.amountCent());
         order.setStatus(Order.STATUS_CREATED);
-        orderRepository.save(order);
+        orderMapper.insert(order);
         String payUrl = paymentClient.createPayment(order);
         return new CreateOrderResult(order.getOrderNo(), payUrl, order.getAmountCent());
     }
 
-    /**
-     * 支付回调:幂等核销 + 开通会员,Phase 1 单库本地事务保证原子性。
-     * (Phase 2 拆分 trade/user 服务后,这里将是 Seata AT 的登场位置)
-     */
     @Transactional
     public boolean handlePayNotify(String orderNo, String payToken) {
-        Order order = orderRepository.findByOrderNo(orderNo)
+        Order order = orderMapper.findByOrderNo(orderNo)
                 .orElseThrow(() -> new BizException(404, "订单不存在"));
         paymentClient.verifyPaymentNotification(order, payToken);
-        int updated = orderRepository.markPaid(orderNo, LocalDateTime.now());
+        int updated = orderMapper.markPaid(orderNo, LocalDateTime.now());
         if (updated == 0) {
             log.info("重复支付回调,跳过: orderNo={}", orderNo);
             return false;
@@ -84,7 +79,7 @@ public class TradeService {
     }
 
     public Order getOwnedOrder(Long userId, String orderNo) {
-        Order order = orderRepository.findByOrderNo(orderNo)
+        Order order = orderMapper.findByOrderNo(orderNo)
                 .orElseThrow(() -> new BizException(404, "订单不存在"));
         if (!order.getUserId().equals(userId)) {
             throw new BizException(403, "无权查看该订单");
@@ -93,7 +88,7 @@ public class TradeService {
     }
 
     public List<Order> listOrders(Long userId) {
-        return orderRepository.findTop20ByUserIdOrderByIdDesc(userId);
+        return orderMapper.findTop20ByUserIdOrderByIdDesc(userId);
     }
 
     private String genOrderNo() {

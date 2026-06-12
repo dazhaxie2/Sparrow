@@ -13,7 +13,7 @@ services:
       - mysql_data:/var/lib/mysql
       - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
     ports:
-      - "3307:3306" # 宿主机 3306 常被本机 MySQL 占用,调试用 3307 连入
+      - "3307:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
       interval: 5s
@@ -72,7 +72,6 @@ services:
       MYSQL_HOST: mysql
       REDIS_HOST: redis
       MILVUS_HOST: milvus
-      # 配置任意 OpenAI 兼容服务后,AI 问答从"图谱规则模式"升级为"RAG 模式"
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen-plus}

@@ -5,6 +5,10 @@ import com.sparrow.common.MembershipService;
 import com.sparrow.graph.GraphDtos.NodeBrief;
 import com.sparrow.graph.GraphDtos.Tree;
 import com.sparrow.graph.GraphService;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.data.segment.TextSegment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -31,21 +35,27 @@ public class AiService {
     }
 
     private final AiProperties props;
-    private final OpenAiClient openAi;
+    private final ChatLanguageModel chatModel;
+    private final EmbeddingModel embeddingModel;
     private final MilvusStore milvus;
     private final GraphService graphService;
     private final MembershipService membershipService;
     private final StringRedisTemplate redis;
 
-    public AiService(AiProperties props, OpenAiClient openAi, MilvusStore milvus,
-                     GraphService graphService, MembershipService membershipService,
-                     StringRedisTemplate redis) {
+    public AiService(AiProperties props, ChatLanguageModel chatModel, EmbeddingModel embeddingModel,
+                     MilvusStore milvus, GraphService graphService,
+                     MembershipService membershipService, StringRedisTemplate redis) {
         this.props = props;
-        this.openAi = openAi;
+        this.chatModel = chatModel;
+        this.embeddingModel = embeddingModel;
         this.milvus = milvus;
         this.graphService = graphService;
         this.membershipService = membershipService;
         this.redis = redis;
+    }
+
+    public boolean llmConfigured() {
+        return chatModel != null && embeddingModel != null;
     }
 
     public AskResult ask(Long userId, String question) {
@@ -55,9 +65,9 @@ public class AiService {
                 .map(n -> new SourceRef(n.id(), n.name()))
                 .toList();
 
-        if (openAi.configured()) {
+        if (llmConfigured()) {
             try {
-                String answer = openAi.chat(systemPrompt(), ragUserMessage(question, hits));
+                String answer = chatModel.generate(systemPrompt() + "\n\n" + ragUserMessage(question, hits));
                 return new AskResult(answer, "rag", sources, remaining);
             } catch (Exception e) {
                 log.warn("LLM 调用失败,降级为规则问答: {}", e.getMessage());
@@ -66,11 +76,26 @@ public class AiService {
         return new AskResult(rulesAnswer(question, hits), "rules", sources, remaining);
     }
 
-    /** 检索:Milvus 向量检索优先,不可用时按节点名关键词匹配 */
+    public List<float[]> embed(List<String> texts) {
+        if (embeddingModel == null) {
+            throw new BizException(503, "AI 服务未配置");
+        }
+        List<float[]> result = new ArrayList<>(texts.size());
+        for (int i = 0; i < texts.size(); i += 10) {
+            List<String> batch = texts.subList(i, Math.min(i + 10, texts.size()));
+            List<TextSegment> segments = batch.stream().map(TextSegment::from).toList();
+            List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
+            for (Embedding emb : embeddings) {
+                result.add(emb.vector());
+            }
+        }
+        return result;
+    }
+
     private List<NodeBrief> retrieve(String question) {
-        if (openAi.configured() && milvus.ready()) {
+        if (llmConfigured() && milvus.ready()) {
             try {
-                float[] vec = openAi.embed(List.of(question)).get(0);
+                float[] vec = embed(List.of(question)).get(0);
                 List<Long> ids = milvus.search(vec, 5);
                 Map<Long, NodeBrief> byId = nodesById();
                 return ids.stream().map(byId::get).filter(n -> n != null).toList();
@@ -124,7 +149,6 @@ public class AiService {
         return sb.toString();
     }
 
-    /** 无 LLM 时的确定性回答:节点卡片 + 完整前置链 + 直接解锁 */
     private String rulesAnswer(String question, List<NodeBrief> hits) {
         if (hits.isEmpty()) {
             return "我没有在科技树中找到与问题直接相关的技术节点。可以试试这样问:" +
@@ -157,10 +181,9 @@ public class AiService {
         return sb.toString();
     }
 
-    /** 会员不限次;免费用户每日限额(Redis 计数,自然日过期) */
     private long consumeQuota(Long userId) {
         if (membershipService.isMember(userId)) {
-            return -1; // -1 表示不限次
+            return -1;
         }
         String key = QUOTA_KEY_PREFIX + userId + ":" + LocalDate.now();
         Long used = redis.opsForValue().increment(key);

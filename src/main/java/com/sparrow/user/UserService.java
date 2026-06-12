@@ -1,11 +1,12 @@
 package com.sparrow.user;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sparrow.common.AuthInterceptor;
 import com.sparrow.common.BizException;
 import com.sparrow.common.MembershipGrantService;
 import com.sparrow.common.MembershipService;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -18,14 +19,14 @@ import java.util.UUID;
 @Service
 public class UserService implements MembershipService, MembershipGrantService {
 
-    private final UserRepository userRepository;
+    private final UserMapper userMapper;
     private final StringRedisTemplate redis;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
     private final int tokenTtlDays;
 
-    public UserService(UserRepository userRepository, StringRedisTemplate redis,
+    public UserService(UserMapper userMapper, StringRedisTemplate redis,
                        @Value("${sparrow.auth.token-ttl-days}") int tokenTtlDays) {
-        this.userRepository = userRepository;
+        this.userMapper = userMapper;
         this.redis = redis;
         this.tokenTtlDays = tokenTtlDays;
     }
@@ -36,16 +37,19 @@ public class UserService implements MembershipService, MembershipGrantService {
         user.setUsername(username);
         user.setPasswordHash(encoder.encode(password));
         try {
-            userRepository.saveAndFlush(user);
-        } catch (DataIntegrityViolationException e) {
+            userMapper.insert(user);
+        } catch (DuplicateKeyException e) {
             throw new BizException("用户名已被注册");
         }
         return issueToken(user.getId());
     }
 
     public String login(String username, String password) {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new BizException("用户名或密码错误"));
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>().eq(User::getUsername, username));
+        if (user == null) {
+            throw new BizException("用户名或密码错误");
+        }
         if (!encoder.matches(password, user.getPasswordHash())) {
             throw new BizException("用户名或密码错误");
         }
@@ -53,23 +57,26 @@ public class UserService implements MembershipService, MembershipGrantService {
     }
 
     public User getById(Long id) {
-        return userRepository.findById(id)
-                .orElseThrow(() -> new BizException(404, "用户不存在"));
+        User user = userMapper.selectById(id);
+        if (user == null) {
+            throw new BizException(404, "用户不存在");
+        }
+        return user;
     }
 
     @Override
     public boolean isMember(Long userId) {
-        return userRepository.findById(userId).map(User::memberActive).orElse(false);
+        User user = userMapper.selectById(userId);
+        return user != null && user.memberActive();
     }
 
-    /** 支付成功后开通/续期会员(由 trade 模块在本地事务内调用) */
     @Override
     @Transactional
     public void grantMembership(Long userId, int days) {
         User user = getById(userId);
         LocalDateTime base = user.memberActive() ? user.getMemberExpireAt() : LocalDateTime.now();
         user.setMemberExpireAt(base.plusDays(days));
-        userRepository.save(user);
+        userMapper.updateById(user);
     }
 
     private String issueToken(Long userId) {

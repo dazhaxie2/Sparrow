@@ -1,47 +1,42 @@
 package com.sparrow.trade;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "t_order")
+@TableName("t_order")
 public class Order {
 
     public static final String STATUS_CREATED = "CREATED";
     public static final String STATUS_PAID = "PAID";
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(name = "order_no")
+    @TableField("order_no")
     private String orderNo;
 
-    @Column(name = "user_id")
+    @TableField("user_id")
     private Long userId;
 
-    @Column(name = "product_code")
+    @TableField("product_code")
     private String productCode;
 
-    @Column(name = "product_name")
+    @TableField("product_name")
     private String productName;
 
-    @Column(name = "amount_cent")
+    @TableField("amount_cent")
     private Integer amountCent;
 
-    @Column(name = "status")
     private String status;
 
-    @Column(name = "created_at", insertable = false, updatable = false)
+    @TableField(value = "created_at", insertStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.NEVER, updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.NEVER)
     private LocalDateTime createdAt;
 
-    @Column(name = "paid_at")
+    @TableField("paid_at")
     private LocalDateTime paidAt;
 
     public Long getId() {

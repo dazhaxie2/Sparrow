@@ -28,37 +28,35 @@ public class GraphService {
     private static final String TREE_CACHE_KEY = "sparrow:graph:tree";
     private static final Duration TREE_CACHE_TTL = Duration.ofHours(1);
 
-    private final TechNodeRepository nodeRepo;
-    private final TechEdgeRepository edgeRepo;
+    private final TechNodeMapper nodeMapper;
+    private final TechEdgeMapper edgeMapper;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final MembershipService membershipService;
 
-    public GraphService(TechNodeRepository nodeRepo, TechEdgeRepository edgeRepo,
+    public GraphService(TechNodeMapper nodeMapper, TechEdgeMapper edgeMapper,
                         StringRedisTemplate redis, ObjectMapper objectMapper,
                         MembershipService membershipService) {
-        this.nodeRepo = nodeRepo;
-        this.edgeRepo = edgeRepo;
+        this.nodeMapper = nodeMapper;
+        this.edgeMapper = edgeMapper;
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.membershipService = membershipService;
     }
 
-    /** 全树:整体进 Redis 缓存(科技树是读多写少的小数据,命中后不打 MySQL) */
     public Tree tree() {
         String cached = redis.opsForValue().get(TREE_CACHE_KEY);
         if (cached != null) {
             try {
                 return objectMapper.readValue(cached, Tree.class);
             } catch (JsonProcessingException ignored) {
-                // 缓存内容损坏则回源重建
             }
         }
-        List<NodeBrief> nodes = nodeRepo.findAll().stream()
+        List<NodeBrief> nodes = nodeMapper.selectList(null).stream()
                 .sorted(Comparator.comparing(TechNode::getEraRank).thenComparing(TechNode::getId))
                 .map(NodeBrief::from)
                 .toList();
-        List<EdgeBrief> edges = edgeRepo.findAll().stream()
+        List<EdgeBrief> edges = edgeMapper.selectList(null).stream()
                 .map(e -> new EdgeBrief(e.getFromId(), e.getToId()))
                 .toList();
         Tree tree = new Tree(nodes, edges);
@@ -70,8 +68,10 @@ public class GraphService {
     }
 
     public NodeDetail nodeDetail(Long id, Long userId) {
-        TechNode node = nodeRepo.findById(id)
-                .orElseThrow(() -> new BizException(404, "技术节点不存在"));
+        TechNode node = nodeMapper.selectById(id);
+        if (node == null) {
+            throw new BizException(404, "技术节点不存在");
+        }
         Tree tree = tree();
         Map<Long, NodeBrief> byId = new HashMap<>();
         tree.nodes().forEach(n -> byId.put(n.id(), n));
@@ -94,7 +94,6 @@ public class GraphService {
                 locked ? null : node.getDetail(), isPremium, locked, prerequisites, unlocks);
     }
 
-    /** 全部前置依赖链:沿边反向 BFS,按时代排序返回 */
     public List<NodeBrief> prerequisiteChain(Long id) {
         Tree tree = tree();
         Map<Long, NodeBrief> byId = new HashMap<>();

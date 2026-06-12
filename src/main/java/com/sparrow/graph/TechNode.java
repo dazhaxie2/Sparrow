@@ -1,39 +1,32 @@
 package com.sparrow.graph;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
 
-@Entity
-@Table(name = "tech_node")
+@TableName("tech_node")
 public class TechNode {
 
-    @Id
+    @TableId(type = IdType.INPUT)
     private Long id;
 
-    @Column(name = "code")
     private String code;
 
-    @Column(name = "name")
     private String name;
 
-    @Column(name = "era")
     private String era;
 
-    @Column(name = "era_rank")
+    @TableField("era_rank")
     private Integer eraRank;
 
-    @Column(name = "year_label")
+    @TableField("year_label")
     private String yearLabel;
 
-    @Column(name = "summary")
     private String summary;
 
-    @Column(name = "detail")
     private String detail;
 
-    @Column(name = "premium")
     private Boolean premium;
 
     public Long getId() {

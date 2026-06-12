@@ -1,7 +1,7 @@
 package com.sparrow.ai;
 
 import com.sparrow.graph.TechNode;
-import com.sparrow.graph.TechNodeRepository;
+import com.sparrow.graph.TechNodeMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -10,10 +10,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * 启动时后台同步节点向量到 Milvus(不阻塞启动,Milvus 慢启动时自动重试)。
- * 未配置 AI_API_KEY 时跳过,AI 问答走规则降级。
- */
 @Component
 public class AiBootstrap implements ApplicationRunner {
 
@@ -22,16 +18,16 @@ public class AiBootstrap implements ApplicationRunner {
     private static final long RETRY_INTERVAL_MS = 10_000;
 
     private final AiProperties props;
-    private final OpenAiClient openAi;
+    private final AiService aiService;
     private final MilvusStore milvus;
-    private final TechNodeRepository nodeRepo;
+    private final TechNodeMapper nodeMapper;
 
-    public AiBootstrap(AiProperties props, OpenAiClient openAi, MilvusStore milvus,
-                       TechNodeRepository nodeRepo) {
+    public AiBootstrap(AiProperties props, AiService aiService, MilvusStore milvus,
+                       TechNodeMapper nodeMapper) {
         this.props = props;
-        this.openAi = openAi;
+        this.aiService = aiService;
         this.milvus = milvus;
-        this.nodeRepo = nodeRepo;
+        this.nodeMapper = nodeMapper;
     }
 
     @Override
@@ -46,7 +42,7 @@ public class AiBootstrap implements ApplicationRunner {
     }
 
     private void syncWithRetry() {
-        List<TechNode> nodes = nodeRepo.findAll();
+        List<TechNode> nodes = nodeMapper.selectList(null);
         List<Long> ids = nodes.stream().map(TechNode::getId).toList();
         List<String> texts = nodes.stream()
                 .map(n -> n.getName() + "(" + n.getEra() + "," + n.getYearLabel() + ")。"
@@ -57,7 +53,7 @@ public class AiBootstrap implements ApplicationRunner {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
                 if (vectors == null) {
-                    vectors = openAi.embed(texts);
+                    vectors = aiService.embed(texts);
                     log.info("已生成 {} 条节点向量, dim={}", vectors.size(), vectors.get(0).length);
                 }
                 milvus.rebuild(ids, vectors);

@@ -23,24 +23,24 @@ import static org.mockito.Mockito.when;
 
 class TradeServiceTest {
 
-    private OrderRepository orderRepository;
+    private OrderMapper orderMapper;
     private PaymentClient paymentClient;
     private MembershipGrantService membershipGrantService;
     private TradeService tradeService;
 
     @BeforeEach
     void setUp() {
-        orderRepository = mock(OrderRepository.class);
+        orderMapper = mock(OrderMapper.class);
         paymentClient = mock(PaymentClient.class);
         membershipGrantService = mock(MembershipGrantService.class);
-        tradeService = new TradeService(orderRepository, paymentClient, membershipGrantService);
+        tradeService = new TradeService(orderMapper, paymentClient, membershipGrantService);
     }
 
     @Test
     void payNotifyGrantsMembershipOnFirstValidCallback() {
         Order order = order();
-        when(orderRepository.findByOrderNo(order.getOrderNo())).thenReturn(Optional.of(order));
-        when(orderRepository.markPaid(eq(order.getOrderNo()), any(LocalDateTime.class))).thenReturn(1);
+        when(orderMapper.findByOrderNo(order.getOrderNo())).thenReturn(Optional.of(order));
+        when(orderMapper.markPaid(eq(order.getOrderNo()), any(LocalDateTime.class))).thenReturn(1);
 
         boolean processed = tradeService.handlePayNotify(order.getOrderNo(), "valid-token");
 
@@ -52,8 +52,8 @@ class TradeServiceTest {
     @Test
     void payNotifySkipsDuplicateCallbacks() {
         Order order = order();
-        when(orderRepository.findByOrderNo(order.getOrderNo())).thenReturn(Optional.of(order));
-        when(orderRepository.markPaid(eq(order.getOrderNo()), any(LocalDateTime.class))).thenReturn(0);
+        when(orderMapper.findByOrderNo(order.getOrderNo())).thenReturn(Optional.of(order));
+        when(orderMapper.markPaid(eq(order.getOrderNo()), any(LocalDateTime.class))).thenReturn(0);
 
         boolean processed = tradeService.handlePayNotify(order.getOrderNo(), "valid-token");
 
@@ -65,14 +65,14 @@ class TradeServiceTest {
     @Test
     void payNotifyRejectsForgedCallbacksBeforeMarkingPaid() {
         Order order = order();
-        when(orderRepository.findByOrderNo(order.getOrderNo())).thenReturn(Optional.of(order));
+        when(orderMapper.findByOrderNo(order.getOrderNo())).thenReturn(Optional.of(order));
         doThrow(new BizException(403, "支付回调校验失败"))
                 .when(paymentClient).verifyPaymentNotification(order, "bad-token");
 
         assertThrows(BizException.class,
                 () -> tradeService.handlePayNotify(order.getOrderNo(), "bad-token"));
 
-        verify(orderRepository, never()).markPaid(any(), any());
+        verify(orderMapper, never()).markPaid(any(), any());
         verify(membershipGrantService, never()).grantMembership(anyLong(), anyInt());
     }
 
