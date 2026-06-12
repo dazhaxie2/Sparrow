@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sparrow 收银台(沙箱)</title>
+<style>
+  body {
+    background: #0d1421; color: #e6edf7; height: 100vh; margin: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  }
+  .card {
+    width: 360px; background: #131c2e; border: 1px solid #243049;
+    border-radius: 16px; padding: 32px; text-align: center;
+  }
+  .badge { font-size: 12px; color: #93a4bd; letter-spacing: .1em; }
+  h2 { margin: 10px 0 4px; }
+  .amount { font-size: 38px; font-weight: 700; color: #f6c244; margin: 18px 0 6px; }
+  .order-no { font-size: 12.5px; color: #93a4bd; margin-bottom: 26px; word-break: break-all; }
+  button {
+    width: 100%; padding: 12px; border-radius: 10px; border: none;
+    background: #4da3ff; color: #07101f; font-size: 16px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .back { display: inline-block; margin-top: 16px; color: #4da3ff; font-size: 14px; text-decoration: none; }
+  .ok { color: #6fd388; font-size: 15px; margin-top: 14px; display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="badge">SPARROW 模拟支付网关 · SANDBOX</div>
+  <h2 id="product">—</h2>
+  <div class="amount" id="amount">¥0.00</div>
+  <div class="order-no">订单号:<span id="orderNo">—</span></div>
+  <button id="pay">模拟支付成功</button>
+  <div class="ok" id="ok">✅ 支付成功,会员已开通</div>
+  <a class="back" href="/">← 返回科技树</a>
+</div>
+<script>
+  var qs = new URLSearchParams(location.search);
+  var orderNo = qs.get('orderNo') || '';
+  var names = { MEMBER_MONTH: 'Sparrow 月度会员', MEMBER_YEAR: 'Sparrow 年度会员' };
+  document.getElementById('orderNo').textContent = orderNo;
+  document.getElementById('product').textContent = names[qs.get('product')] || '商品';
+  document.getElementById('amount').textContent = '¥' + ((Number(qs.get('amount')) || 0) / 100).toFixed(2);
+
+  document.getElementById('pay').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '处理中…';
+    // 模拟支付网关的服务端异步回调
+    fetch('/api/pay/mock/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderNo: orderNo })
+    }).then(function (r) { return r.json(); }).then(function (body) {
+      if (body.code === 0) {
+        btn.style.display = 'none';
+        document.getElementById('ok').style.display = 'block';
+      } else {
+        alert(body.message || '支付失败');
+        btn.disabled = false;
+        btn.textContent = '模拟支付成功';
+      }
+    });
+  });
+</script>
+</body>
+</html>

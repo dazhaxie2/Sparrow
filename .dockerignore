@@ -1,0 +1,7 @@
+.git
+target
+*.md
+*.html
+docker-compose.yml
+docker/mysql
+memory

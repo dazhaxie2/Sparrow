@@ -1,0 +1,38 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: sparrow
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:sparrow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${MYSQL_USER:sparrow}
+    password: ${MYSQL_PASSWORD:sparrow123}
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+sparrow:
+  auth:
+    token-ttl-days: 7
+  ai:
+    # 任意 OpenAI 兼容服务(如 DashScope compatible-mode / OpenAI / vLLM)
+    # 未配置 api-key 时,AI 问答自动降级为图谱规则问答
+    base-url: ${AI_BASE_URL:}
+    api-key: ${AI_API_KEY:}
+    chat-model: ${AI_CHAT_MODEL:qwen-plus}
+    embedding-model: ${AI_EMBEDDING_MODEL:text-embedding-v3}
+    free-quota-per-day: 3
+  milvus:
+    host: ${MILVUS_HOST:localhost}
+    port: ${MILVUS_PORT:19530}
+    collection: tech_nodes
+
+logging:
+  level:
+    com.sparrow: info
