@@ -1,16 +1,36 @@
 <template>
   <Teleport to="body">
     <div class="modal" @click.self="$emit('close')">
-      <div class="modal-box">
-        <h3>登录 Sparrow</h3>
-        <input v-model="username" type="text" placeholder="用户名(3-32位)" maxlength="32" />
-        <input v-model="password" type="password" placeholder="密码(6-64位)" maxlength="64" />
-        <div class="modal-actions">
-          <button class="btn primary" @click="handleLogin">登录</button>
-          <button class="btn" @click="handleRegister">注册并登录</button>
-          <button class="btn ghost" @click="$emit('close')">取消</button>
+      <form class="modal-box" @submit.prevent="handleLogin">
+        <div class="modal-head">
+          <div>
+            <span class="eyebrow">SPARROW ACCOUNT</span>
+            <h3>登录 Sparrow</h3>
+          </div>
+          <button class="icon-btn" type="button" aria-label="关闭" @click="$emit('close')">×</button>
         </div>
-      </div>
+
+        <label class="field">
+          <span>用户名</span>
+          <input v-model="username" type="text" placeholder="3-32 位" maxlength="32" autocomplete="username" />
+        </label>
+        <label class="field">
+          <span>密码</span>
+          <input
+            v-model="password"
+            type="password"
+            placeholder="6-64 位"
+            maxlength="64"
+            autocomplete="current-password"
+          />
+        </label>
+
+        <div class="modal-actions">
+          <button class="btn primary" type="submit">登录</button>
+          <button class="btn" type="button" @click="handleRegister">注册并登录</button>
+          <button class="btn ghost" type="button" @click="$emit('close')">取消</button>
+        </div>
+      </form>
     </div>
   </Teleport>
 </template>
@@ -25,38 +45,134 @@ const username = ref('')
 const password = ref('')
 
 async function handleLogin() {
-  try { await user.login(username.value, password.value); emit('close') }
-  catch (e: any) { alert(e.message) }
+  try {
+    await user.login(username.value, password.value)
+    emit('close')
+  } catch (error: any) {
+    alert(error.message)
+  }
 }
 
 async function handleRegister() {
-  try { await user.register(username.value, password.value); emit('close') }
-  catch (e: any) { alert(e.message) }
+  try {
+    await user.register(username.value, password.value)
+    emit('close')
+  } catch (error: any) {
+    alert(error.message)
+  }
 }
 </script>
 
 <style scoped>
 .modal {
-  position: fixed; inset: 0; background: rgba(5, 9, 18, 0.7);
-  display: flex; align-items: center; justify-content: center; z-index: 100;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(2px);
+  z-index: 100;
 }
+
 .modal-box {
-  width: 360px; background: var(--bg-2); border: 1px solid var(--line);
-  border-radius: 14px; padding: 24px;
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--ink);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+  padding: 22px;
 }
-.modal-box h3 { margin-bottom: 14px; }
-.modal-box input {
-  width: 100%; margin-bottom: 10px; background: var(--bg);
-  border: 1px solid var(--line); border-radius: 8px; color: var(--ink);
-  padding: 10px 12px; font-size: 14px; outline: none;
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
 }
-.modal-box input:focus { border-color: var(--accent); }
-.modal-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.modal-head h3 {
+  margin-top: 6px;
+  font-size: 24px;
+  letter-spacing: 0;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.field span {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.field input {
+  width: 100%;
+  height: 40px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 11px;
+  font-size: 14px;
+  outline: none;
+}
+
+.field input:focus {
+  border-color: var(--ink);
+  background: var(--panel);
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
 .btn {
-  background: #1d2a44; color: var(--ink); border: 1px solid var(--line);
-  border-radius: 8px; padding: 7px 14px; font-size: 14px; cursor: pointer;
+  min-height: 36px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0 13px;
+  font-size: 13px;
+  cursor: pointer;
 }
-.btn:hover { border-color: var(--accent); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #07101f; font-weight: 600; }
-.btn.ghost { background: transparent; }
+
+.btn:hover,
+.icon-btn:hover {
+  border-color: var(--ink);
+}
+
+.btn.primary {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 800;
+}
+
+.btn.ghost {
+  background: transparent;
+}
 </style>

@@ -11,6 +11,6 @@ import AppHeader from '../components/AppHeader.vue'
 
 <style scoped>
 .layout-content {
-  height: calc(100vh - 56px);
+  height: calc(100vh - 64px);
 }
 </style>

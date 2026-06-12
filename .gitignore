@@ -6,7 +6,7 @@ frontend/dist/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
-docs/
+docs/*
 
 ### STS ###
 .apt_generated
