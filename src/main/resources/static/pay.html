@@ -40,6 +40,7 @@
 <script>
   var qs = new URLSearchParams(location.search);
   var orderNo = qs.get('orderNo') || '';
+  var payToken = qs.get('payToken') || '';
   var names = { MEMBER_MONTH: 'Sparrow 月度会员', MEMBER_YEAR: 'Sparrow 年度会员' };
   document.getElementById('orderNo').textContent = orderNo;
   document.getElementById('product').textContent = names[qs.get('product')] || '商品';
@@ -53,7 +54,7 @@
     fetch('/api/pay/mock/notify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderNo: orderNo })
+      body: JSON.stringify({ orderNo: orderNo, payToken: payToken })
     }).then(function (r) { return r.json(); }).then(function (body) {
       if (body.code === 0) {
         btn.style.display = 'none';

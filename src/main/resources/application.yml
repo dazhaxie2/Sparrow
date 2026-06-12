@@ -20,6 +20,8 @@ spring:
 sparrow:
   auth:
     token-ttl-days: 7
+  pay:
+    mock-secret: ${MOCK_PAY_SECRET:sparrow-phase1-mock-secret}
   ai:
     # 任意 OpenAI 兼容服务(如 DashScope compatible-mode / OpenAI / vLLM)
     # 未配置 api-key 时,AI 问答自动降级为图谱规则问答

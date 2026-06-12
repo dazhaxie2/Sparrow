@@ -8,4 +8,7 @@ public interface PaymentClient {
 
     /** 创建支付单,返回收银台地址 */
     String createPayment(Order order);
+
+    /** 校验支付渠道回调。Mock 渠道校验一次性支付令牌,真实渠道实现应验签/验金额。 */
+    void verifyPaymentNotification(Order order, String payToken);
 }

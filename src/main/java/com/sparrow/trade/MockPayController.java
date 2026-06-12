@@ -19,7 +19,7 @@ import java.util.Map;
 @Validated
 public class MockPayController {
 
-    public record NotifyRequest(@NotBlank String orderNo) {
+    public record NotifyRequest(@NotBlank String orderNo, @NotBlank String payToken) {
     }
 
     private final TradeService tradeService;
@@ -30,7 +30,7 @@ public class MockPayController {
 
     @PostMapping("/notify")
     public ApiResponse<Map<String, Object>> notify(@RequestBody @Validated NotifyRequest req) {
-        boolean firstTime = tradeService.handlePayNotify(req.orderNo());
+        boolean firstTime = tradeService.handlePayNotify(req.orderNo(), req.payToken());
         return ApiResponse.ok(Map.of("orderNo", req.orderNo(), "processed", firstTime));
     }
 }

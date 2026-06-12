@@ -42,6 +42,12 @@
 
   function $(id) { return document.getElementById(id); }
 
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+    });
+  }
+
   // ---------- 科技树渲染 ----------
   function layout(nodes) {
     var byEra = {};
@@ -139,8 +145,9 @@
         formatter: function (p) {
           if (!p.data || !p.data._node) return '';
           var n = p.data._node;
-          return '<b>' + n.name + '</b><br>' + n.era + ' · ' + (n.yearLabel || '') +
-            '<br><span style="font-size:12px">' + n.summary + '</span>';
+          return '<b>' + escapeHtml(n.name) + '</b><br>' + escapeHtml(n.era) + ' · ' +
+            escapeHtml(n.yearLabel || '') + '<br><span style="font-size:12px">' +
+            escapeHtml(n.summary) + '</span>';
         },
         confine: true,
         backgroundColor: '#1d2a44',
@@ -186,25 +193,25 @@
       renderTree();
 
       var html = '';
-      html += '<div class="node-era">' + d.era + ' · ' + (d.yearLabel || '') + '</div>';
-      html += '<div class="node-title">' + d.name + (d.premium ? ' <span class="crown">👑会员深度</span>' : '') + '</div>';
-      html += '<div class="node-summary">' + d.summary + '</div>';
+      html += '<div class="node-era">' + escapeHtml(d.era) + ' · ' + escapeHtml(d.yearLabel || '') + '</div>';
+      html += '<div class="node-title">' + escapeHtml(d.name) + (d.premium ? ' <span class="crown">👑会员深度</span>' : '') + '</div>';
+      html += '<div class="node-summary">' + escapeHtml(d.summary) + '</div>';
       if (d.locked) {
         html += '<div class="locked-box">🔒 本节点的深度解读为会员专属内容<br>' +
           '<button class="btn gold" id="btn-unlock">👑 开通会员解锁</button></div>';
       } else if (d.detail) {
-        html += '<div class="node-detail">' + d.detail + '</div>';
+        html += '<div class="node-detail">' + escapeHtml(d.detail) + '</div>';
       }
       if (d.prerequisites.length) {
         html += '<div class="rel-title">⬅ 直接前置(' + d.prerequisites.length + ')</div>';
         html += '<div class="rel-chips">' + d.prerequisites.map(function (n) {
-          return '<span data-id="' + n.id + '">' + n.name + '</span>';
+          return '<span data-id="' + Number(n.id) + '">' + escapeHtml(n.name) + '</span>';
         }).join('') + '</div>';
       }
       if (d.unlocks.length) {
         html += '<div class="rel-title">➡ 直接解锁(' + d.unlocks.length + ')</div>';
         html += '<div class="rel-chips">' + d.unlocks.map(function (n) {
-          return '<span data-id="' + n.id + '">' + n.name + '</span>';
+          return '<span data-id="' + Number(n.id) + '">' + escapeHtml(n.name) + '</span>';
         }).join('') + '</div>';
       }
       if (chain.length) {
@@ -237,8 +244,15 @@
     $('user-info').hidden = !me;
     $('btn-member').hidden = !me;
     if (me) {
-      $('user-info').innerHTML = me.username +
-        (me.member ? '<span class="member-badge">👑会员</span>' : '');
+      var userInfo = $('user-info');
+      userInfo.textContent = '';
+      userInfo.appendChild(document.createTextNode(me.username));
+      if (me.member) {
+        var badge = document.createElement('span');
+        badge.className = 'member-badge';
+        badge.textContent = '👑会员';
+        userInfo.appendChild(badge);
+      }
       $('btn-member').textContent = me.member ? '👑 会员续期' : '👑 开通会员';
     }
   }

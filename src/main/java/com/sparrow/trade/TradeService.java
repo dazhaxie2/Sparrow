@@ -1,7 +1,7 @@
 package com.sparrow.trade;
 
 import com.sparrow.common.BizException;
-import com.sparrow.user.UserService;
+import com.sparrow.common.MembershipGrantService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -29,13 +29,13 @@ public class TradeService {
 
     private final OrderRepository orderRepository;
     private final PaymentClient paymentClient;
-    private final UserService userService;
+    private final MembershipGrantService membershipGrantService;
 
     public TradeService(OrderRepository orderRepository, PaymentClient paymentClient,
-                        UserService userService) {
+                        MembershipGrantService membershipGrantService) {
         this.orderRepository = orderRepository;
         this.paymentClient = paymentClient;
-        this.userService = userService;
+        this.membershipGrantService = membershipGrantService;
     }
 
     public record CreateOrderResult(String orderNo, String payUrl, int amountCent) {
@@ -64,16 +64,20 @@ public class TradeService {
      * (Phase 2 拆分 trade/user 服务后,这里将是 Seata AT 的登场位置)
      */
     @Transactional
-    public boolean handlePayNotify(String orderNo) {
+    public boolean handlePayNotify(String orderNo, String payToken) {
         Order order = orderRepository.findByOrderNo(orderNo)
                 .orElseThrow(() -> new BizException(404, "订单不存在"));
+        paymentClient.verifyPaymentNotification(order, payToken);
         int updated = orderRepository.markPaid(orderNo, LocalDateTime.now());
         if (updated == 0) {
             log.info("重复支付回调,跳过: orderNo={}", orderNo);
             return false;
         }
         Product product = PRODUCTS.get(order.getProductCode());
-        userService.grantMembership(order.getUserId(), product.memberDays());
+        if (product == null) {
+            throw new BizException(404, "商品不存在");
+        }
+        membershipGrantService.grantMembership(order.getUserId(), product.memberDays());
         log.info("订单支付成功,会员已开通: orderNo={} userId={} days={}",
                 orderNo, order.getUserId(), product.memberDays());
         return true;

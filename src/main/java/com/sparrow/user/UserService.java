@@ -2,6 +2,7 @@ package com.sparrow.user;
 
 import com.sparrow.common.AuthInterceptor;
 import com.sparrow.common.BizException;
+import com.sparrow.common.MembershipGrantService;
 import com.sparrow.common.MembershipService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -15,7 +16,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Service
-public class UserService implements MembershipService {
+public class UserService implements MembershipService, MembershipGrantService {
 
     private final UserRepository userRepository;
     private final StringRedisTemplate redis;
@@ -62,6 +63,7 @@ public class UserService implements MembershipService {
     }
 
     /** 支付成功后开通/续期会员(由 trade 模块在本地事务内调用) */
+    @Override
     @Transactional
     public void grantMembership(Long userId, int days) {
         User user = getById(userId);

@@ -54,7 +54,7 @@ GET  /api/graph/node/{id}      节点详情(含前置/解锁;会员内容鉴权)
 GET  /api/graph/node/{id}/prerequisites  完整前置链(反向 BFS)
 GET  /api/trade/products       商品目录
 POST /api/trade/order          下单 {productCode} → {orderNo,payUrl}
-POST /api/pay/mock/notify      模拟支付回调 {orderNo}(幂等)
+POST /api/pay/mock/notify      模拟支付回调 {orderNo,payToken}(HMAC 校验 + 幂等)
 POST /api/ai/ask               AI 问答 {question}(需登录,免费每日 3 次)
 ```
 
@@ -66,3 +66,21 @@ POST /api/ai/ask               AI 问答 {question}(需登录,免费每日 3 次
 - 模块间只通过接口依赖(如 `MembershipService`),为 Phase 2 拆微服务预埋缝
 - 科技树全量进 Redis(读多写少小数据),树接口命中缓存后不打 MySQL
 - Milvus / LLM 全部优雅降级:挂了不影响核心浏览与支付链路
+
+## Phase 1 验收
+
+启动后执行:
+
+```powershell
+powershell -File scripts/smoke.ps1
+powershell -File scripts/load.ps1 -Qps 50 -DurationSeconds 30 -P99Ms 200
+```
+
+`smoke.ps1` 验证注册登录、科技树浏览、AI 规则降级、会员下单、Mock 支付回调校验、重复回调幂等、会员解锁和订单列表。
+`load.ps1` 默认对 `/api/graph/tree` 做 50 QPS / 30 秒压测,要求 P99 <= 200ms。
+
+若本机 `node` 不在 PATH,可显式传入 Node 路径:
+
+```powershell
+powershell -File scripts/load.ps1 -Node "C:\path\to\node.exe"
+```
