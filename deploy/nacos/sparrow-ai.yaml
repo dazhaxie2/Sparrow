@@ -8,6 +8,8 @@ sparrow:
     ai-ask-qps: ${SENTINEL_AI_ASK_QPS:5}
     # 接入 Nacos 数据源/Dashboard 后置 false,规则改由远端管理;无远端时保留进程内兜底
     local-fallback: ${SPARROW_SENTINEL_LOCAL_FALLBACK:true}
+    # 开启后 Dashboard push 的规则经 WritableDataSource 写回 Nacos,实现持久化闭环
+    write-back: ${SPARROW_SENTINEL_WRITE_BACK:false}
 
 spring:
   kafka:

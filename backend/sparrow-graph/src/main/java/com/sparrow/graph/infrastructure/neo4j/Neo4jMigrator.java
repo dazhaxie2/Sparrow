@@ -67,11 +67,13 @@ public class Neo4jMigrator implements ApplicationRunner {
         }
 
         log.info("开始 MySQL -> Neo4j 迁移: {} 节点, {} 边", mysqlNodes.size(), mysqlEdges.size());
-        neoRepo.deleteAllNodes();
 
         Map<Long, NeoTechNode> neoMap = new HashMap<>();
         for (TechNode n : mysqlNodes) {
-            NeoTechNode neo = new NeoTechNode();
+            NeoTechNode neo = neoRepo.findById(n.getId()).orElse(null);
+            if (neo == null) {
+                neo = new NeoTechNode();
+            }
             neo.setId(n.getId());
             neo.setCode(n.getCode());
             neo.setName(n.getName());

@@ -6,11 +6,11 @@ import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.event.GraphChangedEvent;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.graph.domain.model.NeoTechNode;
+import com.sparrow.graph.domain.model.TechNode;
 import com.sparrow.graph.infrastructure.client.UserClient;
 import com.sparrow.graph.infrastructure.event.GraphEventPublisher;
-import com.sparrow.graph.infrastructure.neo4j.NeoEdgeRecord;
 import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
-import com.sparrow.graph.infrastructure.persistence.TechNodeMapper;
+import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.IndexableNode;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 @Service
 public class GraphService {
@@ -35,17 +36,17 @@ public class GraphService {
     private static final Duration TREE_CACHE_TTL = Duration.ofHours(1);
 
     private final NeoTechNodeRepository neoRepo;
-    private final TechNodeMapper nodeMapper;
+    private final MysqlGraphReader mysqlReader;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final UserClient userClient;
     private final GraphEventPublisher eventPublisher;
 
-    public GraphService(NeoTechNodeRepository neoRepo, TechNodeMapper nodeMapper,
+    public GraphService(NeoTechNodeRepository neoRepo, MysqlGraphReader mysqlReader,
                         StringRedisTemplate redis, ObjectMapper objectMapper,
                         UserClient userClient, GraphEventPublisher eventPublisher) {
         this.neoRepo = neoRepo;
-        this.nodeMapper = nodeMapper;
+        this.mysqlReader = mysqlReader;
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.userClient = userClient;
@@ -60,13 +61,14 @@ public class GraphService {
             } catch (JsonProcessingException ignored) {
             }
         }
-        List<NodeBrief> nodes = neoRepo.findAllOrdered().stream()
-                .map(NodeBrief::from)
-                .toList();
-        List<EdgeBrief> edges = neoRepo.findAllEdges().stream()
-                .map(e -> new EdgeBrief(e.fromId(), e.toId()))
-                .toList();
-        Tree tree = new Tree(nodes, edges);
+        Tree tree = readWithFallback("tree",
+                () -> {
+                    List<NodeBrief> nodes = neoRepo.findAllOrdered().stream().map(NodeBrief::from).toList();
+                    List<EdgeBrief> edges = neoRepo.findAllEdges().stream()
+                            .map(e -> new EdgeBrief(e.fromId(), e.toId())).toList();
+                    return new Tree(nodes, edges);
+                },
+                () -> new Tree(mysqlReader.allOrdered(), mysqlReader.allEdges()));
         try {
             redis.opsForValue().set(TREE_CACHE_KEY, objectMapper.writeValueAsString(tree), TREE_CACHE_TTL);
         } catch (JsonProcessingException ignored) {
@@ -75,41 +77,54 @@ public class GraphService {
     }
 
     public NodeDetail nodeDetail(Long id, Long userId) {
-        NeoTechNode node = neoRepo.findByNodeId(id).orElse(null);
-        if (node == null) {
-            throw new BizException(404, "技术节点不存在");
-        }
-        List<NodeBrief> prerequisites = neoRepo.findDirectPrerequisites(id).stream()
-                .map(NodeBrief::from).toList();
-        List<NodeBrief> unlocks = neoRepo.findDirectUnlocks(id).stream()
-                .map(NodeBrief::from).toList();
-
-        boolean isPremium = Boolean.TRUE.equals(node.getPremium());
-        boolean locked = isPremium && (userId == null || !isMember(userId));
-        return new NodeDetail(node.getId(), node.getCode(), node.getName(), node.getEra(),
-                node.getEraRank(), node.getYearLabel(), node.getSummary(),
-                locked ? null : node.getDetail(), isPremium, locked, prerequisites, unlocks);
+        return readWithFallback("nodeDetail",
+                () -> {
+                    NeoTechNode node = neoRepo.findByNodeId(id)
+                            .orElseThrow(() -> new BizException(404, "技术节点不存在"));
+                    List<NodeBrief> prerequisites = neoRepo.findDirectPrerequisites(id).stream()
+                            .map(NodeBrief::from).toList();
+                    List<NodeBrief> unlocks = neoRepo.findDirectUnlocks(id).stream()
+                            .map(NodeBrief::from).toList();
+                    return buildDetail(node.getId(), node.getCode(), node.getName(), node.getEra(),
+                            node.getEraRank(), node.getYearLabel(), node.getSummary(), node.getDetail(),
+                            Boolean.TRUE.equals(node.getPremium()), prerequisites, unlocks, userId);
+                },
+                () -> {
+                    TechNode node = mysqlReader.findNode(id);
+                    if (node == null) {
+                        throw new BizException(404, "技术节点不存在");
+                    }
+                    return buildDetail(node.getId(), node.getCode(), node.getName(), node.getEra(),
+                            node.getEraRank(), node.getYearLabel(), node.getSummary(), node.getDetail(),
+                            Boolean.TRUE.equals(node.getPremium()),
+                            mysqlReader.directPrerequisites(id), mysqlReader.directUnlocks(id), userId);
+                });
     }
 
     public List<NodeBrief> prerequisiteChain(Long id) {
-        if (!neoRepo.existsByNodeId(id)) {
-            throw new BizException(404, "技术节点不存在");
-        }
-        return neoRepo.findAllPrerequisites(id).stream()
-                .map(NodeBrief::from)
-                .toList();
+        return readWithFallback("prerequisiteChain",
+                () -> {
+                    if (!neoRepo.existsByNodeId(id)) {
+                        throw new BizException(404, "技术节点不存在");
+                    }
+                    return neoRepo.findAllPrerequisites(id).stream().map(NodeBrief::from).toList();
+                },
+                () -> mysqlReader.allPrerequisites(id));
     }
 
     public List<IndexableNode> listIndexableNodes() {
-        return neoRepo.findAllOrdered().stream()
-                .map(n -> new IndexableNode(n.getId(), n.getCode(), n.getName(), n.getEra(),
-                        n.getYearLabel(), n.getSummary(), n.getDetail()))
-                .toList();
+        return readWithFallback("listIndexableNodes",
+                () -> neoRepo.findAllOrdered().stream()
+                        .map(n -> new IndexableNode(n.getId(), n.getCode(), n.getName(), n.getEra(),
+                                n.getYearLabel(), n.getSummary(), n.getDetail()))
+                        .toList(),
+                mysqlReader::indexableNodes);
     }
 
     public GraphChangedEvent requestReindex() {
         redis.delete(TREE_CACHE_KEY);
-        int nodeCount = Math.toIntExact(neoRepo.countAll());
+        int nodeCount = readWithFallback("countAll",
+                () -> Math.toIntExact(neoRepo.countAll()), mysqlReader::count);
         GraphChangedEvent event = new GraphChangedEvent(
                 UUID.randomUUID().toString(),
                 GraphChangedEvent.TYPE_REINDEX,
@@ -118,6 +133,29 @@ public class GraphService {
         );
         eventPublisher.publish(event);
         return event;
+    }
+
+    /**
+     * Neo4j 读优先,连接/查询异常时降级 MySQL 邻接表读。
+     * 业务异常(如 404)直接透传,不触发降级。
+     */
+    private <T> T readWithFallback(String op, Supplier<T> primary, Supplier<T> fallback) {
+        try {
+            return primary.get();
+        } catch (BizException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.warn("Neo4j 读取失败,降级 MySQL 邻接表 [{}]: {}", op, e.toString());
+            return fallback.get();
+        }
+    }
+
+    private NodeDetail buildDetail(Long id, String code, String name, String era, Integer eraRank,
+                                   String yearLabel, String summary, String detail, boolean premium,
+                                   List<NodeBrief> prerequisites, List<NodeBrief> unlocks, Long userId) {
+        boolean locked = premium && (userId == null || !isMember(userId));
+        return new NodeDetail(id, code, name, era, eraRank, yearLabel, summary,
+                locked ? null : detail, premium, locked, prerequisites, unlocks);
     }
 
     private boolean isMember(Long userId) {

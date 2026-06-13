@@ -130,7 +130,7 @@ powershell -ExecutionPolicy Bypass -File backend/scripts/phase2-rollback-check.p
 
 - M2:✅ 拆分业务库 + Seata AT 已落地,回滚演练已脚本化(`backend/scripts/phase2-rollback-check.ps1`)。
 - M3:✅ Kafka 事件骨架已落地,坏消息容错(ErrorHandlingDeserializer + DefaultErrorHandler)已接入。
-- M4:✅ graph 主读路径已切 Neo4j,启动期自动迁移 + 建唯一约束,`GraphServiceTest` 已覆盖读路径;待办为多跳 Cypher 的运行态/集成验证。
-- M5:✅ LangChain4j Agent(LRU 会话记忆)+ Sentinel 限流(Nacos 持久化数据源 + `sentinel-dashboard`)已接入;待办为运行态把 `deploy/sentinel/sparrow-ai-flow-rules.json` 导入 Nacos、Agent 端到端集成测试。
+- M4:✅ graph 主读路径已切 Neo4j(启动迁移 77 节点/124 边 + 唯一约束),Neo4j 不可达时 `GraphService` 自动降级 MySQL 邻接表(反向 BFS 多跳);运行态已验证多跳一致 + 停机降级(tree/prereq 仍正常)。
+- M5:✅ LangChain4j Agent(LRU 会话记忆)+ Sentinel 限流(Nacos 持久化数据源 + Dashboard 写回 Nacos)+ RAG/向量(embedding-3 → Milvus);运行态已验证 Agent 工具调用、规则动态下发、Dashboard push 写回 Nacos、向量检索端到端。详见 [docs/阶段二服务化实施状态.md](docs/阶段二服务化实施状态.md) 的「运行态验证记录」。
 
 更多状态见 [docs/阶段二服务化实施状态.md](docs/阶段二服务化实施状态.md) 和 [ROADMAP.md](ROADMAP.md)。
