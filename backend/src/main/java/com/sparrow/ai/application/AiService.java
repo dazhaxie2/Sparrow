@@ -30,10 +30,15 @@ public class AiService {
     private static final Logger log = LoggerFactory.getLogger(AiService.class);
     private static final String QUOTA_KEY_PREFIX = "sparrow:ai:quota:";
 
-    public record SourceRef(Long id, String name) {
+    /** url 来自爬虫语料 rag_document 的词条链接,无对应语料时为 null */
+    public record SourceRef(Long id, String name, String url) {
     }
 
     public record AskResult(String answer, String mode, List<SourceRef> sources, long remainingQuota) {
+    }
+
+    /** 一次检索的完整结果:命中节点 + 命中的爬虫语料块(已按 code 回联进 nodes) */
+    private record Retrieved(List<NodeBrief> nodes, List<MilvusStore.ChunkHit> chunks) {
     }
 
     private final AiProperties props;
@@ -62,20 +67,19 @@ public class AiService {
 
     public AskResult ask(Long userId, String question) {
         long remaining = consumeQuota(userId);
-        List<NodeBrief> hits = retrieve(question);
-        List<SourceRef> sources = hits.stream()
-                .map(n -> new SourceRef(n.id(), n.name()))
-                .toList();
+        Retrieved retrieved = retrieve(question);
+        List<SourceRef> sources = buildSources(retrieved);
 
         if (llmConfigured()) {
             try {
-                String answer = chatModel.generate(systemPrompt() + "\n\n" + ragUserMessage(question, hits));
+                String answer = chatModel.generate(systemPrompt() + "\n\n"
+                        + ragUserMessage(question, retrieved.nodes(), retrieved.chunks()));
                 return new AskResult(answer, "rag", sources, remaining);
             } catch (Exception e) {
                 log.warn("LLM 调用失败,降级为规则问答: {}", e.getMessage());
             }
         }
-        return new AskResult(rulesAnswer(question, hits), "rules", sources, remaining);
+        return new AskResult(rulesAnswer(question, retrieved.nodes()), "rules", sources, remaining);
     }
 
     public List<float[]> embed(List<String> texts) {
@@ -94,18 +98,43 @@ public class AiService {
         return result;
     }
 
-    private List<NodeBrief> retrieve(String question) {
+    private Retrieved retrieve(String question) {
         if (llmConfigured() && milvus.ready()) {
             try {
                 float[] vec = embed(List.of(question)).get(0);
                 List<Long> ids = milvus.search(vec, 5);
+                List<MilvusStore.ChunkHit> chunks = milvus.searchChunks(vec, 4);
+
                 Map<Long, NodeBrief> byId = nodesById();
-                return ids.stream().map(byId::get).filter(n -> n != null).toList();
+                List<NodeBrief> nodes = new ArrayList<>(
+                        ids.stream().map(byId::get).filter(n -> n != null).toList());
+                // 语料块按 code 回联 tech_node,补充节点检索未覆盖的命中
+                Map<String, NodeBrief> byCode = new LinkedHashMap<>();
+                byId.values().forEach(n -> byCode.put(n.code(), n));
+                for (MilvusStore.ChunkHit c : chunks) {
+                    NodeBrief n = byCode.get(c.code());
+                    if (n != null && nodes.stream().noneMatch(x -> x.id().equals(n.id()))) {
+                        nodes.add(n);
+                    }
+                }
+                return new Retrieved(nodes, chunks);
             } catch (Exception e) {
                 log.warn("向量检索失败,降级为关键词匹配: {}", e.getMessage());
             }
         }
-        return keywordMatch(question);
+        return new Retrieved(keywordMatch(question), List.of());
+    }
+
+    private List<SourceRef> buildSources(Retrieved retrieved) {
+        Map<String, String> urlByCode = new LinkedHashMap<>();
+        for (MilvusStore.ChunkHit c : retrieved.chunks()) {
+            if (c.url() != null && !c.url().isBlank()) {
+                urlByCode.putIfAbsent(c.code(), c.url());
+            }
+        }
+        return retrieved.nodes().stream()
+                .map(n -> new SourceRef(n.id(), n.name(), urlByCode.get(n.code())))
+                .toList();
     }
 
     private Map<Long, NodeBrief> nodesById() {
@@ -132,7 +161,8 @@ public class AiService {
                 "重点讲清技术之间的依赖关系与历史脉络;资料不足以回答时,如实说明。回答用中文,简洁、准确。";
     }
 
-    private String ragUserMessage(String question, List<NodeBrief> hits) {
+    private String ragUserMessage(String question, List<NodeBrief> hits,
+                                  List<MilvusStore.ChunkHit> chunks) {
         StringBuilder sb = new StringBuilder("### 科技树资料\n");
         if (hits.isEmpty()) {
             sb.append("(未检索到直接相关节点)\n");
@@ -145,6 +175,15 @@ public class AiService {
                 sb.append("  直接前置:");
                 sb.append(String.join("、", pres.stream().map(NodeBrief::name).toList()));
                 sb.append("\n");
+            }
+        }
+        if (!chunks.isEmpty()) {
+            sb.append("\n### 相关词条摘录\n");
+            for (MilvusStore.ChunkHit c : chunks) {
+                sb.append("- ").append(c.text()).append("\n");
+                if (c.url() != null && !c.url().isBlank()) {
+                    sb.append("  (来源: ").append(c.url()).append(")\n");
+                }
             }
         }
         sb.append("\n### 用户问题\n").append(question);

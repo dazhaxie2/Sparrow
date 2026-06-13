@@ -36,9 +36,10 @@ Step "register new user ($user)" {
     if (-not $script:token) { throw "no token" }
 }
 
-Step "load graph tree (77 nodes)" {
+# 内置 77 节点为下限;SparrowSpider 同步会持续追加新节点(sp_*)
+Step "load graph tree (77+ nodes)" {
     $tree = Api GET "/api/graph/tree"
-    if ($tree.nodes.Count -ne 77) { throw "nodes=$($tree.nodes.Count), expected 77" }
+    if ($tree.nodes.Count -lt 77) { throw "nodes=$($tree.nodes.Count), expected 77+" }
     if ($tree.edges.Count -lt 100) { throw "edges=$($tree.edges.Count), expected 100+" }
 }
 
