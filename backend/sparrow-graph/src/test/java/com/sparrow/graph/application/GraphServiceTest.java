@@ -8,6 +8,7 @@ import com.sparrow.graph.domain.model.NeoTechNode;
 import com.sparrow.graph.domain.model.TechNode;
 import com.sparrow.graph.infrastructure.client.UserClient;
 import com.sparrow.graph.infrastructure.event.GraphEventPublisher;
+import com.sparrow.graph.infrastructure.neo4j.Neo4jMigrator;
 import com.sparrow.graph.infrastructure.neo4j.NeoEdgeRecord;
 import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
 import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
@@ -47,6 +48,7 @@ class GraphServiceTest {
     private ValueOperations<String, String> valueOps;
     private UserClient userClient;
     private GraphEventPublisher eventPublisher;
+    private Neo4jMigrator neo4jMigrator;
     private GraphService service;
 
     @BeforeEach
@@ -58,9 +60,10 @@ class GraphServiceTest {
         valueOps = mock(ValueOperations.class);
         userClient = mock(UserClient.class);
         eventPublisher = mock(GraphEventPublisher.class);
+        neo4jMigrator = mock(Neo4jMigrator.class);
         when(redis.opsForValue()).thenReturn(valueOps);
         service = new GraphService(neoRepo, mysqlReader, redis, new ObjectMapper(),
-                userClient, eventPublisher);
+                userClient, eventPublisher, neo4jMigrator);
     }
 
     @Test
@@ -141,6 +144,18 @@ class GraphServiceTest {
         verify(eventPublisher).publish(any(GraphChangedEvent.class));
         assertEquals(77, event.nodeCount());
         assertEquals(GraphChangedEvent.TYPE_REINDEX, event.changeType());
+    }
+
+    @Test
+    void importFromMysqlRebuildsNeo4jThenPublishesEvent() {
+        when(neoRepo.countAll()).thenReturn(88L);
+
+        GraphChangedEvent event = service.importFromMysqlAndReindex();
+
+        verify(neo4jMigrator).importFromMysql();
+        verify(redis).delete(anyString());
+        verify(eventPublisher).publish(any(GraphChangedEvent.class));
+        assertEquals(88, event.nodeCount());
     }
 
     // ===== Neo4j 不可达降级到 MySQL =====

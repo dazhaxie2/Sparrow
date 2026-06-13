@@ -39,3 +39,8 @@ build/
 
 # 本地机密(LLM key 等)
 /.env
+
+# SparrowSpider local runtime artifacts
+tools/sparrow-spider/out/
+tools/sparrow-spider/**/__pycache__/
+tools/sparrow-spider/**/*.pyc

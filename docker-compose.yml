@@ -269,6 +269,48 @@ services:
     profiles: ["ai"]
     networks: [sparrow_net]
 
+  # One-shot crawler pipeline: crawl/extract/sync into graph + RAG staging.
+  sparrow-spider:
+    build:
+      context: .
+      dockerfile: tools/sparrow-spider/Dockerfile
+    profiles: ["spider"]
+    command: ["--all", "--limit", "${SPIDER_LIMIT:-20}"]
+    environment:
+      SPIDER_DB_HOST: mysql
+      SPIDER_DB_PORT: 3306
+      SPIDER_DB_USER: root
+      SPIDER_DB_PASSWORD: root123
+      SPIDER_DB_NAME: techspider
+      SPARROW_GRAPH_DB_HOST: mysql
+      SPARROW_GRAPH_DB_PORT: 3306
+      SPARROW_GRAPH_DB_USER: sparrow
+      SPARROW_GRAPH_DB_PASSWORD: sparrow123
+      SPARROW_GRAPH_DB_NAME: sparrow_graph
+      SPARROW_RAG_DB_HOST: mysql
+      SPARROW_RAG_DB_PORT: 3306
+      SPARROW_RAG_DB_USER: sparrow
+      SPARROW_RAG_DB_PASSWORD: sparrow123
+      SPARROW_RAG_DB_NAME: sparrow
+      SPARROW_REDIS_HOST: redis
+      SPARROW_REDIS_PORT: 6379
+      SPARROW_GRAPH_IMPORT_URL: http://sparrow-graph:8082/internal/graph/import
+      SPARROW_GRAPH_IMPORT_TIMEOUT: 60
+      SPARROW_GRAPH_IMPORT_RETRIES: 10
+      SPIDER_WIKI_API: ${SPIDER_WIKI_API:-https://zh.wikipedia.org/w/api.php}
+      SPIDER_WIKI_FALLBACK_API: ${SPIDER_WIKI_FALLBACK_API:-https://en.wikipedia.org/w/api.php}
+      SPIDER_PROXY: ${SPIDER_PROXY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen-plus}
+    volumes:
+      - ./tools/sparrow-spider/out:/app/out
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      sparrow-graph: { condition: service_started }
+    networks: [sparrow_net]
+
   # Sentinel 控制台:查看实时流量、动态下发 /api/ai/ask 限流规则。
   # 规则持久化走 Nacos 数据源(sparrow-ai 监听 dataId=sparrow-ai-flow-rules)。
   sentinel-dashboard:

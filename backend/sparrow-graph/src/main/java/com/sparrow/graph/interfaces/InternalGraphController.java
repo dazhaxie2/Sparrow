@@ -55,4 +55,9 @@ public class InternalGraphController {
     public ApiResponse<GraphChangedEvent> reindex() {
         return ApiResponse.ok(graphService.requestReindex());
     }
+
+    @PostMapping("/import")
+    public ApiResponse<GraphChangedEvent> importFromMysql() {
+        return ApiResponse.ok(graphService.importFromMysqlAndReindex());
+    }
 }

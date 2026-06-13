@@ -1,0 +1,77 @@
+# -*- coding: utf-8 -*-
+"""种子词表。
+
+SPARROW_NODES:Sparrow 内置 77 节点(name → code),爬到的内容回填这些节点的深度语料,
+依赖抽取时也用它做"边的端点对齐"。
+EXTENSION_TERMS:扩展候选,爬到后将作为新节点导出给 Sparrow。
+"""
+
+SPARROW_NODES = {
+    "火的使用": "fire", "石器工具": "stone_tools", "语言": "language",
+    "狩猎采集协作": "hunting", "绳索与缝纫": "cordage", "洞穴艺术与符号": "symbols",
+    "农业种植": "agriculture", "动物驯化": "domestication", "制陶": "pottery",
+    "纺织": "weaving", "定居与村落": "settlement", "轮子": "wheel",
+    "文字": "writing", "灌溉": "irrigation",
+    "青铜冶炼": "bronze", "铁器冶炼": "iron", "犁": "plow", "帆船": "sailing",
+    "车轮运输与战车": "chariot", "货币": "currency", "历法与天文观测": "astronomy",
+    "数学(几何与算术)": "mathematics", "哲学与逻辑": "philosophy", "道路工程": "roads",
+    "建筑工程(拱券)": "arch", "造纸术": "paper", "冶金进步(钢)": "steel",
+    "水利机械(水车)": "watermill",
+    "印刷术(雕版/活字)": "printing", "火药": "gunpowder", "指南针": "compass",
+    "机械钟": "clock", "大学与学术体系": "university", "风车": "windmill",
+    "金属活字印刷机": "press", "透视法与解剖学": "anatomy", "大航海(远洋帆船)": "navigation",
+    "科学方法": "scientific_method", "望远镜与显微镜": "optics", "银行与复式记账": "banking",
+    "蒸汽机": "steam_engine", "纺织机械": "textile_machine", "焦炭炼铁与钢铁工业": "steel_industry",
+    "铁路": "railway", "蒸汽轮船": "steamship", "机床": "machine_tools",
+    "疫苗与公共卫生": "vaccine", "化学工业": "chemistry",
+    "电磁学": "electromagnetism", "发电机与电动机": "generator", "电报": "telegraph",
+    "电话": "telephone", "电灯与电网": "electric_light", "内燃机": "ice_engine",
+    "汽车": "automobile", "飞机": "airplane", "无线电": "radio",
+    "抗生素": "antibiotics", "流水线生产": "assembly_line",
+    "电子管与晶体管": "transistor", "计算机": "computer", "核能": "nuclear",
+    "航天": "spaceflight", "集成电路": "ic", "互联网": "internet",
+    "个人电脑": "pc", "移动通信": "mobile", "卫星定位(GPS)": "gps", "万维网": "www",
+    "智能手机": "smartphone", "云计算": "cloud", "大数据": "bigdata",
+    "深度学习": "deep_learning", "基因工程(CRISPR)": "gene_editing",
+    "电动汽车与新能源": "ev_energy", "大语言模型": "llm", "通用人工智能(AGI)": "agi",
+}
+
+# 检索词与节点名不完全一致时的映射(检索词 → Sparrow 节点名)
+SEARCH_ALIAS = {
+    "数学(几何与算术)": "几何学",
+    "建筑工程(拱券)": "拱券",
+    "冶金进步(钢)": "炼钢",
+    "水利机械(水车)": "水车",
+    "印刷术(雕版/活字)": "印刷术",
+    "大航海(远洋帆船)": "地理大发现",
+    "透视法与解剖学": "解剖学",
+    "望远镜与显微镜": "望远镜",
+    "银行与复式记账": "复式记账法",
+    "焦炭炼铁与钢铁工业": "贝塞麦转炉炼钢法",
+    "电子管与晶体管": "晶体管",
+    "卫星定位(GPS)": "全球定位系统",
+    "基因工程(CRISPR)": "CRISPR",
+    "电动汽车与新能源": "电动汽车",
+    "通用人工智能(AGI)": "通用人工智能",
+    "火的使用": "用火",
+    "狩猎采集协作": "狩猎采集",
+    "绳索与缝纫": "绳索",
+    "洞穴艺术与符号": "洞穴壁画",
+    "车轮运输与战车": "战车",
+    "历法与天文观测": "历法",
+    "大学与学术体系": "中世纪大学",
+    "金属活字印刷机": "印刷机",
+    "电灯与电网": "白炽灯",
+    "流水线生产": "流水线",
+}
+
+# 扩展候选:爬到后作为"新节点"导出
+EXTENSION_TERMS = [
+    "玻璃", "光学透镜", "蒸馏", "炼金术", "弩", "马镫", "运河", "下水道",
+    "麻醉", "外科手术", "显微镜", "元素周期表", "炸药", "炼油",
+    "雷达", "喷气发动机", "火箭", "青霉素", "塑料", "化肥",
+    "半导体", "光刻", "激光", "光纤通信", "卫星通信", "数据库",
+    "操作系统", "编程语言", "密码学", "区块链", "量子计算", "机器人",
+    "3D打印", "无人机", "杂交水稻", "高速铁路", "锂离子电池", "太阳能电池",
+    "mRNA疫苗", "脑机接口",
+]

@@ -56,21 +56,34 @@ public class Neo4jMigrator implements ApplicationRunner {
                         + "FOR (n:TechNode) ON (n.code)").run();
     }
 
+    public void importFromMysql() {
+        ensureSchema();
+        migrate(true);
+    }
+
     public void migrateIfNeeded() {
+        migrate(false);
+    }
+
+    private void migrate(boolean force) {
         List<TechNode> mysqlNodes = nodeMapper.selectList(null);
         List<TechEdge> mysqlEdges = edgeMapper.selectList(null);
 
         long neoNodeCount = neoRepo.countAll();
-        if (neoNodeCount == mysqlNodes.size() && neoRepo.countEdges() == mysqlEdges.size()) {
+        if (!force && neoNodeCount == mysqlNodes.size() && neoRepo.countEdges() == mysqlEdges.size()) {
             log.info("Neo4j 数据已是最新({} 节点 / {} 边),跳过迁移", neoNodeCount, mysqlEdges.size());
             return;
         }
 
         log.info("开始 MySQL -> Neo4j 迁移: {} 节点, {} 边", mysqlNodes.size(), mysqlEdges.size());
 
+        if (force) {
+            neoRepo.deleteAllNodes();
+        }
+
         Map<Long, NeoTechNode> neoMap = new HashMap<>();
         for (TechNode n : mysqlNodes) {
-            NeoTechNode neo = neoRepo.findById(n.getId()).orElse(null);
+            NeoTechNode neo = force ? null : neoRepo.findById(n.getId()).orElse(null);
             if (neo == null) {
                 neo = new NeoTechNode();
             }

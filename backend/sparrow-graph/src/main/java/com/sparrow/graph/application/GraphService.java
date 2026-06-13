@@ -9,6 +9,7 @@ import com.sparrow.graph.domain.model.NeoTechNode;
 import com.sparrow.graph.domain.model.TechNode;
 import com.sparrow.graph.infrastructure.client.UserClient;
 import com.sparrow.graph.infrastructure.event.GraphEventPublisher;
+import com.sparrow.graph.infrastructure.neo4j.Neo4jMigrator;
 import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
 import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
@@ -41,16 +42,19 @@ public class GraphService {
     private final ObjectMapper objectMapper;
     private final UserClient userClient;
     private final GraphEventPublisher eventPublisher;
+    private final Neo4jMigrator neo4jMigrator;
 
     public GraphService(NeoTechNodeRepository neoRepo, MysqlGraphReader mysqlReader,
                         StringRedisTemplate redis, ObjectMapper objectMapper,
-                        UserClient userClient, GraphEventPublisher eventPublisher) {
+                        UserClient userClient, GraphEventPublisher eventPublisher,
+                        Neo4jMigrator neo4jMigrator) {
         this.neoRepo = neoRepo;
         this.mysqlReader = mysqlReader;
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.userClient = userClient;
         this.eventPublisher = eventPublisher;
+        this.neo4jMigrator = neo4jMigrator;
     }
 
     public Tree tree() {
@@ -133,6 +137,11 @@ public class GraphService {
         );
         eventPublisher.publish(event);
         return event;
+    }
+
+    public GraphChangedEvent importFromMysqlAndReindex() {
+        neo4jMigrator.importFromMysql();
+        return requestReindex();
     }
 
     /**
