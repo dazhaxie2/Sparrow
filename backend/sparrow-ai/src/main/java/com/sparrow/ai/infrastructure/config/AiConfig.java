@@ -1,6 +1,6 @@
 package com.sparrow.ai.infrastructure.config;
 
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
@@ -13,7 +13,7 @@ import java.time.Duration;
 public class AiConfig {
 
     @Bean
-    public ChatLanguageModel chatLanguageModel(AiProperties props) {
+    public ChatModel chatModel(AiProperties props) {
         if (!props.llmConfigured()) {
             return null;
         }

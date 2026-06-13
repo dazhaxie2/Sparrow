@@ -39,7 +39,7 @@ class TradeServiceTest {
         paymentClient = mock(PaymentClient.class);
         userClient = mock(UserClient.class);
         eventPublisher = mock(OrderPaidEventPublisher.class);
-        tradeService = new TradeService(orderMapper, paymentClient, userClient, eventPublisher);
+        tradeService = new TradeService(orderMapper, paymentClient, userClient, eventPublisher, false);
     }
 
     @Test

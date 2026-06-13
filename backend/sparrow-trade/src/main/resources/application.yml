@@ -32,6 +32,8 @@ mybatis-plus:
 sparrow:
   pay:
     mock-secret: ${MOCK_PAY_SECRET:sparrow-phase1-mock-secret}
+  trade:
+    fail-after-membership-grant: ${TRADE_FAIL_AFTER_MEMBERSHIP_GRANT:false}
   events:
     enabled: ${KAFKA_ENABLED:false}
 

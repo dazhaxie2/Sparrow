@@ -11,6 +11,7 @@ import com.sparrow.trade.infrastructure.persistence.OrderMapper;
 import io.seata.spring.annotation.GlobalTransactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,13 +40,17 @@ public class TradeService {
     private final PaymentClient paymentClient;
     private final UserClient userClient;
     private final OrderPaidEventPublisher eventPublisher;
+    private final boolean failAfterMembershipGrant;
 
     public TradeService(OrderMapper orderMapper, PaymentClient paymentClient, UserClient userClient,
-                        OrderPaidEventPublisher eventPublisher) {
+                        OrderPaidEventPublisher eventPublisher,
+                        @Value("${sparrow.trade.fail-after-membership-grant:false}")
+                        boolean failAfterMembershipGrant) {
         this.orderMapper = orderMapper;
         this.paymentClient = paymentClient;
         this.userClient = userClient;
         this.eventPublisher = eventPublisher;
+        this.failAfterMembershipGrant = failAfterMembershipGrant;
     }
 
     public record CreateOrderResult(String orderNo, String payUrl, int amountCent) {
@@ -94,6 +99,9 @@ public class TradeService {
         if (grantResp == null || grantResp.code() != 0) {
             String message = grantResp == null ? "会员开通无响应" : grantResp.message();
             throw new BizException(500, "会员开通失败:" + message);
+        }
+        if (failAfterMembershipGrant) {
+            throw new BizException(500, "支付回滚演练:会员开通后故障");
         }
         eventPublisher.publishAfterCommit(new OrderPaidEvent(
                 UUID.randomUUID().toString(),

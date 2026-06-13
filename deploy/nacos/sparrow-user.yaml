@@ -1,3 +1,20 @@
 sparrow:
   auth:
     token-ttl-days: 7
+  events:
+    enabled: ${KAFKA_ENABLED:false}
+
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${USER_KAFKA_GROUP:sparrow-user}
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: com.sparrow.common.event
+        spring.json.value.default.type: com.sparrow.common.event.OrderPaidEvent
+    listener:
+      missing-topics-fatal: false

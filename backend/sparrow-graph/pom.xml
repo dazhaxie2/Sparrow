@@ -12,7 +12,7 @@
 
     <artifactId>sparrow-graph</artifactId>
     <name>sparrow-graph</name>
-    <description>科技树图谱服务(M4 起改 Neo4j)</description>
+    <description>科技树图谱服务(Neo4j + Redis 缓存)</description>
 
     <dependencies>
         <dependency>
@@ -48,6 +48,10 @@
             <artifactId>spring-kafka</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-neo4j</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
         </dependency>
@@ -55,6 +59,11 @@
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

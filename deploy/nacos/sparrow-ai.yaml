@@ -1,18 +1,24 @@
-# sparrow-ai.yaml —— M5 起加 sentinel resource 限流规则
+# sparrow-ai.yaml —— M5 Sentinel 兜底限流通过代码注册,Dashboard 留待 M5 后续接入
 sparrow:
   events:
     enabled: ${KAFKA_ENABLED:false}
   ai:
     free-quota-per-day: 3
+  sentinel:
+    ai-ask-qps: ${SENTINEL_AI_ASK_QPS:5}
+    # 接入 Nacos 数据源/Dashboard 后置 false,规则改由远端管理;无远端时保留进程内兜底
+    local-fallback: ${SPARROW_SENTINEL_LOCAL_FALLBACK:true}
 
 spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: ${AI_KAFKA_GROUP:sparrow-ai}
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       properties:
+        spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
         spring.json.trusted.packages: com.sparrow.common.event
         spring.json.value.default.type: com.sparrow.common.event.GraphChangedEvent
     listener:

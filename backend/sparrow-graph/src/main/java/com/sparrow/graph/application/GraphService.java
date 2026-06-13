@@ -5,11 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.event.GraphChangedEvent;
 import com.sparrow.common.exception.BizException;
-import com.sparrow.graph.domain.model.TechEdge;
-import com.sparrow.graph.domain.model.TechNode;
+import com.sparrow.graph.domain.model.NeoTechNode;
 import com.sparrow.graph.infrastructure.client.UserClient;
 import com.sparrow.graph.infrastructure.event.GraphEventPublisher;
-import com.sparrow.graph.infrastructure.persistence.TechEdgeMapper;
+import com.sparrow.graph.infrastructure.neo4j.NeoEdgeRecord;
+import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
 import com.sparrow.graph.infrastructure.persistence.TechNodeMapper;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.IndexableNode;
@@ -21,17 +21,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.time.Duration;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -41,18 +34,18 @@ public class GraphService {
     private static final String TREE_CACHE_KEY = "sparrow:graph:tree";
     private static final Duration TREE_CACHE_TTL = Duration.ofHours(1);
 
+    private final NeoTechNodeRepository neoRepo;
     private final TechNodeMapper nodeMapper;
-    private final TechEdgeMapper edgeMapper;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final UserClient userClient;
     private final GraphEventPublisher eventPublisher;
 
-    public GraphService(TechNodeMapper nodeMapper, TechEdgeMapper edgeMapper,
+    public GraphService(NeoTechNodeRepository neoRepo, TechNodeMapper nodeMapper,
                         StringRedisTemplate redis, ObjectMapper objectMapper,
                         UserClient userClient, GraphEventPublisher eventPublisher) {
+        this.neoRepo = neoRepo;
         this.nodeMapper = nodeMapper;
-        this.edgeMapper = edgeMapper;
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.userClient = userClient;
@@ -67,12 +60,11 @@ public class GraphService {
             } catch (JsonProcessingException ignored) {
             }
         }
-        List<NodeBrief> nodes = nodeMapper.selectList(null).stream()
-                .sorted(Comparator.comparing(TechNode::getEraRank).thenComparing(TechNode::getId))
+        List<NodeBrief> nodes = neoRepo.findAllOrdered().stream()
                 .map(NodeBrief::from)
                 .toList();
-        List<EdgeBrief> edges = edgeMapper.selectList(null).stream()
-                .map(e -> new EdgeBrief(e.getFromId(), e.getToId()))
+        List<EdgeBrief> edges = neoRepo.findAllEdges().stream()
+                .map(e -> new EdgeBrief(e.fromId(), e.toId()))
                 .toList();
         Tree tree = new Tree(nodes, edges);
         try {
@@ -83,24 +75,14 @@ public class GraphService {
     }
 
     public NodeDetail nodeDetail(Long id, Long userId) {
-        TechNode node = nodeMapper.selectById(id);
+        NeoTechNode node = neoRepo.findByNodeId(id).orElse(null);
         if (node == null) {
             throw new BizException(404, "技术节点不存在");
         }
-        Tree tree = tree();
-        Map<Long, NodeBrief> byId = new HashMap<>();
-        tree.nodes().forEach(n -> byId.put(n.id(), n));
-
-        List<NodeBrief> prerequisites = tree.edges().stream()
-                .filter(e -> e.to().equals(id))
-                .map(e -> byId.get(e.from()))
-                .sorted(Comparator.comparing(NodeBrief::eraRank))
-                .toList();
-        List<NodeBrief> unlocks = tree.edges().stream()
-                .filter(e -> e.from().equals(id))
-                .map(e -> byId.get(e.to()))
-                .sorted(Comparator.comparing(NodeBrief::eraRank))
-                .toList();
+        List<NodeBrief> prerequisites = neoRepo.findDirectPrerequisites(id).stream()
+                .map(NodeBrief::from).toList();
+        List<NodeBrief> unlocks = neoRepo.findDirectUnlocks(id).stream()
+                .map(NodeBrief::from).toList();
 
         boolean isPremium = Boolean.TRUE.equals(node.getPremium());
         boolean locked = isPremium && (userId == null || !isMember(userId));
@@ -110,33 +92,16 @@ public class GraphService {
     }
 
     public List<NodeBrief> prerequisiteChain(Long id) {
-        Tree tree = tree();
-        Map<Long, NodeBrief> byId = new HashMap<>();
-        tree.nodes().forEach(n -> byId.put(n.id(), n));
-        if (!byId.containsKey(id)) {
+        if (!neoRepo.existsByNodeId(id)) {
             throw new BizException(404, "技术节点不存在");
         }
-        Map<Long, List<Long>> reverse = new HashMap<>();
-        for (EdgeBrief e : tree.edges()) {
-            reverse.computeIfAbsent(e.to(), k -> new ArrayList<>()).add(e.from());
-        }
-        Set<Long> visited = new HashSet<>();
-        Deque<Long> queue = new ArrayDeque<>(reverse.getOrDefault(id, List.of()));
-        while (!queue.isEmpty()) {
-            Long cur = queue.poll();
-            if (visited.add(cur)) {
-                queue.addAll(reverse.getOrDefault(cur, List.of()));
-            }
-        }
-        return visited.stream()
-                .map(byId::get)
-                .sorted(Comparator.comparing(NodeBrief::eraRank).thenComparing(NodeBrief::id))
+        return neoRepo.findAllPrerequisites(id).stream()
+                .map(NodeBrief::from)
                 .toList();
     }
 
     public List<IndexableNode> listIndexableNodes() {
-        return nodeMapper.selectList(null).stream()
-                .sorted(Comparator.comparing(TechNode::getEraRank).thenComparing(TechNode::getId))
+        return neoRepo.findAllOrdered().stream()
                 .map(n -> new IndexableNode(n.getId(), n.getCode(), n.getName(), n.getEra(),
                         n.getYearLabel(), n.getSummary(), n.getDetail()))
                 .toList();
@@ -144,7 +109,7 @@ public class GraphService {
 
     public GraphChangedEvent requestReindex() {
         redis.delete(TREE_CACHE_KEY);
-        int nodeCount = Math.toIntExact(nodeMapper.selectCount(null));
+        int nodeCount = Math.toIntExact(neoRepo.countAll());
         GraphChangedEvent event = new GraphChangedEvent(
                 UUID.randomUUID().toString(),
                 GraphChangedEvent.TYPE_REINDEX,

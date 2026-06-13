@@ -1,11 +1,13 @@
-# Sparrow · 人类科技树(Phase 2 M3)
+# Sparrow · 人类科技树(Phase 2 M5)
 
 从 50 万年前的「火」到未来的 AGI:77 项关键技术、110+ 条依赖边的可视化科技树,
-附带 AI 向导(RAG)与会员支付闭环。
+附带 AI 向导(RAG/Agent)与会员支付闭环。
 
-当前形态是 **Phase 2 M3 基线**:Spring Cloud Gateway + Nacos + OpenFeign,
-拆成 5 个运行时服务 `gateway / user / graph / ai / trade`,并完成四个业务库拆分与
-trade/user 支付链路 Seata AT 配置,同时接入 Kafka 事件骨架。Neo4j、Agent、Sentinel 在 M4-M5 继续推进。
+当前形态是 **Phase 2 M2~M5 主干已落地**:Spring Cloud Gateway + Nacos + OpenFeign,
+拆成 5 个运行时服务 `gateway / user / graph / ai / trade`,完成四个业务库拆分与
+trade/user 支付链路 Seata AT 运行态回滚演练,接入并验证 Kafka 投递/消费与消费幂等。
+M4 graph 主读路径已切 Neo4j(MySQL `tech_node/tech_edge` 退化为种子写入源),
+M5 接入 LangChain4j Agent 工具调用与 Sentinel 兜底限流(Dashboard 待后续接入)。
 
 前端入口和 API 契约保持不变:宿主机只暴露 `http://localhost:8080`,
 前端仍请求 `/api/**`。
@@ -37,7 +39,7 @@ docker compose --profile ai up -d --build
 | AI 向导 | 右下角 | `ai` profile 启动后可用;登录后提问,免费用户每日 3 次 |
 | 会员支付 | 右上角 | 下单 -> 沙箱收银台 -> 模拟支付回调 -> 会员开通(幂等) |
 
-## Phase 2 M3 架构
+## Phase 2 架构
 
 ```text
 backend
@@ -57,7 +59,11 @@ backend
 - 服务间调用使用 OpenFeign,例如 `trade -> user` 开通会员、`ai -> graph/user` 查询上下文。
 - 数据默认拆为 `sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai` 四个业务库。
 - 支付回调的 `trade` 标记支付 + `user` 开通会员使用 Seata AT 全局事务配置。
-- `trade` 在事务提交后发布 `OrderPaidEvent`;`graph` 可通过内部 `/internal/graph/reindex` 发布 `GraphChangedEvent`;`ai` 监听图谱变更后触发 RAG 索引同步。
+- `trade` 在事务提交后发布 `OrderPaidEvent`;`graph` 可通过内部 `/internal/graph/reindex` 发布 `GraphChangedEvent`;`ai` 监听图谱变更后登记 `kafka_consumed_event` 幂等记录并异步触发 RAG 索引同步。
+- `user` 消费 `OrderPaidEvent` 写 `member_grant_log` 会员开通流水(审计/对账),`order_no` 唯一键天然幂等;会员开通本身仍由 trade 全局事务完成,事件消费不重复开通。
+- `ai`/`user` 消费者使用 `ErrorHandlingDeserializer` + `DefaultErrorHandler`,坏消息只 log+skip,不阻塞 consumer group。
+- `graph` 的科技树读路径全部走 Neo4j,启动时 `Neo4jMigrator` 从 MySQL 邻接表同步并建立 `(:TechNode {id})` 唯一约束及 `era_rank/code` 索引。
+- `ai` 的 `/api/ai/ask` 在 LLM/Agent 可用时走 LangChain4j AiServices(`GraphQueryTool`/`VectorSearchTool`/`UserProgressTool`),并经 Sentinel `@SentinelResource` 限流(默认 5 QPS,触发返回 429)。
 - `sparrow` 保留为爬虫语料 staging schema,供 AI 读取 `rag_document`。
 
 ## API 速览
@@ -81,8 +87,10 @@ POST /api/ai/ask               AI 问答 {question}(需登录;需要 ai profile)
 
 | 模式 | 条件 | 行为 |
 |---|---|---|
-| RAG 模式 | 启动 `ai` profile 且配置了 `AI_API_KEY` | 问题向量化 -> Milvus 检索 top-5 节点 -> LLM 生成回答 |
-| 未配置模型 | 未配置 `AI_API_KEY` | `/api/ai/ask` 返回 503,核心浏览和支付链路不受影响 |
+| Agent 模式 | 启动 `ai` profile + 配置 `AI_API_KEY` + ChatModel 可用 | LangChain4j Agent 调用图谱查询、向量检索、用户进度三类工具,支持多轮记忆 |
+| RAG 模式 | Agent 调用失败 | 问题向量化 -> Milvus 检索 top-5 节点 -> LLM 生成回答 |
+| 规则模式 | 未配置 `AI_API_KEY` 或 LLM 调用失败 | 走关键词匹配 + 图谱前置链拼装回答,不依赖外部模型 |
+| 限流命中 | 默认 5 QPS / `SENTINEL_AI_ASK_QPS` | 返回业务 429「请求过于频繁」,核心浏览和支付链路不受影响 |
 
 启用 RAG:在项目根目录建 `.env`(任意 OpenAI 兼容服务均可):
 
@@ -109,14 +117,20 @@ powershell -File backend/scripts/smoke.ps1
 powershell -File backend/scripts/load.ps1 -Qps 50 -DurationSeconds 30 -P99Ms 200
 ```
 
+M2 Seata AT 全局事务回滚回归(自动拉起独立 `sparrow_phase2_check` compose、注入 `TRADE_FAIL_AFTER_MEMBERSHIP_GRANT=true`、断言数据库状态、收尾 `down -v`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File backend/scripts/phase2-rollback-check.ps1
+```
+
 `smoke.ps1` 验证注册登录、科技树浏览、AI、会员下单、Mock 支付回调校验、重复回调幂等、会员解锁和订单列表。
 若未启动 `ai` profile 或未配置模型,AI 相关步骤会失败;这是 M1 的分组启动策略导致的预期差异。
 
 ## 后续里程碑
 
-- M2:拆分业务库 + Seata AT 已落地,仍需补运行态支付回滚演练。
-- M3:Kafka 事件骨架已落地,仍需补运行态投递/消费验证和消费幂等存储。
-- M4:图谱从 MySQL 邻接表迁移到 Neo4j。
-- M5:LangChain4j Agent 工具调用 + Sentinel 限流熔断。
+- M2:✅ 拆分业务库 + Seata AT 已落地,回滚演练已脚本化(`backend/scripts/phase2-rollback-check.ps1`)。
+- M3:✅ Kafka 事件骨架已落地,坏消息容错(ErrorHandlingDeserializer + DefaultErrorHandler)已接入。
+- M4:✅ graph 主读路径已切 Neo4j,启动期自动迁移 + 建唯一约束,`GraphServiceTest` 已覆盖读路径;待办为多跳 Cypher 的运行态/集成验证。
+- M5:✅ LangChain4j Agent(LRU 会话记忆)+ Sentinel 限流(Nacos 持久化数据源 + `sentinel-dashboard`)已接入;待办为运行态把 `deploy/sentinel/sparrow-ai-flow-rules.json` 导入 Nacos、Agent 端到端集成测试。
 
 更多状态见 [docs/阶段二服务化实施状态.md](docs/阶段二服务化实施状态.md) 和 [ROADMAP.md](ROADMAP.md)。

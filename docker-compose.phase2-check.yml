@@ -1,0 +1,53 @@
+name: sparrow_phase2_check
+
+services:
+  mysql:
+    ports: !override
+      - "13307:3306"
+
+  redis:
+    ports: !override
+      - "16379:6379"
+
+  nacos:
+    ports: !override
+      - "18848:8848"
+      - "19848:9848"
+
+  seata-server:
+    ports: !override
+      - "17091:7091"
+      - "18091:8091"
+
+  neo4j:
+    ports: !override
+      - "17474:7474"
+      - "17687:7687"
+
+  kafka:
+    ports: !override
+      - "19094:9094"
+
+  milvus:
+    ports: !override
+      - "19531:19530"
+
+  sparrow-gateway:
+    ports: !override
+      - "18080:8080"
+
+  sparrow-user:
+    ports: !override
+      - "18081:8081"
+
+  sparrow-graph:
+    ports: !override
+      - "18082:8082"
+
+  sparrow-ai:
+    ports: !override
+      - "18083:8083"
+
+  sparrow-trade:
+    ports: !override
+      - "18084:8084"

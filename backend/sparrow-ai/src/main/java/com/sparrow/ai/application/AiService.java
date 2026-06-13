@@ -1,5 +1,6 @@
 package com.sparrow.ai.application;
 
+import com.sparrow.ai.infrastructure.agent.TechTreeAgent;
 import com.sparrow.ai.infrastructure.client.GraphClient;
 import com.sparrow.ai.infrastructure.client.GraphViews.NodeBrief;
 import com.sparrow.ai.infrastructure.client.GraphViews.NodeDetail;
@@ -11,10 +12,11 @@ import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -42,16 +44,18 @@ public class AiService {
     }
 
     private final AiProperties props;
-    private final ChatLanguageModel chatModel;
+    private final ChatModel chatModel;
     private final EmbeddingModel embeddingModel;
     private final MilvusStore milvus;
     private final GraphClient graphClient;
     private final UserClient userClient;
     private final StringRedisTemplate redis;
+    private final ObjectProvider<TechTreeAgent> agentProvider;
 
-    public AiService(AiProperties props, ChatLanguageModel chatModel, EmbeddingModel embeddingModel,
+    public AiService(AiProperties props, ChatModel chatModel, EmbeddingModel embeddingModel,
                      MilvusStore milvus, GraphClient graphClient, UserClient userClient,
-                     StringRedisTemplate redis) {
+                     StringRedisTemplate redis,
+                     ObjectProvider<TechTreeAgent> agentProvider) {
         this.props = props;
         this.chatModel = chatModel;
         this.embeddingModel = embeddingModel;
@@ -59,6 +63,7 @@ public class AiService {
         this.graphClient = graphClient;
         this.userClient = userClient;
         this.redis = redis;
+        this.agentProvider = agentProvider;
     }
 
     public boolean llmConfigured() {
@@ -67,18 +72,30 @@ public class AiService {
 
     public AskResult ask(Long userId, String question) {
         long remaining = consumeQuota(userId);
-        Retrieved retrieved = retrieve(question);
-        List<SourceRef> sources = buildSources(retrieved);
 
+        TechTreeAgent agent = agentProvider.getIfAvailable();
+        if (llmConfigured() && agent != null) {
+            try {
+                String answer = agent.chat(String.valueOf(userId), question);
+                return new AskResult(answer, "agent", List.of(), remaining);
+            } catch (Exception e) {
+                log.warn("Agent 调用失败,降级为 RAG: {}", e.getMessage());
+            }
+        }
         if (llmConfigured()) {
             try {
-                String answer = chatModel.generate(systemPrompt() + "\n\n"
+                Retrieved retrieved = retrieve(question);
+                List<SourceRef> sources = buildSources(retrieved);
+                String answer = chatModel.chat(systemPrompt() + "\n\n"
                         + ragUserMessage(question, retrieved.nodes(), retrieved.chunks()));
                 return new AskResult(answer, "rag", sources, remaining);
             } catch (Exception e) {
                 log.warn("LLM 调用失败,降级为规则问答: {}", e.getMessage());
             }
         }
+
+        Retrieved retrieved = retrieve(question);
+        List<SourceRef> sources = buildSources(retrieved);
         return new AskResult(rulesAnswer(question, retrieved.nodes()), "rules", sources, remaining);
     }
 

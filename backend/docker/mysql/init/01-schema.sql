@@ -31,6 +31,22 @@ CREATE TABLE IF NOT EXISTS t_user (
     UNIQUE KEY uk_username (username)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
+-- M3 订单支付事件审计流水:消费 sparrow.trade.order-paid,order_no 唯一键天然幂等。
+CREATE TABLE IF NOT EXISTS member_grant_log (
+    id           BIGINT      NOT NULL AUTO_INCREMENT,
+    order_no     VARCHAR(32) NOT NULL,
+    user_id      BIGINT      NOT NULL,
+    product_code VARCHAR(32) NOT NULL,
+    member_days  INT         NOT NULL,
+    amount_cent  INT         NOT NULL,
+    event_id     VARCHAR(64) NOT NULL,
+    paid_at      DATETIME    NULL,
+    created_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_order_no (order_no),
+    KEY idx_user (user_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
 CREATE TABLE IF NOT EXISTS undo_log (
     branch_id     BIGINT       NOT NULL COMMENT 'branch transaction id',
     xid           VARCHAR(128) NOT NULL COMMENT 'global transaction id',
@@ -115,6 +131,15 @@ CREATE TABLE IF NOT EXISTS rag_index_state (
     node_count  INT         NOT NULL,
     chunk_count INT         NOT NULL,
     updated_at  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+CREATE TABLE IF NOT EXISTS kafka_consumed_event (
+    consumer   VARCHAR(64)  NOT NULL,
+    event_id   VARCHAR(128) NOT NULL,
+    topic      VARCHAR(128) NOT NULL,
+    consumed_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (consumer, event_id),
+    KEY idx_topic_consumed_at (topic, consumed_at)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 CREATE TABLE IF NOT EXISTS undo_log (

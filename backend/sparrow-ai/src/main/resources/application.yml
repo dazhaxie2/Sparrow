@@ -8,9 +8,11 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: ${AI_KAFKA_GROUP:sparrow-ai}
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       properties:
+        spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
         spring.json.trusted.packages: com.sparrow.common.event
         spring.json.value.default.type: com.sparrow.common.event.GraphChangedEvent
     listener:
@@ -22,6 +24,18 @@ spring:
         file-extension: yaml
       discovery:
         server-addr: ${NACOS_ADDR:localhost:8848}
+    sentinel:
+      eager: true
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:}
+      datasource:
+        flow:
+          nacos:
+            server-addr: ${NACOS_ADDR:localhost:8848}
+            data-id: ${SENTINEL_FLOW_DATA_ID:sparrow-ai-flow-rules}
+            group-id: ${SENTINEL_GROUP:SENTINEL_GROUP}
+            data-type: json
+            rule-type: flow
   config:
     import:
       - optional:nacos:sparrow-common.yaml
