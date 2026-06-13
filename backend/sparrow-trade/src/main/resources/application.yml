@@ -1,0 +1,54 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: sparrow-trade
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:localhost:8848}
+      config:
+        file-extension: yaml
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+  config:
+    import:
+      - optional:nacos:sparrow-common.yaml
+      - optional:nacos:sparrow-trade.yaml
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:sparrow_trade}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${MYSQL_USER:sparrow}
+    password: ${MYSQL_PASSWORD:sparrow123}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+sparrow:
+  pay:
+    mock-secret: ${MOCK_PAY_SECRET:sparrow-phase1-mock-secret}
+  events:
+    enabled: ${KAFKA_ENABLED:false}
+
+logging:
+  level:
+    com.sparrow: info
+
+seata:
+  enabled: ${SEATA_ENABLED:false}
+  application-id: ${spring.application.name}
+  tx-service-group: ${SEATA_TX_GROUP:sparrow_tx_group}
+  registry:
+    type: file
+  config:
+    type: file
+  service:
+    vgroup-mapping:
+      sparrow_tx_group: ${SEATA_SERVICE_GROUP:default}
+    grouplist:
+      default: ${SEATA_SERVER:localhost:8091}

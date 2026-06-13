@@ -1,0 +1,67 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: sparrow-gateway
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:localhost:8848}
+      config:
+        file-extension: yaml
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+    gateway:
+      discovery:
+        locator:
+          enabled: false
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "http://localhost:5173"
+              - "http://localhost:4173"
+              - "http://localhost:8080"
+            allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+            allowedHeaders: ["*"]
+            allowCredentials: true
+            maxAge: 3600
+      routes:
+        - id: user
+          uri: lb://sparrow-user
+          predicates:
+            - Path=/api/user/**
+        - id: graph
+          uri: lb://sparrow-graph
+          predicates:
+            - Path=/api/graph/**
+        - id: ai
+          uri: lb://sparrow-ai
+          predicates:
+            - Path=/api/ai/**
+        - id: trade
+          uri: lb://sparrow-trade
+          predicates:
+            - Path=/api/trade/**
+        - id: trade-pay-mock
+          uri: lb://sparrow-trade
+          predicates:
+            - Path=/api/pay/**
+  config:
+    import:
+      - optional:nacos:sparrow-common.yaml
+      - optional:nacos:sparrow-gateway.yaml
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  web:
+    resources:
+      static-locations:
+        - file:/app/static/
+        - classpath:/static/
+
+logging:
+  level:
+    com.sparrow: info
+    org.springframework.cloud.gateway: info

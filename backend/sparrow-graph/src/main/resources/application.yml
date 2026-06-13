@@ -1,0 +1,42 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: sparrow-graph
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:localhost:8848}
+      config:
+        file-extension: yaml
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+  config:
+    import:
+      - optional:nacos:sparrow-common.yaml
+      - optional:nacos:sparrow-graph.yaml
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:sparrow_graph}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${MYSQL_USER:sparrow}
+    password: ${MYSQL_PASSWORD:sparrow123}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com.sparrow: info
+
+sparrow:
+  events:
+    enabled: ${KAFKA_ENABLED:false}

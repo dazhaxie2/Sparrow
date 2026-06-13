@@ -1,0 +1,3 @@
+sparrow:
+  auth:
+    token-ttl-days: 7

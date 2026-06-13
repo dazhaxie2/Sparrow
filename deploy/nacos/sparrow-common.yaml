@@ -1,0 +1,31 @@
+# sparrow-common.yaml —— 共享配置(所有 5 个服务都 import)
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+logging:
+  level:
+    com.sparrow: info
+    org.springframework.cloud.openfeign: info
+
+seata:
+  enabled: ${SEATA_ENABLED:false}
+  application-id: ${spring.application.name}
+  tx-service-group: ${SEATA_TX_GROUP:sparrow_tx_group}
+  registry:
+    type: file
+  config:
+    type: file
+  service:
+    vgroup-mapping:
+      sparrow_tx_group: ${SEATA_SERVICE_GROUP:default}
+    grouplist:
+      default: ${SEATA_SERVER:localhost:8091}

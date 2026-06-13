@@ -1,0 +1,6 @@
+# sparrow-gateway.yaml —— 路由表 + 鉴权由本地 yaml 已配,这里留作扩展
+# M5 起在此追加 spring.cloud.sentinel.* 规则数据源(nacos)
+spring:
+  cloud:
+    sentinel:
+      eager: false

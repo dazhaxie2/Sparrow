@@ -8,4 +8,38 @@
       <mirrorOf>central</mirrorOf>
     </mirror>
   </mirrors>
+  <profiles>
+    <profile>
+      <id>fast-ci</id>
+      <repositories>
+        <repository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
+          <releases>
+            <enabled>true</enabled>
+            <checksumPolicy>warn</checksumPolicy>
+          </releases>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
+          <releases>
+            <enabled>true</enabled>
+            <checksumPolicy>warn</checksumPolicy>
+          </releases>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>fast-ci</activeProfile>
+  </activeProfiles>
 </settings>

@@ -1,6 +1,7 @@
 -- 人类科技树种子数据:10 个时代 / 77 个节点 / 依赖边
 -- 年代与依赖为教学口径的简化表达,非严格史学结论
 SET NAMES utf8mb4;
+USE sparrow_graph;
 
 INSERT INTO tech_node (id, code, name, era, era_rank, year_label, summary, detail, premium) VALUES
 -- ─── 1 石器时代 ───

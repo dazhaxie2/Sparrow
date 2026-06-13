@@ -1,0 +1,26 @@
+# sparrow-ai.yaml —— M5 起加 sentinel resource 限流规则
+sparrow:
+  events:
+    enabled: ${KAFKA_ENABLED:false}
+  ai:
+    free-quota-per-day: 3
+
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${AI_KAFKA_GROUP:sparrow-ai}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.sparrow.common.event
+        spring.json.value.default.type: com.sparrow.common.event.GraphChangedEvent
+    listener:
+      missing-topics-fatal: false
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            connect-timeout: 3000
+            read-timeout: 15000
