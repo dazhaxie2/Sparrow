@@ -45,3 +45,6 @@ logging:
 sparrow:
   events:
     enabled: ${KAFKA_ENABLED:false}
+  graph:
+    rag-schema: ${SPARROW_RAG_SCHEMA:sparrow}
+    ai-schema: ${SPARROW_AI_SCHEMA:sparrow_ai}

@@ -11,10 +11,12 @@ import com.sparrow.graph.infrastructure.event.GraphEventPublisher;
 import com.sparrow.graph.infrastructure.neo4j.Neo4jMigrator;
 import com.sparrow.graph.infrastructure.neo4j.NeoEdgeRecord;
 import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
+import com.sparrow.graph.infrastructure.persistence.KnowledgeMetaRepository;
 import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeDetail;
+import com.sparrow.graph.interfaces.dto.GraphDtos.SourceBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.Tree;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,6 +51,7 @@ class GraphServiceTest {
     private UserClient userClient;
     private GraphEventPublisher eventPublisher;
     private Neo4jMigrator neo4jMigrator;
+    private KnowledgeMetaRepository knowledgeMetaRepository;
     private GraphService service;
 
     @BeforeEach
@@ -61,9 +64,10 @@ class GraphServiceTest {
         userClient = mock(UserClient.class);
         eventPublisher = mock(GraphEventPublisher.class);
         neo4jMigrator = mock(Neo4jMigrator.class);
+        knowledgeMetaRepository = mock(KnowledgeMetaRepository.class);
         when(redis.opsForValue()).thenReturn(valueOps);
         service = new GraphService(neoRepo, mysqlReader, redis, new ObjectMapper(),
-                userClient, eventPublisher, neo4jMigrator);
+                userClient, eventPublisher, neo4jMigrator, knowledgeMetaRepository);
     }
 
     @Test
@@ -112,6 +116,8 @@ class GraphServiceTest {
                 neoNode(41L, "steam_engine", "蒸汽机", true, "机密详情")));
         when(neoRepo.findDirectPrerequisites(41L)).thenReturn(List.of());
         when(neoRepo.findDirectUnlocks(41L)).thenReturn(List.of());
+        when(knowledgeMetaRepository.sourcesForCode("steam_engine"))
+                .thenReturn(List.of(new SourceBrief("Wikipedia", "https://example.com", "2026-06-13 10:00:00")));
         Map<String, Object> membership = new HashMap<>();
         membership.put("member", true);
         when(userClient.membership(eq(42L))).thenReturn(ApiResponse.ok(membership));
@@ -120,6 +126,7 @@ class GraphServiceTest {
 
         assertFalse(detail.locked());
         assertEquals("机密详情", detail.detail());
+        assertEquals(1, detail.sources().size());
     }
 
     @Test

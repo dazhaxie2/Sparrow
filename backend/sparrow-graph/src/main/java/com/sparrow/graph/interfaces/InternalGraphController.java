@@ -4,6 +4,7 @@ import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.event.GraphChangedEvent;
 import com.sparrow.graph.application.GraphService;
 import com.sparrow.graph.interfaces.dto.GraphDtos.IndexableNode;
+import com.sparrow.graph.interfaces.dto.GraphDtos.KnowledgeStatus;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeDetail;
 import com.sparrow.graph.interfaces.dto.GraphDtos.Tree;
@@ -49,6 +50,11 @@ public class InternalGraphController {
     @GetMapping("/indexable-nodes")
     public ApiResponse<List<IndexableNode>> indexableNodes() {
         return ApiResponse.ok(graphService.listIndexableNodes());
+    }
+
+    @GetMapping("/knowledge/status")
+    public ApiResponse<KnowledgeStatus> knowledgeStatus() {
+        return ApiResponse.ok(graphService.knowledgeStatus());
     }
 
     @PostMapping("/reindex")

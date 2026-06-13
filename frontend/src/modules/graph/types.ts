@@ -32,4 +32,20 @@ export interface NodeDetail {
   locked: boolean
   prerequisites: NodeBrief[]
   unlocks: NodeBrief[]
+  sources: SourceBrief[]
+}
+
+export interface SourceBrief {
+  title: string
+  url: string
+  updatedAt: string
+}
+
+export interface KnowledgeStatus {
+  ragDocumentCount: number
+  ragUpdatedAt: string | null
+  ragIndexed: boolean
+  ragNodeCount: number | null
+  ragChunkCount: number | null
+  ragIndexUpdatedAt: string | null
 }

@@ -11,7 +11,14 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
   if (token) headers.Authorization = `Bearer ${token}`
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
-  const body: ApiResponse<T> = await res.json()
+  let body: ApiResponse<T>
+  try {
+    body = await res.json()
+  } catch {
+    const err = new Error(res.ok ? '服务返回了空响应，请稍后重试' : `服务暂不可用（HTTP ${res.status}）`) as Error & { code: number }
+    err.code = res.status || 500
+    throw err
+  }
   if (body.code !== 0) {
     const err = new Error(body.message || '请求失败') as Error & { code: number }
     err.code = body.code

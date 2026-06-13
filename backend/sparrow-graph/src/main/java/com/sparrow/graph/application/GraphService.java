@@ -11,11 +11,14 @@ import com.sparrow.graph.infrastructure.client.UserClient;
 import com.sparrow.graph.infrastructure.event.GraphEventPublisher;
 import com.sparrow.graph.infrastructure.neo4j.Neo4jMigrator;
 import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
+import com.sparrow.graph.infrastructure.persistence.KnowledgeMetaRepository;
 import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.IndexableNode;
+import com.sparrow.graph.interfaces.dto.GraphDtos.KnowledgeStatus;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeDetail;
+import com.sparrow.graph.interfaces.dto.GraphDtos.SourceBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.Tree;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,11 +46,13 @@ public class GraphService {
     private final UserClient userClient;
     private final GraphEventPublisher eventPublisher;
     private final Neo4jMigrator neo4jMigrator;
+    private final KnowledgeMetaRepository knowledgeMetaRepository;
 
     public GraphService(NeoTechNodeRepository neoRepo, MysqlGraphReader mysqlReader,
                         StringRedisTemplate redis, ObjectMapper objectMapper,
                         UserClient userClient, GraphEventPublisher eventPublisher,
-                        Neo4jMigrator neo4jMigrator) {
+                        Neo4jMigrator neo4jMigrator,
+                        KnowledgeMetaRepository knowledgeMetaRepository) {
         this.neoRepo = neoRepo;
         this.mysqlReader = mysqlReader;
         this.redis = redis;
@@ -55,6 +60,7 @@ public class GraphService {
         this.userClient = userClient;
         this.eventPublisher = eventPublisher;
         this.neo4jMigrator = neo4jMigrator;
+        this.knowledgeMetaRepository = knowledgeMetaRepository;
     }
 
     public Tree tree() {
@@ -144,6 +150,10 @@ public class GraphService {
         return requestReindex();
     }
 
+    public KnowledgeStatus knowledgeStatus() {
+        return knowledgeMetaRepository.status();
+    }
+
     /**
      * Neo4j 读优先,连接/查询异常时降级 MySQL 邻接表读。
      * 业务异常(如 404)直接透传,不触发降级。
@@ -163,8 +173,18 @@ public class GraphService {
                                    String yearLabel, String summary, String detail, boolean premium,
                                    List<NodeBrief> prerequisites, List<NodeBrief> unlocks, Long userId) {
         boolean locked = premium && (userId == null || !isMember(userId));
+        List<SourceBrief> sources = loadSources(code);
         return new NodeDetail(id, code, name, era, eraRank, yearLabel, summary,
-                locked ? null : detail, premium, locked, prerequisites, unlocks);
+                locked ? null : detail, premium, locked, prerequisites, unlocks, sources);
+    }
+
+    private List<SourceBrief> loadSources(String code) {
+        try {
+            return knowledgeMetaRepository.sourcesForCode(code);
+        } catch (Exception e) {
+            log.warn("璧勬枡鏉ユ簮璇诲彇澶辫触,code={} err={}", code, e.getMessage());
+            return List.of();
+        }
     }
 
     private boolean isMember(Long userId) {

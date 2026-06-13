@@ -25,6 +25,8 @@
           />
         </label>
 
+        <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
+
         <div class="modal-actions">
           <button class="btn primary" type="submit">登录</button>
           <button class="btn" type="button" @click="handleRegister">注册并登录</button>
@@ -43,22 +45,25 @@ const emit = defineEmits<{ close: [] }>()
 const user = useUserStore()
 const username = ref('')
 const password = ref('')
+const errorMessage = ref('')
 
 async function handleLogin() {
+  errorMessage.value = ''
   try {
     await user.login(username.value, password.value)
     emit('close')
   } catch (error: any) {
-    alert(error.message)
+    errorMessage.value = error.message
   }
 }
 
 async function handleRegister() {
+  errorMessage.value = ''
   try {
     await user.register(username.value, password.value)
     emit('close')
   } catch (error: any) {
-    alert(error.message)
+    errorMessage.value = error.message
   }
 }
 </script>
@@ -141,6 +146,16 @@ async function handleRegister() {
 .field input:focus {
   border-color: var(--ink);
   background: var(--panel);
+}
+
+.form-error {
+  margin-top: 12px;
+  border: 1px solid rgba(220, 38, 38, 0.32);
+  background: rgba(220, 38, 38, 0.06);
+  color: var(--danger);
+  padding: 9px 10px;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .modal-actions {

@@ -3,6 +3,7 @@ package com.sparrow.graph.interfaces;
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.security.UserContext;
 import com.sparrow.graph.application.GraphService;
+import com.sparrow.graph.interfaces.dto.GraphDtos.KnowledgeStatus;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeDetail;
 import com.sparrow.graph.interfaces.dto.GraphDtos.Tree;
@@ -36,5 +37,10 @@ public class GraphController {
     @GetMapping("/node/{id}/prerequisites")
     public ApiResponse<List<NodeBrief>> prerequisites(@PathVariable Long id) {
         return ApiResponse.ok(graphService.prerequisiteChain(id));
+    }
+
+    @GetMapping("/knowledge/status")
+    public ApiResponse<KnowledgeStatus> knowledgeStatus() {
+        return ApiResponse.ok(graphService.knowledgeStatus());
     }
 }

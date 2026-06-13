@@ -1,26 +1,50 @@
 <template>
   <div class="ai-dock" :class="{ collapsed }">
     <button class="ai-toggle" type="button" @click="collapsed = !collapsed">
-      <span class="toggle-mark">AI</span>
-      <span class="toggle-copy">智能向导</span>
+      <span class="toggle-mark"><Bot :size="16" /></span>
+      <span class="toggle-copy">AI 向导</span>
       <span class="toggle-state">{{ collapsed ? '打开' : '收起' }}</span>
     </button>
 
     <div class="ai-body">
       <div class="ai-head">
-        <span>◆ ASSISTANT CONSOLE</span>
-        <span>{{ messages.length }} LOGS</span>
+        <span><Sparkles :size="14" /> 上下文助手</span>
+        <button type="button" title="清空对话" @click="clearMessages">
+          <Trash2 :size="14" />
+        </button>
+      </div>
+
+      <section class="context-card" :class="{ muted: !contextNode }">
+        <div>
+          <span>当前上下文</span>
+          <strong>{{ contextNode ? `正在围绕「${contextNode.name}」提问` : '选择节点后获得定向回答' }}</strong>
+          <small v-if="contextNode">{{ contextNode.era }} · {{ contextNode.yearLabel }}</small>
+        </div>
+      </section>
+
+      <div class="quick-prompts">
+        <button
+          v-for="prompt in quickPrompts"
+          :key="prompt"
+          type="button"
+          :disabled="loading"
+          @click="askWithText(prompt)"
+        >
+          {{ prompt }}
+        </button>
       </div>
 
       <div ref="messagesRef" class="ai-messages">
-        <div v-if="!messages.length" class="empty-message">
-          询问任意技术节点、前置知识或学习路径，AI 会结合科技树上下文回答。
-        </div>
         <div v-for="(msg, i) in messages" :key="i" class="msg" :class="msg.role === 'user' ? 'user' : 'bot'">
           {{ msg.content }}
           <span v-if="msg.sources?.length" class="src">
             来源: {{ msg.sources.map(source => source.name).join('、') }}
           </span>
+        </div>
+
+        <div v-if="loading" class="msg bot typing">
+          <LoaderCircle class="spin" :size="15" />
+          {{ phase || '正在处理' }}
         </div>
       </div>
 
@@ -29,11 +53,11 @@
           v-model="input"
           type="text"
           maxlength="500"
-          placeholder="问一个技术问题..."
+          :placeholder="contextNode ? `追问「${contextNode.name}」...` : '问一个技术问题...'"
           @keydown.enter.prevent="doAsk"
         />
         <button class="btn" type="button" :disabled="loading || !input.trim()" @click="doAsk">
-          {{ loading ? '...' : '发送' }}
+          <Send :size="15" />
         </button>
       </div>
     </div>
@@ -41,21 +65,38 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
+import { Bot, LoaderCircle, Send, Sparkles, Trash2 } from '@lucide/vue'
 import { useChat } from '../composables/useChat'
 import { useUserStore } from '../../user/store'
+import type { NodeBrief } from '../../graph/types'
+
+const props = defineProps<{ contextNode: NodeBrief | null }>()
 
 const user = useUserStore()
-const { messages, loading, ask } = useChat()
+const { messages, loading, phase, ask, clearMessages } = useChat()
 const collapsed = ref(true)
 const input = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
 
+const quickPrompts = computed(() => {
+  if (!props.contextNode) return ['怎么开始学习？', '推荐一条路线', '哪些节点最关键？']
+  return ['它依赖什么？', '为什么重要？', '推荐下一步学什么？']
+})
+
 async function doAsk() {
-  const question = input.value.trim()
-  if (!question) return
+  await askWithText(input.value)
   input.value = ''
-  await ask(question, user.isLoggedIn())
+}
+
+async function askWithText(text: string) {
+  const question = text.trim()
+  if (!question) return
+  const contextualQuestion = props.contextNode
+    ? `围绕「${props.contextNode.name}」回答：${question}`
+    : question
+  collapsed.value = false
+  await ask(contextualQuestion, user.isLoggedIn())
   await nextTick()
   if (messagesRef.value) messagesRef.value.scrollTop = messagesRef.value.scrollHeight
 }
@@ -105,8 +146,6 @@ defineExpose({ open, close })
   height: 26px;
   background: var(--ink);
   color: var(--bg);
-  font-size: 11px;
-  font-weight: 800;
 }
 
 .toggle-copy {
@@ -144,27 +183,98 @@ defineExpose({ open, close })
   min-height: 38px;
   padding: 0 12px;
   border-bottom: 1px solid var(--line);
-  color: var(--muted);
+  color: var(--ink);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
 
-.ai-head span:first-child {
-  color: var(--ink);
+.ai-head span,
+.ai-head button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ai-head svg {
+  color: var(--accent);
+}
+
+.ai-head button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.context-card {
+  display: grid;
+  gap: 4px;
+  margin: 12px 12px 0;
+  border: 1px solid rgba(255, 87, 34, 0.34);
+  background: rgba(255, 87, 34, 0.06);
+  padding: 10px 11px;
+}
+
+.context-card.muted {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.context-card span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.context-card strong {
+  font-size: 13px;
+}
+
+.context-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.quick-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 10px 12px 0;
+}
+
+.quick-prompts button {
+  min-height: 28px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink-2);
+  padding: 0 9px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+
+.quick-prompts button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(255, 87, 34, 0.05);
+  color: var(--accent);
+}
+
+.quick-prompts button:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 .ai-messages {
-  height: 278px;
+  height: 252px;
   overflow-y: auto;
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: linear-gradient(#ffffff, #ffffff), var(--surface);
 }
 
-.empty-message,
 .msg {
   border: 1px solid var(--line);
   padding: 10px 11px;
@@ -172,11 +282,6 @@ defineExpose({ open, close })
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.empty-message {
-  color: var(--ink-2);
-  background: var(--surface);
 }
 
 .msg.bot {
@@ -192,6 +297,13 @@ defineExpose({ open, close })
   border-color: var(--accent);
   background: var(--accent);
   color: var(--bg);
+}
+
+.msg.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
 }
 
 .msg .src {
@@ -216,6 +328,7 @@ defineExpose({ open, close })
 .ai-input-row input {
   flex: 1;
   min-width: 0;
+  height: 36px;
   border: 1px solid var(--line-strong);
   background: var(--panel);
   color: var(--ink);
@@ -229,13 +342,12 @@ defineExpose({ open, close })
 }
 
 .btn {
-  min-width: 64px;
+  width: 42px;
+  display: grid;
+  place-items: center;
   border: 1px solid var(--ink);
   background: var(--ink);
   color: var(--bg);
-  padding: 0 12px;
-  font-size: 13px;
-  font-weight: 800;
   cursor: pointer;
 }
 
@@ -244,6 +356,16 @@ defineExpose({ open, close })
   background: #d8d8d8;
   color: var(--muted);
   cursor: default;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 920px) {

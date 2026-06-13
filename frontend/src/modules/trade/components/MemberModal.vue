@@ -11,6 +11,7 @@
         </div>
 
         <p class="muted">解锁全部深度内容，并获得 AI 向导的更完整问答体验。</p>
+        <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
 
         <div class="products">
           <button class="product" type="button" @click="buy('MEMBER_MONTH')">
@@ -36,13 +37,16 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { createOrder } from '../api'
 import { useUserStore } from '../../user/store'
 
 const emit = defineEmits<{ close: [] }>()
 const user = useUserStore()
+const errorMessage = ref('')
 
 async function buy(code: string) {
+  errorMessage.value = ''
   if (!user.isLoggedIn()) {
     emit('close')
     return
@@ -51,7 +55,7 @@ async function buy(code: string) {
     const res = await createOrder(code)
     window.location.href = res.payUrl
   } catch (error: any) {
-    alert(error.message)
+    errorMessage.value = error.message
   }
 }
 </script>
@@ -112,6 +116,16 @@ async function buy(code: string) {
   color: var(--ink-2);
   font-size: 13px;
   line-height: 1.8;
+}
+
+.form-error {
+  margin-top: 12px;
+  border: 1px solid rgba(220, 38, 38, 0.32);
+  background: rgba(220, 38, 38, 0.06);
+  color: var(--danger);
+  padding: 9px 10px;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .products {

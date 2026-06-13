@@ -32,10 +32,19 @@ public final class GraphDtos {
 
     public record NodeDetail(Long id, String code, String name, String era, Integer eraRank,
                              String yearLabel, String summary, String detail, boolean premium,
-                             boolean locked, List<NodeBrief> prerequisites, List<NodeBrief> unlocks) {
+                             boolean locked, List<NodeBrief> prerequisites, List<NodeBrief> unlocks,
+                             List<SourceBrief> sources) {
     }
 
     public record IndexableNode(Long id, String code, String name, String era, String yearLabel,
                                 String summary, String detail) {
+    }
+
+    public record SourceBrief(String title, String url, String updatedAt) {
+    }
+
+    public record KnowledgeStatus(long ragDocumentCount, String ragUpdatedAt,
+                                  boolean ragIndexed, Integer ragNodeCount,
+                                  Integer ragChunkCount, String ragIndexUpdatedAt) {
     }
 }
