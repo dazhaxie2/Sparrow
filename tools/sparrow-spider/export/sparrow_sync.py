@@ -114,6 +114,7 @@ def run():
                     continue
                 code = f"sp_{c['id']}"
                 importance = c["importance"] if c["importance"] else 1
+                summary = c["summary"] or name  # tech_node.summary NOT NULL,空则退回名称
                 cur.execute(
                     "INSERT INTO tech_node "
                     "(id, code, name, era, era_rank, year_label, summary, detail, premium, category, importance) "
@@ -122,7 +123,7 @@ def run():
                     "year_label=VALUES(year_label), summary=VALUES(summary), detail=VALUES(detail), "
                     "category=COALESCE(tech_node.category, VALUES(category)), importance=VALUES(importance)",
                     (config.SPARROW_ID_BASE + c["id"], code, name, c["era"],
-                     c["era_rank"], c["year_label"], c["summary"], c["detail"],
+                     c["era_rank"], c["year_label"], summary, c["detail"],
                      c["category"], importance),
                 )
                 new_nodes += 1

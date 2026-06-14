@@ -9,12 +9,15 @@
   --line: #e5e5e5;
   --line-strong: #cfcfcf;
   --accent: #ff5722;
+  --accent-soft: rgba(255, 87, 34, 0.08);
   --accent-2: #ff9800;
   --success: #2e7d32;
   --danger: #dc2626;
   --blue: #1565c0;
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px rgba(17, 17, 17, 0.04), 0 6px 16px rgba(17, 17, 17, 0.04);
   --shadow-md: 0 18px 48px rgba(0, 0, 0, 0.12);
+  --radius: 12px;
+  --radius-sm: 8px;
   --font-ui: 'JetBrains Mono', 'Space Grotesk', 'Noto Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
 }
 

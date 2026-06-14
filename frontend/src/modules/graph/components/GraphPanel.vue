@@ -321,8 +321,11 @@ watch(() => props.floating, value => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-left: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
 }
 
 .panel.floating {

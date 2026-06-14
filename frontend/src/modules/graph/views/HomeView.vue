@@ -5,45 +5,101 @@
     @focus-ai="openAiGuide"
   />
 
-  <main class="layout">
+  <main class="layout" :class="{ 'dialog-layout': graphMode === 'dialog' }">
+    <aside v-if="graphMode === 'map'" class="side-rail" aria-label="科技树控制台">
+      <div class="rail-head">
+        <span class="accent-tag">SPARROW TECH TREE</span>
+        <h1>人类科技树</h1>
+        <p>按领域与时代探索技术演进</p>
+      </div>
+
+      <div class="rail-stats" aria-label="图谱指标">
+        <div class="stat"><strong>{{ totalNodes }}</strong><span>节点</span></div>
+        <div class="stat"><strong>{{ totalEdges }}</strong><span>关系</span></div>
+        <div class="stat"><strong>{{ progressCounts.mastered }}</strong><span>已掌握</span></div>
+        <div class="stat"><strong>{{ premiumCount }}</strong><span>深度</span></div>
+      </div>
+
+      <div class="rail-scroll">
+        <section v-if="categories.length" class="rail-section">
+          <div class="rail-label"><Layers :size="13" /><span>领域</span></div>
+          <div class="rail-chips">
+            <button type="button" :class="{ active: activeCategory === null }" @click="setCategory(null)">全部</button>
+            <button
+              v-for="cat in categories"
+              :key="cat"
+              type="button"
+              :class="{ active: activeCategory === cat }"
+              @click="setCategory(cat)"
+            >{{ cat }}</button>
+          </div>
+        </section>
+
+        <section v-if="eraLegend.length" class="rail-section">
+          <div class="rail-label"><Route :size="13" /><span>时代</span></div>
+          <div class="rail-eras">
+            <button
+              v-for="era in eraLegend"
+              :key="era.rank"
+              type="button"
+              :class="{ active: era.rank === activeEraRank }"
+              :style="{ '--era-color': era.color }"
+              @click="focusEra(era.rank)"
+            >
+              <span class="era-dot"></span>
+              <span class="era-name">{{ era.name }}</span>
+              <small>{{ era.count }}</small>
+            </button>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <div class="rail-label"><span>显示密度</span></div>
+          <div class="rail-density">
+            <button
+              v-for="opt in LIMIT_OPTIONS"
+              :key="opt"
+              type="button"
+              :class="{ active: graphLimit === opt }"
+              @click="setLimit(opt)"
+            >{{ opt }}</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="rail-foot" aria-label="知识库状态">
+        <Database :size="13" />
+        <div>
+          <span>{{ knowledgeStatusText }}</span>
+          <strong>{{ ragStatusText }}</strong>
+        </div>
+      </div>
+    </aside>
+
     <section class="graph-workspace">
-      <section class="overview-strip" aria-label="科技树总览">
-        <div class="overview-copy">
-          <span class="accent-tag">SPARROW TECH TREE</span>
-          <h1>人类科技树</h1>
-          <p>按依赖关系探索技术演进，快速定位节点、追踪前置知识，并把当前上下文交给 AI 向导继续追问。</p>
-        </div>
-
-        <div class="overview-side">
-          <div class="metric-row" aria-label="图谱指标">
-            <div class="metric"><strong>{{ totalNodes }}</strong><span>节点</span></div>
-            <div class="metric"><strong>{{ totalEdges }}</strong><span>关系</span></div>
-            <div class="metric"><strong>{{ progressCounts.mastered }}</strong><span>已掌握</span></div>
-            <div class="metric"><strong>{{ premiumCount }}</strong><span>深度内容</span></div>
-          </div>
-
-          <div class="knowledge-status" aria-label="知识库状态">
-            <Database :size="14" />
-            <span>{{ knowledgeStatusText }}</span>
-            <strong>{{ ragStatusText }}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="graph-shell" :class="{ fullscreen: graphFullScreen }" aria-label="科技图谱">
+      <section class="graph-shell" :class="{ fullscreen: graphFullScreen, 'dialog-mode': dialogActive }" aria-label="科技图谱">
         <div class="graph-toolbar">
           <div class="toolbar-title">
             <MapPinned :size="16" />
-            <strong>科技图谱</strong>
-            <span>显示 {{ nodeCount }} / {{ totalNodes }} 节点</span>
+            <strong>{{ dialogActive ? '会话临时图谱' : '科技图谱' }}</strong>
+            <span>{{ dialogActive ? `提取 ${nodeCount} 个相关节点` : `显示 ${nodeCount} / ${totalNodes}` }}</span>
           </div>
 
-          <div class="search-box" @keydown.down.prevent="moveSearch(1)" @keydown.up.prevent="moveSearch(-1)">
+          <div class="mode-switch" aria-label="图谱模式">
+            <button type="button" :class="{ active: graphMode === 'map' }" @click="switchGraphMode('map')">
+              图谱
+            </button>
+            <button type="button" :class="{ active: graphMode === 'dialog' }" @click="switchGraphMode('dialog')">
+              对话
+            </button>
+          </div>
+
+          <div v-if="graphMode === 'map'" class="search-box" @keydown.down.prevent="moveSearch(1)" @keydown.up.prevent="moveSearch(-1)">
             <Search :size="15" />
             <input
               v-model="searchQuery"
               type="search"
-              placeholder="搜索技术、时代、关键词"
+              placeholder="搜索技术、关键词"
               autocomplete="off"
               @focus="searchOpen = true"
               @keydown.enter.prevent="confirmSearch"
@@ -67,19 +123,21 @@
             </div>
           </div>
 
+          <div v-else class="dialog-mode-status">
+            <BrainCircuit :size="15" />
+            <span>{{ dialogResult ? dialogResult.query : '关联节点实时构造' }}</span>
+          </div>
+
           <div class="toolbar-actions" aria-label="图谱控制">
-            <span class="selected-status">
-              {{ selectedStatusText }}
-            </span>
+            <span class="selected-status">{{ selectedStatusText }}</span>
             <button class="tool-btn" type="button" title="刷新图谱" :disabled="treeLoading" @click="refreshGraph">
               <RefreshCcw :size="15" />
-              <span>刷新</span>
             </button>
-            <button class="tool-btn icon-only" type="button" title="重置视图" @click="resetGraphView">
+            <button class="tool-btn" type="button" title="重置视图" @click="resetGraphView">
               <RotateCcw :size="16" />
             </button>
             <button
-              class="tool-btn icon-only"
+              class="tool-btn"
               type="button"
               :title="graphFullScreen ? '退出全屏' : '全屏查看'"
               @click="toggleGraphFullScreen"
@@ -87,35 +145,6 @@
               <Minimize2 v-if="graphFullScreen" :size="16" />
               <Maximize2 v-else :size="16" />
             </button>
-            <span class="live-dot" title="服务在线"></span>
-          </div>
-        </div>
-
-        <div v-if="categories.length" class="graph-filter" aria-label="领域筛选">
-          <div class="filter-scroll">
-            <Layers :size="14" class="filter-ic" />
-            <button
-              type="button"
-              :class="{ active: activeCategory === null }"
-              @click="setCategory(null)"
-            >全部领域</button>
-            <button
-              v-for="cat in categories"
-              :key="cat"
-              type="button"
-              :class="{ active: activeCategory === cat }"
-              @click="setCategory(cat)"
-            >{{ cat }}</button>
-          </div>
-          <div class="filter-lod" title="显示密度(按重要度取前 N 个节点)">
-            <span>密度</span>
-            <button
-              v-for="opt in LIMIT_OPTIONS"
-              :key="opt"
-              type="button"
-              :class="{ active: graphLimit === opt }"
-              @click="setLimit(opt)"
-            >{{ opt }}</button>
           </div>
         </div>
 
@@ -144,12 +173,9 @@
             <button type="button" @click="loadTree">重试</button>
           </div>
 
-          <div v-if="eraLegend.length" class="era-rail" aria-label="时代导航">
-            <div class="era-rail-head">
-              <Route :size="14" />
-              <span>时代导航</span>
-            </div>
-            <div class="era-track">
+          <div v-if="eraLegend.length && !treeLoading && !treeError" class="graph-legend" aria-label="时代图例">
+            <span class="legend-title">ERA TYPES</span>
+            <div class="legend-items">
               <button
                 v-for="era in eraLegend"
                 :key="era.rank"
@@ -158,17 +184,25 @@
                 :style="{ '--era-color': era.color }"
                 @click="focusEra(era.rank)"
               >
-                <span class="era-dot"></span>
-                <strong>{{ era.name }}</strong>
+                <span class="legend-dot"></span>
+                <span>{{ era.name }}</span>
                 <small>{{ era.count }}</small>
               </button>
             </div>
           </div>
+
+          <label v-if="!treeLoading && !treeError" class="edge-label-toggle">
+            <input v-model="showEdgeLabels" type="checkbox" />
+            <span></span>
+            <strong>Show Edge Labels</strong>
+          </label>
+
         </div>
       </section>
     </section>
 
     <GraphPanel
+      v-if="graphMode === 'map'"
       :detail="selectedDetail"
       :preview="selectedPreview"
       :path-nodes="pathNodes"
@@ -190,6 +224,89 @@
       @add-compare="addCurrentToCompare"
       @open-member="showMemberModal"
     />
+
+    <section v-else class="conversation-workbench" aria-label="关联节点对话工作台">
+      <header class="workbench-header">
+        <div>
+          <BrainCircuit :size="17" />
+          <strong>SPARROW AGENT</strong>
+          <span>{{ dialogLoading ? 'BUILDING' : dialogActive ? 'GRAPH READY' : 'READY' }}</span>
+        </div>
+        <button type="button" title="返回图谱模式" @click="switchGraphMode('map')">
+          <X :size="16" />
+        </button>
+      </header>
+
+      <div class="workbench-steps" aria-label="工作流状态">
+        <div class="active">
+          <span>Step 1/2</span>
+          <strong>对话提取</strong>
+        </div>
+        <div :class="{ active: dialogActive }">
+          <span>Step 2/2</span>
+          <strong>临时图谱</strong>
+        </div>
+        <small :class="{ live: dialogLoading || dialogActive }"></small>
+      </div>
+
+      <div ref="dialogFeedRef" class="dialog-feed">
+        <div v-if="!dialogMessages.length" class="dialog-empty">
+          <MessageSquareText :size="24" />
+          <strong>与 Agent 对话</strong>
+          <span>例如：蒸汽机如何影响铁路和电力？</span>
+        </div>
+
+        <article
+          v-for="message in dialogMessages"
+          :key="message.id"
+          class="dialog-message"
+          :class="message.role"
+        >
+          <div class="message-meta">
+            <strong>{{ message.role === 'user' ? 'YOU' : 'AGENT' }}</strong>
+            <span v-if="message.title">{{ message.title }}</span>
+          </div>
+          <p>{{ message.content }}</p>
+
+          <div v-if="message.terms?.length" class="dialog-terms">
+            <span v-for="term in message.terms" :key="term">{{ term }}</span>
+          </div>
+
+          <div v-if="message.nodes?.length" class="dialog-node-list">
+            <button
+              v-for="node in message.nodes.slice(0, 10)"
+              :key="node.id"
+              type="button"
+              @click="showNode(node.id, { focus: true })"
+            >
+              <span>{{ node.name }}</span>
+              <small>{{ node.era }}</small>
+            </button>
+          </div>
+        </article>
+
+        <div v-if="dialogLoading" class="dialog-state">
+          <LoaderCircle class="spin" :size="16" />
+          <span>BUILDING GRAPH MEMORY</span>
+        </div>
+        <div v-if="dialogError" class="dialog-error">{{ dialogError }}</div>
+      </div>
+
+      <form class="workbench-input" @submit.prevent="runDialogExtraction()">
+        <textarea
+          ref="dialogInputRef"
+          v-model="dialogQuery"
+          rows="3"
+          placeholder="Ask Agent..."
+          :disabled="dialogLoading"
+          @keydown.enter.exact.prevent="runDialogExtraction()"
+        ></textarea>
+        <button type="submit" :disabled="dialogLoading || !dialogQuery.trim()" title="发送">
+          <LoaderCircle v-if="dialogLoading" class="spin" :size="16" />
+          <SendHorizontal v-else :size="16" />
+        </button>
+      </form>
+    </section>
 
     <section v-if="compareNodes.length" class="compare-dock" aria-label="技术对比">
       <div class="compare-head">
@@ -229,7 +346,6 @@
     </section>
   </main>
 
-  <AiDock ref="aiDockRef" :context-node="aiContextNode" />
   <LoginModal v-if="showLogin" @close="showLogin = false" />
   <MemberModal v-if="showMember" @close="showMember = false" />
 </template>
@@ -239,22 +355,24 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import {
   AlertTriangle,
+  BrainCircuit,
   Database,
   GitCompare,
   Layers,
   LoaderCircle,
   MapPinned,
   Maximize2,
+  MessageSquareText,
   Minimize2,
   RefreshCcw,
   RotateCcw,
   Route,
   Search,
+  SendHorizontal,
   X,
 } from '@lucide/vue'
 import AppHeader from '../../../app/components/AppHeader.vue'
 import GraphPanel from '../components/GraphPanel.vue'
-import AiDock from '../../ai/components/AiDock.vue'
 import LoginModal from '../../user/components/LoginModal.vue'
 import MemberModal from '../../trade/components/MemberModal.vue'
 import {
@@ -280,13 +398,32 @@ const COL_W = 230
 const ROW_H = 68
 const DEFAULT_VIEW = { zoom: 0.55, center: [4.5 * COL_W, 0] as [number, number] }
 const PROGRESS_KEY = 'sparrow_node_progress'
+const DIALOG_NODE_LIMIT = 140
+const DIALOG_NEIGHBOR_LIMIT = 10
 
 type ProgressState = 'want' | 'read' | 'mastered'
+type GraphMode = 'map' | 'dialog'
+type DialogExtraction = {
+  query: string
+  nodes: NodeBrief[]
+  edges: EdgeBrief[]
+}
+type DialogMessage = {
+  id: number
+  role: 'user' | 'assistant'
+  title?: string
+  content: string
+  terms?: string[]
+  nodes?: NodeBrief[]
+}
 
 const user = useUserStore()
 const chartRef = ref<HTMLElement | null>(null)
+const dialogFeedRef = ref<HTMLElement | null>(null)
+const dialogInputRef = ref<HTMLTextAreaElement | null>(null)
 let chart: echarts.ECharts | null = null
 let latestNodeRequest = 0
+let dialogMessageId = 0
 let graphPan: {
   pointerId: number
   startX: number
@@ -313,6 +450,15 @@ const compareNodes = ref<NodeBrief[]>([])
 const compareChains = ref<Record<number, NodeBrief[]>>({})
 const compareDetails = ref<Record<number, NodeDetail>>({})
 const knowledgeStatus = ref<KnowledgeStatus | null>(null)
+const graphMode = ref<GraphMode>('map')
+const showEdgeLabels = ref(false)
+const dialogQuery = ref('')
+const dialogLoading = ref(false)
+const dialogError = ref('')
+const dialogTerms = ref<string[]>([])
+const dialogResult = ref<DialogExtraction | null>(null)
+const dialogPreviousTree = ref<Tree | null>(null)
+const dialogMessages = ref<DialogMessage[]>([])
 
 // 维基级:总览(真实规模 + 领域列表)与有界子图过滤
 const overview = ref<Overview | null>(null)
@@ -332,7 +478,6 @@ const graphPanning = ref(false)
 const searchQuery = ref('')
 const searchOpen = ref(false)
 const activeSearchIndex = ref(0)
-const aiDockRef = ref<InstanceType<typeof AiDock> | null>(null)
 
 const nodeCount = computed(() => treeData.value?.nodes.length ?? 0)
 const edgeCount = computed(() => treeData.value?.edges.length ?? 0)
@@ -342,9 +487,10 @@ const categories = computed(() => overview.value?.categories ?? [])
 const eraCount = computed(() => new Set(treeData.value?.nodes.map(node => node.eraRank) ?? []).size)
 const premiumCount = computed(() => treeData.value?.nodes.filter(node => node.premium).length ?? 0)
 const nodeById = computed(() => new Map((treeData.value?.nodes ?? []).map(node => [node.id, node])))
+const dialogActive = computed(() => Boolean(dialogResult.value))
+const dialogNodeIds = computed(() => new Set(dialogResult.value?.nodes.map(node => node.id) ?? []))
 const activeEraRank = computed(() => selectedDetail.value?.eraRank ?? selectedPreview.value?.eraRank ?? null)
 const currentEraColor = computed(() => activeEraRank.value ? ERA_COLORS[activeEraRank.value] || '#111111' : '#ff5722')
-const aiContextNode = computed(() => selectedDetail.value ? detailToBrief(selectedDetail.value) : selectedPreview.value)
 const learningActive = computed(() => learningPath.value.active && learningPath.value.nodes.length > 0)
 const learningIndex = computed(() => learningActive.value ? learningPath.value.index : -1)
 const learningTotal = computed(() => learningActive.value ? learningPath.value.nodes.length : 0)
@@ -411,6 +557,10 @@ const pathNodes = computed(() => {
 })
 
 const selectedStatusText = computed(() => {
+  if (dialogActive.value && dialogResult.value) {
+    return `临时图谱 · ${dialogResult.value.nodes.length} 节点`
+  }
+  if (graphMode.value === 'dialog') return '输入问题提取相关节点'
   if (learningActive.value && learningCurrentNode.value) {
     return `路径第 ${learningIndex.value + 1} 步 · ${learningCurrentNode.value.name}`
   }
@@ -465,6 +615,10 @@ watch(searchQuery, (value) => {
   }, 220)
 })
 
+watch(showEdgeLabels, () => {
+  renderTree()
+})
+
 function detailToBrief(detail: NodeDetail): NodeBrief {
   return {
     id: detail.id,
@@ -475,6 +629,8 @@ function detailToBrief(detail: NodeDetail): NodeBrief {
     yearLabel: detail.yearLabel,
     summary: detail.summary,
     premium: detail.premium,
+    category: detail.category,
+    importance: detail.importance,
   }
 }
 
@@ -547,7 +703,8 @@ async function loadKnowledgeStatus() {
 }
 
 function openAiGuide() {
-  aiDockRef.value?.open()
+  switchGraphMode('dialog')
+  void nextTick(() => dialogInputRef.value?.focus())
 }
 
 function showMemberModal() {
@@ -556,6 +713,227 @@ function showMemberModal() {
     return
   }
   showMember.value = true
+}
+
+async function scrollDialogFeed() {
+  await nextTick()
+  if (dialogFeedRef.value) {
+    dialogFeedRef.value.scrollTop = dialogFeedRef.value.scrollHeight
+  }
+}
+
+function pushDialogMessage(message: Omit<DialogMessage, 'id'>) {
+  const item = { ...message, id: ++dialogMessageId }
+  dialogMessages.value = [...dialogMessages.value, item]
+  void scrollDialogFeed()
+  return item.id
+}
+
+function updateDialogMessage(id: number, patch: Partial<Omit<DialogMessage, 'id'>>) {
+  dialogMessages.value = dialogMessages.value.map(message => (
+    message.id === id ? { ...message, ...patch } : message
+  ))
+  void scrollDialogFeed()
+}
+
+function switchGraphMode(mode: GraphMode) {
+  if (mode === 'map' && dialogActive.value) {
+    exitDialogMode()
+    return
+  }
+  graphMode.value = mode
+  searchOpen.value = false
+  void nextTick(() => {
+    chart?.resize()
+    if (mode === 'dialog') dialogInputRef.value?.focus()
+  })
+}
+
+function uniqueItems<T>(items: T[]) {
+  return [...new Set(items)]
+}
+
+function extractQuestionTerms(text: string) {
+  const quoted = [...text.matchAll(/[《「『“"]([^》」』”"]{2,})[》」』”"]/g)].map(match => match[1])
+  const stopWords = /(请|帮我|给我|把|将|所有|全部|相关|节点|知识|科技|哪些|哪几|什么|如何|怎么|为什么|介绍|学习|了解|关系|路径|路线|发展|演化|演进|影响|作用|差异|区别|以及|并且|还有|是否|能否|可以|应该|一下|出来|自动|提取|临时|显示|展开|和|与|及|到|从|的|了|是|在|有|吗|呢)/g
+  const normalized = text
+    .replace(/[，。？！、；：,.?!;:()[\]{}<>《》「」『』“”"']/g, ' ')
+    .replace(stopWords, ' ')
+  const pieces = normalized.match(/[\u4e00-\u9fffA-Za-z0-9+#.-]{2,}/g) ?? []
+  const full = text.replace(/\s+/g, ' ').trim()
+  const terms = uniqueItems([
+    ...(full.length >= 2 && full.length <= 32 ? [full] : []),
+    ...quoted,
+    ...pieces,
+  ].map(term => term.trim()).filter(term => term.length >= 2 && term.length <= 32))
+  return terms.slice(0, 10)
+}
+
+function scoreDialogNode(node: NodeBrief, query: string, terms: string[]) {
+  const name = node.name || ''
+  const summary = node.summary || ''
+  const category = node.category || ''
+  let score = node.importance ?? 0
+  if (query.includes(name)) score += 1000
+  for (const term of terms) {
+    if (name.includes(term)) score += 180
+    if (summary.includes(term)) score += 36
+    if (category.includes(term) || node.era.includes(term)) score += 18
+  }
+  if (node.premium) score += 8
+  return score
+}
+
+function exitDialogMode() {
+  const restored = dialogPreviousTree.value
+  dialogResult.value = null
+  dialogTerms.value = []
+  dialogError.value = ''
+  dialogLoading.value = false
+  dialogPreviousTree.value = null
+  graphMode.value = 'map'
+
+  if (restored) {
+    treeData.value = restored
+  }
+
+  const selectedId = selectedDetail.value?.id ?? selectedPreview.value?.id
+  const selectedStillVisible = selectedId ? treeData.value?.nodes.some(node => node.id === selectedId) : false
+  if (!selectedStillVisible) {
+    selectedDetail.value = null
+    selectedPreview.value = null
+    selectedChain.value = []
+  }
+  highlight.value = null
+  renderTree()
+  void nextTick(() => chart?.resize())
+}
+
+async function runDialogExtraction(queryOverride?: string) {
+  const query = (typeof queryOverride === 'string' ? queryOverride : dialogQuery.value).trim()
+  if (!query || dialogLoading.value) return
+  graphMode.value = 'dialog'
+  dialogLoading.value = true
+  dialogError.value = ''
+  searchOpen.value = false
+  dialogQuery.value = ''
+  pushDialogMessage({ role: 'user', content: query })
+  const assistantMessageId = pushDialogMessage({
+    role: 'assistant',
+    title: 'BUILDING',
+    content: '正在解析问题并构造关联图谱。',
+  })
+
+  const terms = extractQuestionTerms(query)
+  dialogTerms.value = terms
+  if (!terms.length) {
+    dialogError.value = '没有识别到可检索的技术词'
+    updateDialogMessage(assistantMessageId, {
+      title: 'NO MATCH',
+      content: dialogError.value,
+    })
+    dialogLoading.value = false
+    return
+  }
+
+  const nodeMap = new Map<number, NodeBrief>()
+  const edgeMap = new Map<string, EdgeBrief>()
+  const addNode = (node?: NodeBrief | null) => {
+    if (node) nodeMap.set(node.id, { ...nodeMap.get(node.id), ...node })
+  }
+  const addEdge = (edge?: EdgeBrief | null) => {
+    if (!edge) return
+    edgeMap.set(`${edge.from}-${edge.to}`, edge)
+  }
+  const addTree = (tree?: Tree | null) => {
+    for (const node of tree?.nodes ?? []) addNode(node)
+    for (const edge of tree?.edges ?? []) addEdge(edge)
+  }
+
+  try {
+    const batches = await Promise.all(terms.map(async term => {
+      const [subgraph, hits] = await Promise.all([
+        fetchSubgraph({ q: term, limit: 80 }).catch(() => null),
+        searchNodes(term, 30).catch(() => []),
+      ])
+      return { subgraph, hits }
+    }))
+
+    for (const batch of batches) {
+      addTree(batch.subgraph)
+      for (const hit of batch.hits) addNode(hit)
+    }
+
+    const baseTree = dialogPreviousTree.value ?? treeData.value
+    if (!nodeMap.size) {
+      for (const node of baseTree?.nodes ?? []) {
+        if (query.includes(node.name) || terms.some(term => node.name.includes(term) || node.summary.includes(term))) {
+          addNode(node)
+        }
+      }
+    }
+
+    const centers = [...nodeMap.values()]
+      .sort((a, b) => scoreDialogNode(b, query, terms) - scoreDialogNode(a, query, terms))
+      .slice(0, DIALOG_NEIGHBOR_LIMIT)
+    const neighborhoods = await Promise.all(centers.map(node => fetchNeighborhood(node.id).catch(() => null)))
+    for (const nb of neighborhoods) {
+      if (!nb) continue
+      addNode(nb.center)
+      for (const node of nb.nodes) addNode(node)
+      for (const edge of nb.edges) addEdge(edge)
+    }
+
+    const nodes = [...nodeMap.values()]
+      .sort((a, b) => scoreDialogNode(b, query, terms) - scoreDialogNode(a, query, terms) || a.eraRank - b.eraRank || a.id - b.id)
+      .slice(0, DIALOG_NODE_LIMIT)
+    if (!nodes.length) {
+      dialogError.value = '没有找到匹配的图谱节点'
+      updateDialogMessage(assistantMessageId, {
+        title: 'NO MATCH',
+        content: dialogError.value,
+        terms,
+      })
+      return
+    }
+
+    const allowed = new Set(nodes.map(node => node.id))
+    const edges = [...edgeMap.values()].filter(edge => allowed.has(edge.from) && allowed.has(edge.to))
+    if (!dialogPreviousTree.value && treeData.value) {
+      dialogPreviousTree.value = {
+        nodes: [...treeData.value.nodes],
+        edges: [...treeData.value.edges],
+      }
+    }
+
+    treeData.value = { nodes, edges }
+    dialogResult.value = { query, nodes, edges }
+    selectedDetail.value = null
+    selectedPreview.value = nodes[0] ?? null
+    selectedChain.value = []
+    highlight.value = nodes[0]
+      ? { selectedId: nodes[0].id, chainIds: new Set(nodes.map(node => node.id)) }
+      : null
+
+    await nextTick()
+    renderTree()
+    if (nodes[0]) centerNode(nodes[0].id, 1.08)
+    updateDialogMessage(assistantMessageId, {
+      title: 'GRAPH READY',
+      content: `已构造 ${nodes.length} 个节点、${edges.length} 条关系的临时图谱。`,
+      terms,
+      nodes,
+    })
+  } catch (error: any) {
+    dialogError.value = error.message || '临时图谱生成失败'
+    updateDialogMessage(assistantMessageId, {
+      title: 'ERROR',
+      content: dialogError.value,
+      terms,
+    })
+  } finally {
+    dialogLoading.value = false
+  }
 }
 
 function layoutNodes(nodes: NodeBrief[]) {
@@ -583,6 +961,8 @@ function buildOption() {
   const selected = highlight.value ? highlight.value.selectedId : null
   const learningNodeId = learningCurrentNode.value?.id ?? null
   const learningIds = learningActive.value ? new Set(learningPath.value.nodes.map(node => node.id)) : null
+  const isDialogGraph = dialogActive.value
+  const tempIds = dialogNodeIds.value
   const eras: Record<number, string> = {}
   for (const node of nodes) eras[node.eraRank] = node.era
 
@@ -618,30 +998,37 @@ function buildOption() {
       const inLearningPath = learningIds?.has(node.id) ?? false
       const isLearningCurrent = node.id === learningNodeId
       const labelLength = Array.from(node.name).length
+      const isDialogNode = tempIds.has(node.id)
       return {
         id: String(node.id),
         name: node.name,
         x: pos[node.id].x,
         y: pos[node.id].y,
-        symbol: 'roundRect',
-        symbolSize: [
-          Math.max(labelLength * 14 + (node.premium ? 48 : 30) + (isLearningCurrent ? 20 : 0), 84),
-          isLearningCurrent ? 42 : 34,
-        ],
+        symbol: isDialogGraph ? 'circle' : 'roundRect',
+        symbolSize: isDialogGraph
+          ? (isSelected ? 24 : inChain ? 21 : 18)
+          : [
+              Math.max(labelLength * 14 + (node.premium ? 48 : 30) + (isLearningCurrent ? 20 : 0), 84),
+              isLearningCurrent ? 42 : 34,
+            ],
         itemStyle: {
           color: ERA_COLORS[node.eraRank] || '#111111',
           opacity: dim ? 0.18 : 1,
-          borderColor: isLearningCurrent ? '#ff5722' : isSelected ? '#000000' : inChain ? '#ff5722' : '#ffffff',
-          borderWidth: isLearningCurrent ? 4 : isSelected ? 3 : inChain ? 2 : 1,
-          shadowBlur: isLearningCurrent ? 26 : inChain ? 14 : 0,
+          borderColor: isDialogNode ? '#ffffff' : isLearningCurrent ? '#ff5722' : isSelected ? '#000000' : inChain ? '#ff5722' : '#ffffff',
+          borderWidth: isDialogGraph ? (isSelected ? 4 : 2) : isLearningCurrent ? 4 : isSelected ? 3 : inChain ? 2 : 1,
+          shadowBlur: isDialogGraph ? (isSelected ? 20 : 8) : isLearningCurrent ? 26 : inChain ? 14 : 0,
           shadowColor: isLearningCurrent ? 'rgba(255, 87, 34, 0.56)' : 'rgba(255, 87, 34, 0.34)',
         },
         label: {
           show: true,
-          color: '#ffffff',
-          fontSize: 12,
+          color: isDialogGraph ? '#2f3437' : '#ffffff',
+          fontSize: isDialogGraph ? 11 : 12,
           fontWeight: isLearningCurrent ? 900 : 700,
           formatter: `${node.premium ? 'PRO · ' : ''}${node.name}`,
+          position: isDialogGraph ? 'right' : 'inside',
+          backgroundColor: isDialogGraph ? 'rgba(255, 255, 255, 0.76)' : 'transparent',
+          borderRadius: isDialogGraph ? 3 : 0,
+          padding: isDialogGraph ? [2, 4] : 0,
           opacity: dim && !inLearningPath ? 0.28 : 1,
         },
         _nodeId: node.id,
@@ -655,11 +1042,17 @@ function buildOption() {
     return {
       source: String(edge.from),
       target: String(edge.to),
+      label: {
+        show: showEdgeLabels.value,
+        formatter: 'PRE',
+        color: '#7a7a7a',
+        fontSize: 9,
+      },
       lineStyle: {
-        color: active ? '#ff5722' : '#d5d5d5',
-        width: active ? 2.2 : 1,
-        opacity: chain ? (active ? 0.96 : 0.16) : 0.62,
-        curveness: 0.18,
+        color: active ? '#ff5722' : isDialogGraph ? '#b8b8b8' : '#d5d5d5',
+        width: active ? 2.2 : isDialogGraph ? 1.15 : 1,
+        opacity: chain ? (active ? 0.96 : 0.16) : isDialogGraph ? 0.52 : 0.62,
+        curveness: isDialogGraph ? 0.08 : 0.18,
       },
     }
   })
@@ -696,6 +1089,7 @@ function buildOption() {
       edges: edgeData,
       edgeSymbol: ['none', 'arrow'],
       edgeSymbolSize: 7,
+      labelLayout: { hideOverlap: true },
       emphasis: { disabled: true },
       silent: false,
     }],
@@ -732,12 +1126,14 @@ async function loadOverview() {
 }
 
 function setCategory(cat: string | null) {
+  if (dialogActive.value) exitDialogMode()
   activeCategory.value = activeCategory.value === cat ? null : cat
   void loadTree()
 }
 
 function setLimit(limit: number) {
   if (graphLimit.value === limit) return
+  if (dialogActive.value) exitDialogMode()
   graphLimit.value = limit
   void loadTree()
 }
@@ -756,6 +1152,13 @@ function mergeSubgraph(nodes: NodeBrief[], edges: EdgeBrief[]) {
     }
   }
   treeData.value = { nodes: [...nodeMap.values()], edges: mergedEdges }
+  if (dialogResult.value) {
+    dialogResult.value = {
+      ...dialogResult.value,
+      nodes: treeData.value.nodes,
+      edges: treeData.value.edges,
+    }
+  }
 }
 
 /** 拉取节点邻域并并入显示子图(搜索定位到图外节点时用)。 */
@@ -770,6 +1173,12 @@ async function expandNode(id: number) {
 }
 
 async function refreshGraph() {
+  const currentDialogQuery = dialogResult.value?.query ?? dialogQuery.value.trim()
+  if (graphMode.value === 'dialog' && currentDialogQuery) {
+    await runDialogExtraction(currentDialogQuery)
+    await loadKnowledgeStatus()
+    return
+  }
   const selectedId = selectedDetail.value?.id ?? selectedPreview.value?.id
   const keepLearning = learningActive.value
   await loadTree()
@@ -1068,7 +1477,91 @@ onUnmounted(() => {
   display: flex;
   height: calc(100vh - 64px);
   min-height: 0;
-  background: var(--bg);
+  background: var(--surface);
+  gap: 14px;
+  padding: 14px;
+}
+
+.layout.dialog-layout {
+  gap: 8px;
+  padding: 8px;
+  background: #eef1f4;
+}
+
+/* ── 左侧控制台 ── */
+.side-rail {
+  flex: 0 0 244px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.rail-head {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.accent-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.rail-head h1 {
+  margin-top: 9px;
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.rail-head p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.rail-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rail-stats .stat {
+  display: grid;
+  gap: 3px;
+  padding: 6px 0;
+}
+
+.rail-stats strong {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.rail-stats span {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
 }
 
 .graph-workspace {
@@ -1076,181 +1569,174 @@ onUnmounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
   overflow: hidden;
 }
 
-.overview-strip {
-  display: grid;
-  grid-template-columns: minmax(320px, 1fr) auto;
-  gap: 14px;
-  align-items: center;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  box-shadow: var(--shadow-sm);
-  padding: 12px 14px;
+.dialog-layout .graph-workspace {
+  flex: 1 1 auto;
 }
 
-.overview-copy {
-  min-width: 0;
+.rail-section {
+  padding: 12px 16px;
 }
 
-.accent-tag {
-  display: inline-flex;
+.rail-section + .rail-section {
+  border-top: 1px solid var(--line);
+}
+
+.rail-label {
+  display: flex;
   align-items: center;
-  min-height: 22px;
-  padding: 0 8px;
-  background: rgba(255, 87, 34, 0.1);
-  border: 1px solid rgba(255, 87, 34, 0.25);
-  color: var(--accent);
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--muted);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.1em;
 }
 
-.overview-copy h1 {
-  margin-top: 7px;
-  font-size: 28px;
-  line-height: 1.1;
-  letter-spacing: 0;
-}
-
-.overview-copy p {
-  margin-top: 6px;
-  max-width: 760px;
-  color: var(--ink-2);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.metric-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(82px, 1fr));
-  border: 1px solid var(--line);
-  background: var(--surface);
-}
-
-.overview-side {
-  display: grid;
-  gap: 8px;
-  min-width: min(520px, 100%);
-}
-
-.graph-filter {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-}
-
-.filter-scroll {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-
-.filter-ic {
-  flex: none;
+.rail-label svg {
   color: var(--accent);
 }
 
-.filter-scroll button,
-.filter-lod button {
-  flex: none;
-  min-height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
+.rail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rail-chips button {
+  min-height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
   color: var(--ink-2);
   font-size: 12px;
-  white-space: nowrap;
   cursor: pointer;
   transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
 }
 
-.filter-scroll button:hover,
-.filter-lod button:hover {
+.rail-chips button:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-.filter-scroll button.active,
-.filter-lod button.active {
+.rail-chips button.active {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--bg);
   font-weight: 700;
 }
 
-.filter-lod {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex: none;
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
-}
-
-.filter-lod span {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.metric {
+.rail-eras {
   display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border-right: 1px solid var(--line);
+  gap: 3px;
 }
 
-.metric:last-child {
-  border-right: 0;
-}
-
-.metric strong {
-  font-size: 22px;
-  line-height: 1;
-}
-
-.metric span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
-.knowledge-status {
-  min-height: 34px;
+.rail-eras button {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 12px 1fr auto;
   align-items: center;
-  gap: 8px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  padding: 0 10px;
+  gap: 9px;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--ink-2);
-  font-size: 12px;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
-.knowledge-status svg {
-  color: var(--accent);
+.rail-eras button:hover {
+  background: var(--surface);
+  color: var(--ink);
 }
 
-.knowledge-status span {
-  min-width: 0;
+.rail-eras button.active {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.rail-eras .era-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--era-color, var(--accent));
+}
+
+.rail-eras .era-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.knowledge-status strong {
+.rail-eras small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rail-density {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.rail-density button {
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+
+.rail-density button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rail-density button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+
+.rail-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.rail-foot svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.rail-foot div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rail-foot span {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-foot strong {
   color: var(--ink);
   font-size: 11px;
 }
@@ -1261,8 +1747,10 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: var(--panel);
   box-shadow: var(--shadow-sm);
+  overflow: hidden;
 }
 
 .graph-shell.fullscreen {
@@ -1280,7 +1768,7 @@ onUnmounted(() => {
   gap: 12px;
   padding: 9px 14px;
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--panel);
 }
 
 .toolbar-title,
@@ -1306,21 +1794,56 @@ onUnmounted(() => {
   color: var(--accent);
 }
 
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 38px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.mode-switch button {
+  min-width: 58px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mode-switch button:hover {
+  color: var(--ink);
+}
+
+.mode-switch button.active {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+
 .search-box {
   position: relative;
   flex: 999 1 300px;
-  height: 34px;
+  height: 36px;
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
-  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 0 13px;
 }
 
 .search-box:focus-within {
-  border-color: var(--ink);
+  border-color: var(--accent);
+  background: var(--panel);
 }
 
 .search-box svg {
@@ -1337,6 +1860,88 @@ onUnmounted(() => {
   background: transparent;
   color: var(--ink);
   font-size: 13px;
+}
+
+.dialog-form {
+  position: relative;
+  flex: 999 1 360px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel);
+  padding: 0 7px 0 13px;
+}
+
+.dialog-form:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 87, 34, 0.1);
+}
+
+.dialog-form svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.dialog-form input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.dialog-form button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--bg);
+  cursor: pointer;
+}
+
+.dialog-form button:disabled {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: default;
+}
+
+.dialog-mode-status {
+  flex: 999 1 360px;
+  min-width: 0;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dialog-mode-status svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.dialog-mode-status span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .clear-search {
@@ -1356,7 +1961,8 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   z-index: 20;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
   background: var(--panel);
   box-shadow: var(--shadow-md);
   padding: 4px;
@@ -1367,6 +1973,7 @@ onUnmounted(() => {
   display: grid;
   gap: 3px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
   padding: 9px 10px;
   text-align: left;
@@ -1404,41 +2011,28 @@ onUnmounted(() => {
 }
 
 .tool-btn {
-  min-height: 30px;
+  width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
   color: var(--ink-2);
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 800;
   cursor: pointer;
   transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
 }
 
 .tool-btn:hover:not(:disabled) {
-  border-color: var(--ink);
-  background: var(--surface-2);
-  color: var(--ink);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .tool-btn:disabled {
   color: var(--muted);
   cursor: default;
-}
-
-.tool-btn.icon-only {
-  width: 32px;
-  padding: 0;
-}
-
-.live-dot {
-  width: 7px;
-  height: 7px;
-  background: var(--success);
 }
 
 .graph-canvas-wrap {
@@ -1495,6 +2089,514 @@ onUnmounted(() => {
 
 .graph-overlay.error svg {
   color: var(--danger);
+}
+
+.graph-legend {
+  position: absolute;
+  left: 20px;
+  bottom: 20px;
+  z-index: 7;
+  width: min(520px, calc(100% - 40px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 16px;
+  backdrop-filter: blur(10px);
+}
+
+.legend-title {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.legend-items button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 150px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  padding: 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.legend-items button:hover,
+.legend-items button.active {
+  color: var(--ink);
+}
+
+.legend-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--era-color);
+}
+
+.legend-items span:not(.legend-dot) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-items small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.edge-label-toggle {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  z-index: 7;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-sm);
+  padding: 0 15px 0 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.edge-label-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.edge-label-toggle span {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: #d8d8d8;
+  transition: background 0.16s ease;
+}
+
+.edge-label-toggle span::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  transition: transform 0.16s ease;
+}
+
+.edge-label-toggle input:checked + span {
+  background: var(--accent);
+}
+
+.edge-label-toggle input:checked + span::after {
+  transform: translateX(20px);
+}
+
+.edge-label-toggle strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dialog-card {
+  position: absolute;
+  top: 70px;
+  right: 18px;
+  z-index: 8;
+  width: min(360px, calc(100% - 36px));
+  max-height: min(470px, calc(100% - 124px));
+  display: grid;
+  gap: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-md);
+  padding: 14px;
+  backdrop-filter: blur(12px);
+}
+
+.dialog-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dialog-card header div,
+.dialog-card header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dialog-card header svg {
+  color: var(--accent);
+}
+
+.dialog-card header strong {
+  font-size: 14px;
+}
+
+.dialog-card header span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.dialog-card header button {
+  min-height: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--accent);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.dialog-query {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.dialog-terms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dialog-terms span {
+  border: 1px solid rgba(255, 87, 34, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 87, 34, 0.08);
+  color: var(--accent);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.dialog-state,
+.dialog-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.dialog-error {
+  color: var(--danger);
+}
+
+.dialog-node-list {
+  display: grid;
+  gap: 6px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.dialog-node-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dialog-node-list button:hover {
+  border-color: var(--accent);
+  background: rgba(255, 87, 34, 0.07);
+}
+
+.dialog-node-list span {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialog-node-list small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.conversation-workbench {
+  flex: 0 0 min(440px, 34vw);
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.workbench-header {
+  flex: none;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workbench-header div {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workbench-header svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.workbench-header strong {
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.workbench-header span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.workbench-header button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.workbench-header button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.workbench-steps {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfbfb;
+}
+
+.workbench-steps div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+  color: var(--muted);
+}
+
+.workbench-steps div.active {
+  border-color: rgba(255, 87, 34, 0.28);
+  background: rgba(255, 87, 34, 0.07);
+  color: var(--ink);
+}
+
+.workbench-steps span {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.workbench-steps strong {
+  font-size: 12px;
+}
+
+.workbench-steps small {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #c7c7c7;
+}
+
+.workbench-steps small.live {
+  background: var(--success);
+}
+
+.dialog-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  background:
+    linear-gradient(#ffffff, rgba(255, 255, 255, 0.94)),
+    radial-gradient(#dddddd 1px, transparent 1px);
+  background-size: auto, 20px 20px;
+}
+
+.dialog-empty {
+  min-height: 240px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.dialog-empty svg {
+  color: var(--accent);
+}
+
+.dialog-empty strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.dialog-empty span {
+  font-size: 12px;
+}
+
+.dialog-message {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.dialog-message.user {
+  border-color: rgba(17, 24, 39, 0.18);
+  background: #f6f7f8;
+}
+
+.dialog-message.assistant {
+  border-color: rgba(255, 87, 34, 0.2);
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.message-meta strong {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.message-meta span {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.dialog-message p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.workbench-input {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  background: #f7f8f9;
+}
+
+.workbench-input textarea {
+  min-width: 0;
+  min-height: 74px;
+  max-height: 144px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: none;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.workbench-input textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 87, 34, 0.1);
+}
+
+.workbench-input button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.workbench-input button:disabled {
+  background: #d4d8dd;
+  cursor: default;
 }
 
 .spin {
@@ -1747,6 +2849,47 @@ onUnmounted(() => {
 
   .graph-shell.fullscreen {
     inset: 72px 12px 12px;
+  }
+
+  .mode-switch,
+  .dialog-form,
+  .dialog-mode-status,
+  .search-box {
+    flex: 1 1 100%;
+  }
+
+  .layout.dialog-layout {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .conversation-workbench {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 520px;
+  }
+
+  .graph-legend {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    max-height: 130px;
+    overflow-y: auto;
+  }
+
+  .edge-label-toggle {
+    top: 12px;
+    right: 12px;
+  }
+
+  .dialog-card {
+    top: 62px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: 42vh;
   }
 
   .era-rail {

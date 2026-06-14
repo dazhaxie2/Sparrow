@@ -7,6 +7,7 @@
 """
 import asyncio
 import json
+import re
 from collections import deque
 
 import config
@@ -85,6 +86,68 @@ async def _discover_categories(max_depth: int):
 
 def discover_from_categories(max_depth: int = None):
     asyncio.run(_discover_categories(config.DISCOVER_MAX_DEPTH if max_depth is None else max_depth))
+
+
+# 明显非"技术词条"的标题特征:年份/年表/列表/机构/地名/学科泛称等,链接扩展时剔除
+_NONTECH_MARKERS = (
+    "列表", "年表", "大学", "學院", "学院", "公司", "集团", "協會", "协会", "学会", "學會",
+    "委员会", "委員會", "战争", "戰爭", "条约", "條約", "事件", "战役", "戰役", "王朝",
+    "帝国", "帝國", "共和国", "共和國", "运动", "運動", "主义", "主義", "奖", "獎",
+    "电影", "電影", "游戏", "遊戲", "小说", "小說", "歌曲", "专辑", "專輯", "节日", "節日",
+)
+_YEAR_RE = re.compile(r"^\d{1,4}\s*(年|世纪|世紀|年代|月|日)?$|^公元")
+
+
+def _looks_tech(title: str) -> bool:
+    if not title or len(title) > 24 or len(title) < 2:
+        return False
+    if _YEAR_RE.match(title):
+        return False
+    if title.startswith(("Category:", "分类:", "Wikipedia:", "Template:", "File:", "Portal:")):
+        return False
+    if any(m in title for m in _NONTECH_MARKERS):
+        return False
+    return True
+
+
+def expand_links_bulk(min_freq: int = 2, max_add: int = 10000):
+    """从已爬页面的内链按出现频次扩展候选(纯查库,不占维基带宽,突破类目天花板)。
+
+    被多个技术词条共同链接的标题 = 技术语料里的中心概念,优先纳入;带轻量非技术过滤。
+    """
+    import json as _json
+    from collections import Counter
+    conn = db.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT term, page_title FROM tech_candidate")
+            rows = cur.fetchall()
+        known = set()
+        for r in rows:
+            known.add(r["term"])
+            if r["page_title"]:
+                known.add(r["page_title"])
+        freq = Counter()
+        for rp in db.all_raw_pages(conn):
+            try:
+                links = _json.loads(rp["links_json"]) if rp["links_json"] else []
+            except (ValueError, TypeError):
+                links = []
+            for link in links:
+                if link not in known and _looks_tech(link):
+                    freq[link] += 1
+        added = 0
+        for title, n in freq.most_common():
+            if added >= max_add:
+                break
+            if n < min_freq:
+                break  # most_common 降序,后面更小,直接停
+            db.upsert_candidate(conn, title, "link")
+            added += 1
+        print(f"[expand] 链接扩展完成: 新增候选 {added}(频次≥{min_freq}),"
+              f"候选总量约 {db.count_candidates(conn)}")
+    finally:
+        conn.close()
 
 
 def expand_from_links(limit: int = 30):

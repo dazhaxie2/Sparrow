@@ -170,22 +170,21 @@ def _extract_tier_a(conn, candidates):
         conn.ping(reconnect=True)  # LLM 调用期间闲置连接可能被掐断
         page = db.raw_page_of(conn, c["id"])
         if not page or not page["extract_text"]:
-            db.mark_candidate(conn, c["id"], "FAILED")
-            continue
+            continue  # 增强阶段:已在全量分类中入图,缺页就跳过,不降级
         name = canonical_name_of(c)
         try:
             data = extract_one(name, page["extract_text"])
-        except Exception as e:  # noqa: BLE001 - 单条失败用规则兜底(无 era 则进 RAG 不进图)
-            print(f"  ✗ {name}: LLM 失败({e}),规则兜底")
-            data = _rule_fallback(page["extract_text"])
+        except Exception as e:  # noqa: BLE001 - 单条失败保留分类结果,不覆盖
+            print(f"  ✗ {name}: LLM 失败({e}),保留分类结果")
+            continue
         if not data:
-            db.mark_candidate(conn, c["id"], "FAILED")
             continue
         category = data.get("category") or c.get("category")
         db.mark_candidate(conn, c["id"], "EXTRACTED",
                           era=data["era"], era_rank=data["era_rank"],
                           year_label=data.get("year_label"),
-                          summary=data["summary"], detail=data["detail"], category=category)
+                          summary=data.get("summary") or name,
+                          detail=data.get("detail"), category=category)
         for pre in data.get("prerequisites", []):
             db.add_relation(conn, pre, name, kind="llm")
         ok += 1
@@ -218,9 +217,11 @@ def _extract_tier_b(conn, candidates):
             era = meta["era"] if meta else None
             era_rank = meta["era_rank"] if meta else None
             category = (meta["category"] if meta and meta["category"] else None) or c.get("category")
+            # summary 不能为空(tech_node.summary NOT NULL);短词条无段落时退回技术名
+            summary = (rule or {}).get("summary") or name
             db.mark_candidate(conn, c["id"], "EXTRACTED",
                               era=era, era_rank=era_rank, year_label=None,
-                              summary=(rule or {}).get("summary"),
+                              summary=summary,
                               detail=(rule or {}).get("detail"), category=category)
             ok += 1
         print(f"  ✓[B] 批 {i // config.CLASSIFY_BATCH_SIZE + 1}: 分类 {len(batch)} 条 "
@@ -249,14 +250,16 @@ def run(limit: int = 50):
             print(f"[extract] 规则降级完成(未配置 AI_API_KEY): {mode_ok} 条")
             return
 
-        cutoff = db.tier_a_cutoff(conn, config.TIER_A_TOP)
-        tier_a = [c for c in crawled if (c["importance"] or 0) >= cutoff]
-        tier_b = [c for c in crawled if (c["importance"] or 0) < cutoff]
-        print(f"[extract] 待抽取 {len(crawled)} 条: Tier-A 深度 {len(tier_a)}(importance≥{cutoff}), "
-              f"Tier-B 轻量 {len(tier_b)}; token 预算 {config.TOKEN_BUDGET or '不限'}")
-        ok_a, stop_a = _extract_tier_a(conn, tier_a)
-        ok_b, stop_b = (0, 0) if stop_a else _extract_tier_b(conn, tier_b)
-        print(f"[extract] 完成: Tier-A {ok_a}, Tier-B {ok_b}, 累计 token {tokens_used()}"
-              + ("(预算触顶,部分留待续跑)" if stop_a or stop_b else ""))
+        # 维基级关键:先给【全部】已爬词条做廉价批量分类(era/category + 规则摘要),
+        # 保证人人都能成节点;再用剩余预算给【头部】(按重要度,crawled 已降序)深度增强
+        # (富文本 detail + LLM 前置边)。顺序若反过来,头部深度抽取会吃光 token 池,
+        # 长尾分类全失败、没 era、不入图,节点数就上不了万。
+        top_n = min(len(crawled), config.TIER_A_TOP)
+        print(f"[extract] 待抽取 {len(crawled)} 条: 先全量分类成节点, 再深度增强头部 {top_n} 个; "
+              f"token 预算 {config.TOKEN_BUDGET or '不限'}")
+        ok_b, stop_b = _extract_tier_b(conn, crawled)
+        ok_a, stop_a = (0, 0) if stop_b else _extract_tier_a(conn, crawled[:config.TIER_A_TOP])
+        print(f"[extract] 完成: 全量分类入图 {ok_b}, 深度增强 {ok_a}, 累计 token {tokens_used()}"
+              + ("(预算触顶,深度增强部分留待续跑)" if stop_a or stop_b else ""))
     finally:
         conn.close()

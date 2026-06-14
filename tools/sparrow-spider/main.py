@@ -43,6 +43,8 @@ def main():
     parser.add_argument("--extract", action="store_true", help="分层抽取知识(Tier-A 深度 / Tier-B 批量分类)")
     parser.add_argument("--build-edges", action="store_true", help="构建结构边(内链共现,无 LLM)")
     parser.add_argument("--expand", action="store_true", help="内链扩展候选(需 AI_API_KEY)")
+    parser.add_argument("--expand-links", action="store_true",
+                        help="从已爬页面内链按频次扩展候选(纯查库,突破分类天花板)")
     parser.add_argument("--export", action="store_true", help="导出 Sparrow 产物文件")
     parser.add_argument("--sync-sparrow", action="store_true",
                         help="直连同步进 Sparrow 业务库(节点/边/增补/RAG 语料 + 缓存失效)")
@@ -53,7 +55,8 @@ def main():
     args = parser.parse_args()
 
     if not any([args.init_seeds, args.discover_categories, args.crawl, args.rank, args.extract,
-                args.build_edges, args.expand, args.export, args.sync_sparrow, args.all, args.status]):
+                args.build_edges, args.expand, args.expand_links, args.export, args.sync_sparrow,
+                args.all, args.status]):
         parser.print_help()
         return
 
@@ -74,12 +77,18 @@ def main():
     if args.discover_categories or args.all:
         from topic_discovery import discover
         discover.discover_from_categories()
+    if args.all:
+        from topic_discovery import discover as _disc
+        _disc.expand_links_bulk()
     if args.crawl or args.all:
         from deep_crawling import crawler
         crawler.run(limit=args.limit)
     if args.expand:
         from topic_discovery import discover
         discover.expand_from_links(limit=args.limit)
+    if args.expand_links:
+        from topic_discovery import discover
+        discover.expand_links_bulk()
     if args.rank or args.all:
         from knowledge_extraction import relation_builder
         conn = db.connect()
