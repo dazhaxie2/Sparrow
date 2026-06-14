@@ -16,8 +16,8 @@
 
         <div class="overview-side">
           <div class="metric-row" aria-label="图谱指标">
-            <div class="metric"><strong>{{ nodeCount }}</strong><span>节点</span></div>
-            <div class="metric"><strong>{{ edgeCount }}</strong><span>关系</span></div>
+            <div class="metric"><strong>{{ totalNodes }}</strong><span>节点</span></div>
+            <div class="metric"><strong>{{ totalEdges }}</strong><span>关系</span></div>
             <div class="metric"><strong>{{ progressCounts.mastered }}</strong><span>已掌握</span></div>
             <div class="metric"><strong>{{ premiumCount }}</strong><span>深度内容</span></div>
           </div>
@@ -35,7 +35,7 @@
           <div class="toolbar-title">
             <MapPinned :size="16" />
             <strong>科技图谱</strong>
-            <span>{{ nodeCount || '--' }} 个节点</span>
+            <span>显示 {{ nodeCount }} / {{ totalNodes }} 节点</span>
           </div>
 
           <div class="search-box" @keydown.down.prevent="moveSearch(1)" @keydown.up.prevent="moveSearch(-1)">
@@ -91,8 +91,45 @@
           </div>
         </div>
 
+        <div v-if="categories.length" class="graph-filter" aria-label="领域筛选">
+          <div class="filter-scroll">
+            <Layers :size="14" class="filter-ic" />
+            <button
+              type="button"
+              :class="{ active: activeCategory === null }"
+              @click="setCategory(null)"
+            >全部领域</button>
+            <button
+              v-for="cat in categories"
+              :key="cat"
+              type="button"
+              :class="{ active: activeCategory === cat }"
+              @click="setCategory(cat)"
+            >{{ cat }}</button>
+          </div>
+          <div class="filter-lod" title="显示密度(按重要度取前 N 个节点)">
+            <span>密度</span>
+            <button
+              v-for="opt in LIMIT_OPTIONS"
+              :key="opt"
+              type="button"
+              :class="{ active: graphLimit === opt }"
+              @click="setLimit(opt)"
+            >{{ opt }}</button>
+          </div>
+        </div>
+
         <div class="graph-canvas-wrap">
-          <div ref="chartRef" class="chart-area"></div>
+          <div
+            ref="chartRef"
+            class="chart-area"
+            :class="{ 'is-panning': graphPanning }"
+            @pointerdown="startGraphPan"
+            @pointermove="moveGraphPan"
+            @pointerup="stopGraphPan"
+            @pointercancel="cancelGraphPan"
+            @lostpointercapture="cancelGraphPan"
+          ></div>
 
           <div v-if="treeLoading" class="graph-overlay">
             <LoaderCircle class="spin" :size="22" />
@@ -204,6 +241,7 @@ import {
   AlertTriangle,
   Database,
   GitCompare,
+  Layers,
   LoaderCircle,
   MapPinned,
   Maximize2,
@@ -219,8 +257,11 @@ import GraphPanel from '../components/GraphPanel.vue'
 import AiDock from '../../ai/components/AiDock.vue'
 import LoginModal from '../../user/components/LoginModal.vue'
 import MemberModal from '../../trade/components/MemberModal.vue'
-import { fetchTree, fetchNode, fetchPrerequisites, fetchKnowledgeStatus } from '../api'
-import type { Tree, NodeBrief, NodeDetail, KnowledgeStatus } from '../types'
+import {
+  fetchSubgraph, fetchOverview, fetchNeighborhood, searchNodes,
+  fetchNode, fetchPrerequisites, fetchKnowledgeStatus,
+} from '../api'
+import type { Tree, NodeBrief, NodeDetail, KnowledgeStatus, Overview, EdgeBrief } from '../types'
 import { useUserStore } from '../../user/store'
 
 const ERA_COLORS: Record<number, string> = {
@@ -246,6 +287,15 @@ const user = useUserStore()
 const chartRef = ref<HTMLElement | null>(null)
 let chart: echarts.ECharts | null = null
 let latestNodeRequest = 0
+let graphPan: {
+  pointerId: number
+  startX: number
+  startY: number
+  center: [number, number]
+  zoom: number
+  moved: boolean
+} | null = null
+let suppressNextGraphClick = false
 
 const treeData = ref<Tree | null>(null)
 const selectedDetail = ref<NodeDetail | null>(null)
@@ -264,6 +314,12 @@ const compareChains = ref<Record<number, NodeBrief[]>>({})
 const compareDetails = ref<Record<number, NodeDetail>>({})
 const knowledgeStatus = ref<KnowledgeStatus | null>(null)
 
+// 维基级:总览(真实规模 + 领域列表)与有界子图过滤
+const overview = ref<Overview | null>(null)
+const activeCategory = ref<string | null>(null)
+const graphLimit = ref(400)
+const LIMIT_OPTIONS = [200, 400, 800]
+
 const treeLoading = ref(false)
 const treeError = ref('')
 const nodeLoading = ref(false)
@@ -272,6 +328,7 @@ const knowledgeError = ref('')
 const showLogin = ref(false)
 const showMember = ref(false)
 const graphFullScreen = ref(false)
+const graphPanning = ref(false)
 const searchQuery = ref('')
 const searchOpen = ref(false)
 const activeSearchIndex = ref(0)
@@ -279,6 +336,9 @@ const aiDockRef = ref<InstanceType<typeof AiDock> | null>(null)
 
 const nodeCount = computed(() => treeData.value?.nodes.length ?? 0)
 const edgeCount = computed(() => treeData.value?.edges.length ?? 0)
+const totalNodes = computed(() => overview.value?.totalNodes ?? nodeCount.value)
+const totalEdges = computed(() => overview.value?.totalEdges ?? edgeCount.value)
+const categories = computed(() => overview.value?.categories ?? [])
 const eraCount = computed(() => new Set(treeData.value?.nodes.map(node => node.eraRank) ?? []).size)
 const premiumCount = computed(() => treeData.value?.nodes.filter(node => node.premium).length ?? 0)
 const nodeById = computed(() => new Map((treeData.value?.nodes ?? []).map(node => [node.id, node])))
@@ -381,39 +441,29 @@ const branchSummary = computed(() => {
     .join('；')
 })
 
-const searchResults = computed(() => {
-  const query = normalize(searchQuery.value)
-  if (!query) return []
-  return (treeData.value?.nodes ?? [])
-    .map(node => ({ node, score: scoreNode(node, query) }))
-    .filter(item => item.score > 0)
-    .sort((a, b) => b.score - a.score || a.node.eraRank - b.node.eraRank || a.node.id - b.node.id)
-    .slice(0, 8)
-    .map(item => item.node)
-})
+// 服务端检索(适配万级规模),带防抖与请求竞态保护
+const searchResults = ref<NodeBrief[]>([])
+let searchSeq = 0
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
-watch(searchResults, () => {
+watch(searchQuery, (value) => {
   activeSearchIndex.value = 0
+  if (searchTimer) clearTimeout(searchTimer)
+  const query = value.trim()
+  if (!query) {
+    searchResults.value = []
+    return
+  }
+  searchTimer = setTimeout(async () => {
+    const seq = ++searchSeq
+    try {
+      const results = await searchNodes(query)
+      if (seq === searchSeq) searchResults.value = results
+    } catch {
+      if (seq === searchSeq) searchResults.value = []
+    }
+  }, 220)
 })
-
-function normalize(value: string) {
-  return value.trim().toLocaleLowerCase()
-}
-
-function scoreNode(node: NodeBrief, query: string) {
-  const name = normalize(node.name)
-  const era = normalize(node.era)
-  const summary = normalize(node.summary)
-  const code = normalize(node.code)
-  const year = normalize(node.yearLabel || '')
-  if (name === query || code === query) return 100
-  if (name.startsWith(query)) return 80
-  if (name.includes(query)) return 64
-  if (era.includes(query)) return 44
-  if (year.includes(query)) return 36
-  if (summary.includes(query)) return 24
-  return 0
-}
 
 function detailToBrief(detail: NodeDetail): NodeBrief {
   return {
@@ -639,7 +689,7 @@ function buildOption() {
     series: [{
       type: 'graph',
       layout: 'none',
-      roam: true,
+      roam: 'scale',
       zoom: currentView.value.zoom,
       center: currentView.value.center,
       data,
@@ -660,12 +710,62 @@ async function loadTree() {
   treeLoading.value = true
   treeError.value = ''
   try {
-    treeData.value = await fetchTree()
+    // 维基级:不再拉全树,只拉「过滤后按重要度取前 N + 其间的边」的有界子图
+    treeData.value = await fetchSubgraph({
+      category: activeCategory.value,
+      limit: graphLimit.value,
+    })
     renderTree()
   } catch (error: any) {
     treeError.value = error.message || '无法连接图谱服务'
   } finally {
     treeLoading.value = false
+  }
+}
+
+async function loadOverview() {
+  try {
+    overview.value = await fetchOverview()
+  } catch {
+    overview.value = null
+  }
+}
+
+function setCategory(cat: string | null) {
+  activeCategory.value = activeCategory.value === cat ? null : cat
+  void loadTree()
+}
+
+function setLimit(limit: number) {
+  if (graphLimit.value === limit) return
+  graphLimit.value = limit
+  void loadTree()
+}
+
+/** 把邻域/详情里的节点与边并入当前显示子图(探索时图谱逐步生长,始终有界)。 */
+function mergeSubgraph(nodes: NodeBrief[], edges: EdgeBrief[]) {
+  const nodeMap = new Map((treeData.value?.nodes ?? []).map(n => [n.id, n]))
+  for (const n of nodes) if (n && !nodeMap.has(n.id)) nodeMap.set(n.id, n)
+  const key = (e: EdgeBrief) => `${e.from}-${e.to}`
+  const seen = new Set((treeData.value?.edges ?? []).map(key))
+  const mergedEdges = [...(treeData.value?.edges ?? [])]
+  for (const e of edges) {
+    if (!seen.has(key(e))) {
+      seen.add(key(e))
+      mergedEdges.push(e)
+    }
+  }
+  treeData.value = { nodes: [...nodeMap.values()], edges: mergedEdges }
+}
+
+/** 拉取节点邻域并并入显示子图(搜索定位到图外节点时用)。 */
+async function expandNode(id: number) {
+  try {
+    const nb = await fetchNeighborhood(id)
+    mergeSubgraph([nb.center, ...nb.nodes], nb.edges)
+    renderTree()
+  } catch {
+    /* 忽略:showNode 仍会加载详情 */
   }
 }
 
@@ -740,6 +840,14 @@ async function showNode(id: number, options: { focus?: boolean; fromLearning?: b
     selectedDetail.value = detail
     selectedPreview.value = detailToBrief(detail)
     selectedChain.value = chain
+    // 展开式生长:把直接前置/后继并入显示子图(数据已在详情里,零额外请求)
+    mergeSubgraph(
+      [detailToBrief(detail), ...detail.prerequisites, ...detail.unlocks],
+      [
+        ...detail.prerequisites.map(p => ({ from: p.id, to: detail.id })),
+        ...detail.unlocks.map(u => ({ from: detail.id, to: u.id })),
+      ],
+    )
     if (compareNodes.value.some(node => node.id === detail.id)) {
       compareChains.value = { ...compareChains.value, [detail.id]: chain }
       compareDetails.value = { ...compareDetails.value, [detail.id]: detail }
@@ -761,6 +869,7 @@ function retrySelectedNode() {
 }
 
 function startLearningPath() {
+  if (nodeLoading.value) return
   const nodes = [...pathNodes.value]
   if (!nodes.length) return
   learningPath.value = { active: true, nodes, index: 0 }
@@ -814,9 +923,10 @@ function confirmSearch() {
   if (node) selectSearchResult(node)
 }
 
-function selectSearchResult(node: NodeBrief) {
+async function selectSearchResult(node: NodeBrief) {
   searchQuery.value = node.name
   searchOpen.value = false
+  await expandNode(node.id) // 先把该节点邻域并入子图,再聚焦定位
   void showNode(node.id, { focus: true })
 }
 
@@ -834,6 +944,66 @@ function updateCurrentViewFromChart() {
   if (typeof zoom === 'number' && Array.isArray(center) && center.length >= 2) {
     currentView.value = { zoom, center: [Number(center[0]), Number(center[1])] }
   }
+}
+
+function startGraphPan(event: PointerEvent) {
+  if ((event.pointerType === 'mouse' && event.button !== 0) || treeLoading.value || treeError.value) return
+  graphPan = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    center: [...currentView.value.center],
+    zoom: currentView.value.zoom || 1,
+    moved: false,
+  }
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+
+function moveGraphPan(event: PointerEvent) {
+  if (!graphPan || graphPan.pointerId !== event.pointerId) return
+  const dx = event.clientX - graphPan.startX
+  const dy = event.clientY - graphPan.startY
+  if (!graphPan.moved && Math.hypot(dx, dy) < 4) return
+  graphPan.moved = true
+  graphPanning.value = true
+
+  const zoom = Math.max(graphPan.zoom, 0.05)
+  currentView.value = {
+    zoom,
+    center: [
+      graphPan.center[0] - dx / zoom,
+      graphPan.center[1] - dy / zoom,
+    ],
+  }
+  chart?.setOption({
+    series: [{
+      center: currentView.value.center,
+    }],
+  } as any, false, true)
+  event.preventDefault()
+}
+
+function stopGraphPan(event: PointerEvent) {
+  if (!graphPan || graphPan.pointerId !== event.pointerId) return
+  const moved = graphPan.moved
+  graphPan = null
+  graphPanning.value = false
+  if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) {
+    ;(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId)
+  }
+  if (moved) {
+    suppressNextGraphClick = true
+    window.setTimeout(() => {
+      suppressNextGraphClick = false
+    }, 120)
+    event.preventDefault()
+  }
+}
+
+function cancelGraphPan(event?: PointerEvent) {
+  if (event && graphPan?.pointerId !== event.pointerId) return
+  graphPan = null
+  graphPanning.value = false
 }
 
 function handleResize() {
@@ -868,6 +1038,10 @@ onMounted(async () => {
   if (chartRef.value) {
     chart = echarts.init(chartRef.value)
     chart.on('click', (params: any) => {
+      if (suppressNextGraphClick) {
+        suppressNextGraphClick = false
+        return
+      }
       if (params.dataType === 'node' && params.data?._nodeId) void showNode(params.data._nodeId, { focus: false })
     })
     chart.on('graphRoam', updateCurrentViewFromChart)
@@ -877,13 +1051,14 @@ onMounted(async () => {
   }
   loadProgress()
   await user.loadProfile()
-  await Promise.all([loadTree(), loadKnowledgeStatus()])
+  await Promise.all([loadOverview(), loadTree(), loadKnowledgeStatus()])
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('focus', handleFocus)
   window.removeEventListener('keydown', handleKeydown)
+  cancelGraphPan()
   chart?.dispose()
 })
 </script>
@@ -960,6 +1135,72 @@ onUnmounted(() => {
   display: grid;
   gap: 8px;
   min-width: min(520px, 100%);
+}
+
+.graph-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.filter-scroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.filter-ic {
+  flex: none;
+  color: var(--accent);
+}
+
+.filter-scroll button,
+.filter-lod button {
+  flex: none;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+
+.filter-scroll button:hover,
+.filter-lod button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.filter-scroll button.active,
+.filter-lod button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+
+.filter-lod {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.filter-lod span {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .metric {
@@ -1215,6 +1456,13 @@ onUnmounted(() => {
   inset: 0;
   min-width: 0;
   min-height: 360px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.chart-area.is-panning {
+  cursor: grabbing;
 }
 
 .graph-overlay {

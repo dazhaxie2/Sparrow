@@ -1,11 +1,14 @@
 package com.sparrow.graph.infrastructure.persistence;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.graph.domain.model.TechEdge;
 import com.sparrow.graph.domain.model.TechNode;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.IndexableNode;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
+import com.sparrow.graph.interfaces.dto.GraphDtos.NodePage;
+import com.sparrow.graph.interfaces.dto.GraphDtos.Tree;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayDeque;
@@ -58,7 +61,8 @@ public class MysqlGraphReader {
         return nodeMapper.selectList(null).stream()
                 .sorted(ORDER)
                 .map(n -> new IndexableNode(n.getId(), n.getCode(), n.getName(), n.getEra(),
-                        n.getYearLabel(), n.getSummary(), n.getDetail()))
+                        n.getYearLabel(), n.getSummary(), n.getDetail(),
+                        n.getCategory(), n.getImportance()))
                 .toList();
     }
 
@@ -73,6 +77,74 @@ public class MysqlGraphReader {
     public int count() {
         Long c = nodeMapper.selectCount(null);
         return c == null ? 0 : c.intValue();
+    }
+
+    public long countEdges() {
+        Long c = edgeMapper.selectCount(null);
+        return c == null ? 0L : c;
+    }
+
+    /** 过滤 + 分页节点列表(维基级:避免一次性返回全树)。按重要度降序、id 升序稳定排序。 */
+    public NodePage pageNodes(String category, Integer eraRank, String q,
+                              Integer minImportance, int page, int size) {
+        int p = Math.max(page, 1);
+        int s = Math.min(Math.max(size, 1), 200);
+        QueryWrapper<TechNode> filter = baseFilter(category, eraRank, q, minImportance);
+        long total = nodeMapper.selectCount(filter);
+        filter.orderByDesc("importance").orderByAsc("id")
+                .last("LIMIT " + ((p - 1) * s) + ", " + s);
+        List<NodeBrief> rows = nodeMapper.selectList(filter).stream().map(NodeBrief::from).toList();
+        return new NodePage(rows, total, p, s);
+    }
+
+    /** 名称/摘要前缀检索,按重要度排序,默认上限 20。 */
+    public List<NodeBrief> searchNodes(String q, int limit) {
+        if (q == null || q.isBlank()) {
+            return List.of();
+        }
+        int lim = Math.min(Math.max(limit, 1), 50);
+        QueryWrapper<TechNode> filter = baseFilter(null, null, q, null);
+        filter.orderByDesc("importance").orderByAsc("id").last("LIMIT " + lim);
+        return nodeMapper.selectList(filter).stream().map(NodeBrief::from).toList();
+    }
+
+    /** 过滤后按重要度取前 limit 个节点 + 这些节点之间的边(有界子图,供前端渲染)。 */
+    public Tree subgraph(String category, Integer eraRank, String q,
+                         Integer minImportance, int limit) {
+        int lim = Math.min(Math.max(limit, 1), 800);
+        QueryWrapper<TechNode> filter = baseFilter(category, eraRank, q, minImportance);
+        filter.orderByDesc("importance").orderByAsc("id").last("LIMIT " + lim);
+        List<TechNode> top = nodeMapper.selectList(filter);
+        if (top.isEmpty()) {
+            return new Tree(List.of(), List.of());
+        }
+        Set<Long> ids = top.stream().map(TechNode::getId).collect(Collectors.toSet());
+        List<NodeBrief> nodes = top.stream().sorted(ORDER).map(NodeBrief::from).toList();
+        QueryWrapper<TechEdge> edgeFilter = new QueryWrapper<>();
+        edgeFilter.in("from_id", ids).in("to_id", ids);
+        List<EdgeBrief> edges = edgeMapper.selectList(edgeFilter).stream()
+                .map(e -> new EdgeBrief(e.getFromId(), e.getToId()))
+                .toList();
+        return new Tree(nodes, edges);
+    }
+
+    private QueryWrapper<TechNode> baseFilter(String category, Integer eraRank, String q,
+                                              Integer minImportance) {
+        QueryWrapper<TechNode> w = new QueryWrapper<>();
+        if (category != null && !category.isBlank()) {
+            w.eq("category", category);
+        }
+        if (eraRank != null) {
+            w.eq("era_rank", eraRank);
+        }
+        if (minImportance != null) {
+            w.ge("importance", minImportance);
+        }
+        if (q != null && !q.isBlank()) {
+            String kw = q.trim();
+            w.and(x -> x.like("name", kw).or().like("summary", kw));
+        }
+        return w;
     }
 
     /** 直接前置:edges 中 to_id=id 的 from_id 节点。 */

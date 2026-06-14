@@ -38,6 +38,12 @@ public class NeoTechNode {
     @Property
     private Boolean premium;
 
+    @Property
+    private String category;
+
+    @Property
+    private Integer importance;
+
     @Relationship(type = "REQUIRES", direction = Relationship.Direction.OUTGOING)
     private List<NeoTechNode> requires = new ArrayList<>();
 
@@ -62,6 +68,10 @@ public class NeoTechNode {
     public void setDetail(String detail) { this.detail = detail; }
     public Boolean getPremium() { return premium; }
     public void setPremium(Boolean premium) { this.premium = premium; }
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+    public Integer getImportance() { return importance; }
+    public void setImportance(Integer importance) { this.importance = importance; }
     public List<NeoTechNode> getRequires() { return requires; }
     public void setRequires(List<NeoTechNode> requires) { this.requires = requires; }
 }

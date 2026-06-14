@@ -46,6 +46,7 @@
         <section class="node-section" :style="{ '--current-era-color': eraColor }">
           <div class="node-meta">
             <span class="era-badge">{{ currentEra }}</span>
+            <span v-if="currentCategory" class="category-badge">{{ currentCategory }}</span>
             <span>{{ currentYear }}</span>
             <span v-if="currentPremium" class="premium-badge"><LockKeyhole :size="12" /> 深度内容</span>
           </div>
@@ -109,9 +110,9 @@
               <span>退出</span>
             </button>
           </div>
-          <button v-else class="path-action" type="button" @click="$emit('startPath')">
+          <button v-else class="path-action" type="button" :disabled="loading" @click="$emit('startPath')">
             <Play :size="14" />
-            从第一步开始
+            {{ loading ? '正在整理路线' : '从第一步开始' }}
           </button>
         </section>
 
@@ -292,6 +293,7 @@ const currentName = computed(() => current.value?.name ?? '加载中')
 const currentEra = computed(() => current.value?.era ?? '未知时代')
 const currentYear = computed(() => current.value?.yearLabel ?? '未知年代')
 const currentSummary = computed(() => current.value?.summary ?? '正在整理该节点的摘要。')
+const currentCategory = computed(() => current.value?.category ?? '')
 const currentPremium = computed(() => Boolean(current.value?.premium))
 const recommendedNode = computed(() => props.detail?.unlocks?.[0] ?? null)
 const sources = computed(() => props.detail?.sources ?? [])
@@ -493,6 +495,13 @@ watch(() => props.floating, value => {
   color: var(--accent) !important;
 }
 
+.category-badge {
+  border-color: var(--line-strong) !important;
+  background: var(--ink) !important;
+  color: var(--bg) !important;
+  font-weight: 700;
+}
+
 .era-badge {
   border-color: color-mix(in srgb, var(--current-era-color, var(--accent)) 45%, white) !important;
   background: color-mix(in srgb, var(--current-era-color, var(--accent)) 9%, white) !important;
@@ -643,6 +652,13 @@ watch(() => props.floating, value => {
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.path-action:disabled {
+  border-color: var(--line-strong);
+  background: #e7e7e7;
+  color: var(--muted);
+  cursor: default;
 }
 
 .path-controls {

@@ -23,10 +23,11 @@ $env:SPIDER_LIMIT=50
 docker compose --profile spider run --rm sparrow-spider
 ```
 
-如果需要 AI/RAG 也在线消费重建事件,同时启用 `ai` profile:
+AI/RAG 默认随 Sparrow 启动;需要在线消费重建事件时,先启动默认服务,再运行 spider:
 
 ```powershell
-docker compose --profile ai --profile spider run --rm sparrow-spider
+docker compose up -d --build
+docker compose --profile spider run --rm sparrow-spider
 ```
 
 可继续覆盖 `SPIDER_PROXY`、`SPIDER_WIKI_API`、`AI_BASE_URL`、`AI_API_KEY`、`AI_CHAT_MODEL` 等变量。

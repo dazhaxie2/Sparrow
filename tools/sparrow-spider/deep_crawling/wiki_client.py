@@ -65,6 +65,48 @@ class WikiClient:
             return None
         return hits[0]["pageid"], hits[0]["title"]
 
+    async def category_members(self, category_title: str, cmtype: str = "page|subcat",
+                               max_items: int = 2000):
+        """枚举某「分类」页的成员。cmtype: page(条目) / subcat(子分类) / 二者。
+
+        返回 [{"title", "type"}]。type 为 'page' 或 'subcat'。自动翻页(cmcontinue),
+        受 max_items 封顶。分类名带不带 Category: 前缀都可,这里统一补 Category:。
+        """
+        if not category_title.startswith("Category:") and not category_title.startswith("分类:"):
+            category_title = "Category:" + category_title
+        members = []
+        cmcontinue = None
+        while len(members) < max_items:
+            params = {
+                "action": "query", "list": "categorymembers",
+                "cmtitle": category_title, "cmtype": cmtype,
+                "cmlimit": 500, "cmprop": "title|type",
+            }
+            if cmcontinue:
+                params["cmcontinue"] = cmcontinue
+            data = await self._get(params)
+            for m in data.get("query", {}).get("categorymembers", []):
+                members.append({"title": m.get("title", ""), "type": m.get("type", "page")})
+            cont = data.get("continue", {})
+            cmcontinue = cont.get("cmcontinue")
+            if not cmcontinue:
+                break
+        return members
+
+    async def resolve_redirect(self, title: str):
+        """把可能的重定向标题归一到正式标题;失败返回原标题。"""
+        try:
+            data = await self._get({
+                "action": "query", "titles": title, "redirects": 1,
+            })
+            pages = data.get("query", {}).get("pages", {})
+            for p in pages.values():
+                if "title" in p and "missing" not in p:
+                    return p["title"]
+        except Exception:  # noqa: BLE001
+            pass
+        return title
+
     async def fetch_page(self, pageid: int):
         """拉取词条纯文本全文 + 站内链接。返回 dict(title, url, text, links)。"""
         data = await self._get({

@@ -126,7 +126,6 @@ services:
     volumes:
       - etcd_data:/etcd
     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
-    profiles: ["ai"]
     networks: [sparrow_net]
 
   minio:
@@ -137,7 +136,6 @@ services:
     volumes:
       - minio_data:/minio_data
     command: minio server /minio_data
-    profiles: ["ai"]
     networks: [sparrow_net]
 
   milvus:
@@ -151,7 +149,6 @@ services:
     ports:
       - "19530:19530"
     depends_on: [etcd, minio]
-    profiles: ["ai"]
     networks: [sparrow_net]
 
   # ===== 5 个业务服务 =====
@@ -266,7 +263,9 @@ services:
       redis: { condition: service_healthy }
       nacos: { condition: service_healthy }
       kafka: { condition: service_healthy }
-    profiles: ["ai"]
+      sparrow-graph: { condition: service_started }
+      milvus: { condition: service_started }
+      sentinel-dashboard: { condition: service_started }
     networks: [sparrow_net]
 
   # One-shot crawler pipeline: crawl/extract/sync into graph + RAG staging.
@@ -319,7 +318,6 @@ services:
       SERVER_PORT: 8858
     ports:
       - "8858:8858"
-    profiles: ["ai"]
     networks: [sparrow_net]
 
 networks:

@@ -29,6 +29,10 @@ public class TechNode {
 
     private Boolean premium;
 
+    private String category;
+
+    private Integer importance;
+
     public Long getId() {
         return id;
     }
@@ -63,5 +67,13 @@ public class TechNode {
 
     public Boolean getPremium() {
         return premium;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public Integer getImportance() {
+        return importance;
     }
 }

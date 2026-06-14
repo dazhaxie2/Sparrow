@@ -4,7 +4,10 @@ import type { ChatMessage } from '../types'
 
 const WELCOME: ChatMessage = {
   role: 'assistant',
-  content: '你好，我是科技树 AI 向导。选择一个节点后，我会带着当前上下文回答前置知识、重要性和下一步学习建议。',
+  content:
+    '### 结论\n你好，我是科技树 AI 向导。选择一个节点后，我会带着当前上下文回答前置知识、重要性和下一步学习建议。\n\n### 下一步\n- 点击图谱节点，或直接输入你想理解的技术问题。',
+  mode: 'guide',
+  format: 'markdown:v1',
 }
 
 export function useChat() {
@@ -16,7 +19,13 @@ export function useChat() {
     const trimmed = question.trim()
     if (!trimmed) return {}
     if (!isLoggedIn) {
-      messages.value.push({ role: 'assistant', content: '请先登录后再提问。', timestamp: Date.now() })
+      messages.value.push({
+        role: 'assistant',
+        content: '### 结论\n请先登录后再提问。\n\n### 下一步\n- 登录后可以继续使用 AI 向导。',
+        mode: 'error',
+        format: 'markdown:v1',
+        timestamp: Date.now(),
+      })
       return {}
     }
 
@@ -31,7 +40,11 @@ export function useChat() {
       messages.value.push({
         role: 'assistant',
         content: res.answer,
+        mode: res.mode,
+        format: res.format,
+        intent: res.intent,
         sources: res.sources,
+        steps: res.steps,
         timestamp: Date.now(),
       })
       let quotaMsg: string | undefined
@@ -40,9 +53,12 @@ export function useChat() {
       }
       return { quotaMsg }
     } catch (e: any) {
+      const message = e.code === 429 ? e.message : `出错了：${e.message}`
       messages.value.push({
         role: 'assistant',
-        content: e.code === 429 ? e.message : `出错了：${e.message}`,
+        content: `### 结论\n${message}\n\n### 下一步\n- 请稍后重试，或换一个更具体的问题。`,
+        mode: 'error',
+        format: 'markdown:v1',
         timestamp: Date.now(),
       })
       return {}

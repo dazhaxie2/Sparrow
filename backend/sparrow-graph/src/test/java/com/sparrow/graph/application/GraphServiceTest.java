@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -147,7 +148,7 @@ class GraphServiceTest {
 
         GraphChangedEvent event = service.requestReindex();
 
-        verify(redis).delete(anyString());
+        verify(redis).delete(anyCollection());
         verify(eventPublisher).publish(any(GraphChangedEvent.class));
         assertEquals(77, event.nodeCount());
         assertEquals(GraphChangedEvent.TYPE_REINDEX, event.changeType());
@@ -160,7 +161,7 @@ class GraphServiceTest {
         GraphChangedEvent event = service.importFromMysqlAndReindex();
 
         verify(neo4jMigrator).importFromMysql();
-        verify(redis).delete(anyString());
+        verify(redis).delete(anyCollection());
         verify(eventPublisher).publish(any(GraphChangedEvent.class));
         assertEquals(88, event.nodeCount());
     }
@@ -172,7 +173,7 @@ class GraphServiceTest {
         when(valueOps.get(anyString())).thenReturn(null);
         when(neoRepo.findAllOrdered()).thenThrow(new RuntimeException("neo4j unavailable"));
         when(mysqlReader.allOrdered()).thenReturn(List.of(
-                new NodeBrief(1L, "fire", "火", "石器时代", 1, "约公元前50万年", "摘要", false)));
+                new NodeBrief(1L, "fire", "火", "石器时代", 1, "约公元前50万年", "摘要", false, "能源动力", 100)));
         when(mysqlReader.allEdges()).thenReturn(List.of(new EdgeBrief(1L, 2L)));
 
         Tree tree = service.tree();
@@ -187,7 +188,7 @@ class GraphServiceTest {
     void prerequisiteChainFallsBackToMysqlWhenNeo4jDown() {
         when(neoRepo.existsByNodeId(41L)).thenThrow(new RuntimeException("neo4j unavailable"));
         when(mysqlReader.allPrerequisites(41L)).thenReturn(List.of(
-                new NodeBrief(1L, "fire", "火", "石器时代", 1, "约公元前50万年", "摘要", false)));
+                new NodeBrief(1L, "fire", "火", "石器时代", 1, "约公元前50万年", "摘要", false, "能源动力", 100)));
 
         List<NodeBrief> chain = service.prerequisiteChain(41L);
 

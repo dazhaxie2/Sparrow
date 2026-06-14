@@ -91,16 +91,21 @@ USE sparrow_graph;
 CREATE TABLE IF NOT EXISTS tech_node (
     id         BIGINT       NOT NULL,
     code       VARCHAR(64)  NOT NULL,
-    name       VARCHAR(64)  NOT NULL,
+    name       VARCHAR(128) NOT NULL,
     era        VARCHAR(32)  NOT NULL,
     era_rank   INT          NOT NULL,
     year_label VARCHAR(32)  NULL,
     summary    VARCHAR(512) NOT NULL,
     detail     TEXT         NULL,
     premium    TINYINT      NOT NULL DEFAULT 0,
+    -- 维基级扩容:领域轴(14 类之一)+ 重要度(LOD 取舍,既有 77 节点回填为 100)
+    category   VARCHAR(32)  NULL,
+    importance INT          NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     UNIQUE KEY uk_code (code),
-    KEY idx_era (era_rank)
+    KEY idx_era (era_rank),
+    KEY idx_category (category),
+    KEY idx_importance (importance)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 CREATE TABLE IF NOT EXISTS tech_edge (

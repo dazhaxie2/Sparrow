@@ -120,3 +120,23 @@ INSERT INTO tech_edge (from_id, to_id) VALUES
 (53,60),(57,60),(22,61),(60,61),(49,62),(61,62),(56,63),(61,63),(60,64),(57,65),(61,65),(64,65),(61,66),(64,66),(57,67),(64,67),(63,68),(67,68),(65,69),(66,69),
 -- 信息 → 智能
 (66,70),(67,70),(69,70),(65,71),(69,71),(71,72),(61,73),(72,73),(58,74),(72,74),(50,75),(55,75),(71,76),(73,76),(76,77);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 维基级扩容回填:为内置 77 节点打上「领域」标签,并把重要度设为 100
+-- (LOD 取舍时永远优先展示这批人工精选核心节点)。爬虫导入的新节点 importance 由
+-- backlink 数动态计算,默认低于 100。
+-- ─────────────────────────────────────────────────────────────────────────────
+UPDATE tech_node SET category = '能源动力'   WHERE code IN ('fire','watermill','windmill','steam_engine','ice_engine','nuclear','ev_energy');
+UPDATE tech_node SET category = '材料冶金'   WHERE code IN ('stone_tools','pottery','bronze','iron','paper','steel','steel_industry');
+UPDATE tech_node SET category = '农业食品'   WHERE code IN ('hunting','agriculture','domestication','irrigation','plow');
+UPDATE tech_node SET category = '通信网络'   WHERE code IN ('language','symbols','telegraph','telephone','radio','mobile','gps');
+UPDATE tech_node SET category = '制造与机械' WHERE code IN ('cordage','weaving','clock','textile_machine','machine_tools','assembly_line');
+UPDATE tech_node SET category = '建筑工程'   WHERE code IN ('settlement','arch');
+UPDATE tech_node SET category = '交通运输'   WHERE code IN ('wheel','sailing','chariot','roads','compass','navigation','railway','steamship','automobile');
+UPDATE tech_node SET category = '信息计算'   WHERE code IN ('writing','printing','press','computer','internet','pc','www','smartphone','cloud','bigdata','deep_learning','llm','agi');
+UPDATE tech_node SET category = '数学与基础科学' WHERE code IN ('currency','astronomy','mathematics','philosophy','university','scientific_method','optics','banking');
+UPDATE tech_node SET category = '化学化工'   WHERE code IN ('gunpowder','chemistry');
+UPDATE tech_node SET category = '医学生物'   WHERE code IN ('anatomy','vaccine','antibiotics','gene_editing');
+UPDATE tech_node SET category = '电气电子'   WHERE code IN ('electromagnetism','generator','electric_light','transistor','ic');
+UPDATE tech_node SET category = '航天航空'   WHERE code IN ('airplane','spaceflight');
+UPDATE tech_node SET importance = 100 WHERE id BETWEEN 1 AND 77;

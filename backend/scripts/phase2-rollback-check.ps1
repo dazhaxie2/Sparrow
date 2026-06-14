@@ -24,7 +24,6 @@ function Compose([string[]]$ExtraArgs) {
         -p $ProjectName `
         -f (Join-Path $repoRoot "docker-compose.yml") `
         -f (Join-Path $repoRoot "docker-compose.phase2-check.yml") `
-        --profile ai `
         @ExtraArgs
     if ($LASTEXITCODE -ne 0) { throw "docker compose 退出码 $LASTEXITCODE" }
 }

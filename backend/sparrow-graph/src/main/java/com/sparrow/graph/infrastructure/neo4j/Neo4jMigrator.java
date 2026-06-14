@@ -54,6 +54,12 @@ public class Neo4jMigrator implements ApplicationRunner {
         neo4jClient.query(
                 "CREATE INDEX tech_node_code IF NOT EXISTS "
                         + "FOR (n:TechNode) ON (n.code)").run();
+        neo4jClient.query(
+                "CREATE INDEX tech_node_category IF NOT EXISTS "
+                        + "FOR (n:TechNode) ON (n.category)").run();
+        neo4jClient.query(
+                "CREATE INDEX tech_node_importance IF NOT EXISTS "
+                        + "FOR (n:TechNode) ON (n.importance)").run();
     }
 
     public void importFromMysql() {
@@ -96,6 +102,8 @@ public class Neo4jMigrator implements ApplicationRunner {
             neo.setSummary(n.getSummary());
             neo.setDetail(n.getDetail());
             neo.setPremium(n.getPremium());
+            neo.setCategory(n.getCategory());
+            neo.setImportance(n.getImportance());
             neoMap.put(n.getId(), neo);
         }
         neoRepo.saveAll(neoMap.values());

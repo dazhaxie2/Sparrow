@@ -35,20 +35,25 @@ def show_status():
 
 def main():
     parser = argparse.ArgumentParser(description="SparrowSpider - 人类科技树知识爬虫")
-    parser.add_argument("--init-seeds", action="store_true", help="载入种子词表")
+    parser.add_argument("--init-seeds", action="store_true", help="载入种子词表(Sparrow 77 对齐 + 扩展)")
+    parser.add_argument("--discover-categories", action="store_true",
+                        help="分类目录子类目 BFS 发现候选(到万级的主引擎,无 LLM)")
     parser.add_argument("--crawl", action="store_true", help="爬取待处理候选")
-    parser.add_argument("--extract", action="store_true", help="抽取知识与依赖")
+    parser.add_argument("--rank", action="store_true", help="计算入链重要度(分层抽取依据)")
+    parser.add_argument("--extract", action="store_true", help="分层抽取知识(Tier-A 深度 / Tier-B 批量分类)")
+    parser.add_argument("--build-edges", action="store_true", help="构建结构边(内链共现,无 LLM)")
     parser.add_argument("--expand", action="store_true", help="内链扩展候选(需 AI_API_KEY)")
     parser.add_argument("--export", action="store_true", help="导出 Sparrow 产物文件")
     parser.add_argument("--sync-sparrow", action="store_true",
                         help="直连同步进 Sparrow 业务库(节点/边/增补/RAG 语料 + 缓存失效)")
-    parser.add_argument("--all", action="store_true", help="完整流水线(含 sync)")
+    parser.add_argument("--all", action="store_true",
+                        help="完整流水线: 种子+分类发现→爬取→排序→抽取→建边→同步")
     parser.add_argument("--status", action="store_true", help="查看进度")
-    parser.add_argument("--limit", type=int, default=50, help="本轮处理条数上限(默认 50)")
+    parser.add_argument("--limit", type=int, default=50, help="本轮爬取/抽取条数上限(默认 50;全量设大)")
     args = parser.parse_args()
 
-    if not any([args.init_seeds, args.crawl, args.extract, args.expand, args.export,
-                args.sync_sparrow, args.all, args.status]):
+    if not any([args.init_seeds, args.discover_categories, args.crawl, args.rank, args.extract,
+                args.build_edges, args.expand, args.export, args.sync_sparrow, args.all, args.status]):
         parser.print_help()
         return
 
@@ -66,15 +71,32 @@ def main():
     if args.init_seeds or args.all:
         from topic_discovery import discover
         discover.load_seeds()
+    if args.discover_categories or args.all:
+        from topic_discovery import discover
+        discover.discover_from_categories()
     if args.crawl or args.all:
         from deep_crawling import crawler
         crawler.run(limit=args.limit)
     if args.expand:
         from topic_discovery import discover
         discover.expand_from_links(limit=args.limit)
+    if args.rank or args.all:
+        from knowledge_extraction import relation_builder
+        conn = db.connect()
+        try:
+            relation_builder.rank_importance(conn)
+        finally:
+            conn.close()
     if args.extract or args.all:
         from knowledge_extraction import extractor
         extractor.run(limit=args.limit)
+    if args.build_edges or args.all:
+        from knowledge_extraction import relation_builder
+        conn = db.connect()
+        try:
+            relation_builder.build_structural(conn)
+        finally:
+            conn.close()
     if args.export:
         from export import sparrow_exporter
         sparrow_exporter.run()

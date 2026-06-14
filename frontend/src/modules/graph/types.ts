@@ -7,6 +7,8 @@ export interface NodeBrief {
   yearLabel: string
   summary: string
   premium: boolean
+  category?: string | null
+  importance?: number | null
 }
 
 export interface EdgeBrief {
@@ -33,6 +35,50 @@ export interface NodeDetail {
   prerequisites: NodeBrief[]
   unlocks: NodeBrief[]
   sources: SourceBrief[]
+  category?: string | null
+  importance?: number | null
+}
+
+export interface EraBrief {
+  eraRank: number
+  era: string
+}
+
+export interface OverviewCell {
+  category: string
+  eraRank: number
+  era: string
+  count: number
+  topNodes: NodeBrief[]
+}
+
+export interface Overview {
+  categories: string[]
+  eras: EraBrief[]
+  cells: OverviewCell[]
+  totalNodes: number
+  totalEdges: number
+}
+
+export interface NodePage {
+  nodes: NodeBrief[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface Neighborhood {
+  center: NodeBrief
+  nodes: NodeBrief[]
+  edges: EdgeBrief[]
+}
+
+export interface SubgraphFilters {
+  category?: string | null
+  eraRank?: number | null
+  q?: string | null
+  minImportance?: number | null
+  limit?: number
 }
 
 export interface SourceBrief {

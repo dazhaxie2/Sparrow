@@ -42,6 +42,19 @@ def llm_configured() -> bool:
     return bool(AI_BASE_URL and AI_API_KEY)
 
 
+# ───────────────────── 维基级扩容:发现 / 分层抽取 / 预算 ─────────────────────
+# 分类目录 BFS 的子类目下钻深度(0=只取直接成员)。越深节点越多,但越易漂移。
+DISCOVER_MAX_DEPTH = int(os.getenv("SPIDER_DISCOVER_DEPTH", "2"))
+# 全流程节点规模上限(候选总数封顶,防止 BFS 失控)。
+MAX_NODES = int(os.getenv("SPIDER_MAX_NODES", "12000"))
+# 分层抽取:按重要度(入链数)排序,前 TIER_A_TOP 个走深度 LLM 抽取,
+# 其余走「规则摘要 + 批量分类」轻量路径,把 token 控在资源包内。
+TIER_A_TOP = int(os.getenv("SPIDER_TIER_A_TOP", "2500"))
+# 批量分类一次喂多少个词条标题。
+CLASSIFY_BATCH_SIZE = int(os.getenv("SPIDER_CLASSIFY_BATCH", "40"))
+# token 预算闸:累计提示+补全 token 触顶即停止后续 LLM 调用(0=不限)。
+TOKEN_BUDGET = int(os.getenv("SPIDER_TOKEN_BUDGET", "0"))
+
 # ───────────────────── 输出 ─────────────────────
 OUT_DIR = os.getenv("SPIDER_OUT_DIR", os.path.join(os.path.dirname(__file__), "out"))
 
