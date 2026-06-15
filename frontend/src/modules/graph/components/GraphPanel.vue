@@ -75,47 +75,6 @@
           </div>
         </section>
 
-        <section v-if="pathNodes.length" class="path-block" :class="{ guiding: learningActive }">
-          <div class="section-title">
-            <Route :size="15" />
-            <span>学习路线</span>
-            <small>{{ learningActive ? `第 ${learningIndex + 1} / ${learningTotal} 步` : `${pathNodes.length} 步` }}</small>
-          </div>
-          <p class="path-summary">{{ pathNodes.map(node => node.name).join(' -> ') }}</p>
-          <div class="path-list">
-            <button
-              v-for="(node, index) in pathNodes"
-              :key="node.id"
-              type="button"
-              :class="{ current: node.id === currentId, 'guide-current': learningActive && index === learningIndex }"
-              :aria-current="learningActive && index === learningIndex ? 'step' : undefined"
-              @click="$emit('select', node.id)"
-            >
-              <span>{{ index + 1 }}</span>
-              <strong>{{ node.name }}</strong>
-            </button>
-          </div>
-          <div v-if="learningActive" class="path-controls" aria-label="学习路线导览">
-            <button type="button" :disabled="!canGoPrev" @click="$emit('pathPrev')">
-              <ArrowLeft :size="14" />
-              <span>上一节点</span>
-            </button>
-            <strong>{{ learningIndex + 1 }} / {{ learningTotal }}</strong>
-            <button type="button" :disabled="!canGoNext" @click="$emit('pathNext')">
-              <span>下一节点</span>
-              <ArrowRight :size="14" />
-            </button>
-            <button class="ghost" type="button" @click="$emit('pathExit')">
-              <X :size="14" />
-              <span>退出</span>
-            </button>
-          </div>
-          <button v-else class="path-action" type="button" :disabled="loading" @click="$emit('startPath')">
-            <Play :size="14" />
-            {{ loading ? '正在整理路线' : '从第一步开始' }}
-          </button>
-        </section>
-
         <section v-if="loading" class="loading-box" aria-live="polite">
           <LoaderCircle class="spin" :size="18" />
           <strong>正在加载节点详情</strong>
@@ -222,6 +181,56 @@
             </div>
           </section>
         </template>
+
+        <section v-if="pathNodes.length" class="path-block" :class="{ guiding: learningActive }">
+          <div class="section-title">
+            <Route :size="15" />
+            <span>学习路线</span>
+            <small>{{ learningActive ? `第 ${learningIndex + 1} / ${learningTotal} 步` : `${visiblePathCount} / ${pathNodes.length} 步` }}</small>
+          </div>
+          <p class="path-summary">{{ pathSummary }}</p>
+          <div class="path-list">
+            <button
+              v-for="(node, index) in visiblePathNodes"
+              :key="node.id"
+              type="button"
+              :class="{ current: node.id === currentId, 'guide-current': learningActive && actualPathIndex(index) === learningIndex }"
+              :aria-current="learningActive && actualPathIndex(index) === learningIndex ? 'step' : undefined"
+              @click="$emit('select', node.id)"
+            >
+              <span>{{ actualPathIndex(index) + 1 }}</span>
+              <strong>{{ node.name }}</strong>
+            </button>
+          </div>
+          <div v-if="hiddenPathCount" class="path-more">
+            <button type="button" @click="expandPathWindow">
+              继续向前展开 {{ nextPathPageCount }} 步
+            </button>
+            <span>前面还有 {{ hiddenPathCount }} 步未显示</span>
+          </div>
+          <button v-if="canCollapsePath" class="path-collapse" type="button" @click="collapsePathWindow">
+            收起到最后 {{ PATH_INITIAL_VISIBLE }} 步
+          </button>
+          <div v-if="learningActive" class="path-controls" aria-label="学习路线导览">
+            <button type="button" :disabled="!canGoPrev" @click="$emit('pathPrev')">
+              <ArrowLeft :size="14" />
+              <span>上一节点</span>
+            </button>
+            <strong>{{ learningIndex + 1 }} / {{ learningTotal }}</strong>
+            <button type="button" :disabled="!canGoNext" @click="$emit('pathNext')">
+              <span>下一节点</span>
+              <ArrowRight :size="14" />
+            </button>
+            <button class="ghost" type="button" @click="$emit('pathExit')">
+              <X :size="14" />
+              <span>退出</span>
+            </button>
+          </div>
+          <button v-else class="path-action" type="button" :disabled="loading" @click="$emit('startPath')">
+            <Play :size="14" />
+            {{ loading ? '正在整理路线' : '从第一步开始' }}
+          </button>
+        </section>
       </template>
     </div>
   </aside>
@@ -257,6 +266,8 @@ import {
 import type { NodeBrief, NodeDetail } from '../types'
 
 type ProgressState = 'want' | 'read' | 'mastered' | null
+const PATH_INITIAL_VISIBLE = 24
+const PATH_PAGE_SIZE = 24
 
 const props = defineProps<{
   detail: NodeDetail | null
@@ -285,8 +296,9 @@ defineEmits<{
 }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
-const drawerCollapsed = ref(false)
+const drawerCollapsed = ref(Boolean(props.floating))
 const sheetExpanded = ref(false)
+const pathVisibleLimit = ref(PATH_INITIAL_VISIBLE)
 const current = computed(() => props.detail ?? props.preview)
 const currentId = computed(() => current.value?.id)
 const currentName = computed(() => current.value?.name ?? '加载中')
@@ -299,19 +311,57 @@ const recommendedNode = computed(() => props.detail?.unlocks?.[0] ?? null)
 const sources = computed(() => props.detail?.sources ?? [])
 const canGoPrev = computed(() => props.learningActive && props.learningIndex > 0)
 const canGoNext = computed(() => props.learningActive && props.learningIndex < props.learningTotal - 1)
+const pathWindowStart = computed(() => Math.max(props.pathNodes.length - pathVisibleLimit.value, 0))
+const visiblePathNodes = computed(() => props.pathNodes.slice(pathWindowStart.value))
+const visiblePathCount = computed(() => visiblePathNodes.value.length)
+const hiddenPathCount = computed(() => pathWindowStart.value)
+const nextPathPageCount = computed(() => Math.min(PATH_PAGE_SIZE, hiddenPathCount.value))
+const canCollapsePath = computed(() => pathVisibleLimit.value > PATH_INITIAL_VISIBLE && props.pathNodes.length > PATH_INITIAL_VISIBLE)
+const pathSummary = computed(() => {
+  const nodes = props.pathNodes
+  if (nodes.length <= 12) return nodes.map(node => node.name).join(' -> ')
+  const head = nodes.slice(0, 5).map(node => node.name)
+  const tail = nodes.slice(-3).map(node => node.name)
+  return `${head.join(' -> ')} -> ... -> ${tail.join(' -> ')}`
+})
 const statusLabel = computed(() => {
   if (props.loading) return 'LOADING'
   if (props.error) return 'RETRY'
   return current.value ? 'SELECTED' : 'WAITING'
 })
 
+function expandPathWindow() {
+  pathVisibleLimit.value = Math.min(props.pathNodes.length, pathVisibleLimit.value + PATH_PAGE_SIZE)
+}
+
+function collapsePathWindow() {
+  pathVisibleLimit.value = PATH_INITIAL_VISIBLE
+}
+
+function actualPathIndex(visibleIndex: number) {
+  return pathWindowStart.value + visibleIndex
+}
+
 watch(() => current.value?.id, async () => {
+  pathVisibleLimit.value = PATH_INITIAL_VISIBLE
   await nextTick()
   bodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
 })
 
+watch(() => props.pathNodes.length, () => {
+  pathVisibleLimit.value = Math.min(pathVisibleLimit.value, Math.max(PATH_INITIAL_VISIBLE, props.pathNodes.length))
+})
+
+watch(() => props.learningIndex, index => {
+  if (!props.learningActive || index < 0) return
+  const distanceBeforeWindow = pathWindowStart.value - index
+  if (distanceBeforeWindow > 0 && distanceBeforeWindow <= PATH_PAGE_SIZE) {
+    pathVisibleLimit.value = Math.min(props.pathNodes.length, pathVisibleLimit.value + PATH_PAGE_SIZE)
+  }
+})
+
 watch(() => props.floating, value => {
-  if (!value) drawerCollapsed.value = false
+  drawerCollapsed.value = Boolean(value)
 })
 </script>
 
@@ -340,20 +390,37 @@ watch(() => props.floating, value => {
 }
 
 .panel.floating.collapsed {
-  width: 52px;
+  top: 104px;
+  right: 18px;
+  bottom: auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  overflow: visible;
 }
 
 .panel.floating.collapsed .panel-header {
-  height: 100%;
+  min-height: 0;
+  height: 38px;
   display: grid;
-  align-content: start;
-  justify-content: center;
-  padding: 12px 0;
+  place-items: center;
+  padding: 0;
+  border-bottom: 0;
+  background: var(--panel);
 }
 
-.panel.floating.collapsed .panel-header div strong,
+.panel.floating.collapsed .panel-header div,
 .panel.floating.collapsed .panel-state {
   display: none;
+}
+
+.panel.floating.collapsed .drawer-toggle {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
 }
 
 .panel-header {
@@ -639,6 +706,43 @@ watch(() => props.floating, value => {
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.path-more,
+.path-collapse {
+  margin-top: 10px;
+}
+
+.path-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.path-more button,
+.path-collapse {
+  min-height: 30px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink-2);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+
+.path-more button:hover,
+.path-collapse:hover {
+  border-color: var(--accent);
+  background: rgba(255, 87, 34, 0.06);
+  color: var(--accent);
+}
+
+.path-more span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .path-action {

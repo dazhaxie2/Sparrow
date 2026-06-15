@@ -27,7 +27,10 @@ public final class GraphDtos {
         }
     }
 
-    public record EdgeBrief(Long from, Long to) {
+    public record EdgeBrief(Long from, Long to, String label) {
+        public EdgeBrief(Long from, Long to) {
+            this(from, to, "前置");
+        }
     }
 
     public record Tree(List<NodeBrief> nodes, List<EdgeBrief> edges) {

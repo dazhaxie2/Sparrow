@@ -108,24 +108,85 @@ public class MysqlGraphReader {
         return nodeMapper.selectList(filter).stream().map(NodeBrief::from).toList();
     }
 
-    /** 过滤后按重要度取前 limit 个节点 + 这些节点之间的边(有界子图,供前端渲染)。 */
+    /** 过滤后构造有界子图:保留核心高重要度节点,同时补入可连接核心的邻居以提升可见关系密度。 */
     public Tree subgraph(String category, Integer eraRank, String q,
                          Integer minImportance, int limit) {
         int lim = Math.min(Math.max(limit, 1), 800);
+        int candidateLimit = Math.min(Math.max(lim * 3, lim), 2000);
         QueryWrapper<TechNode> filter = baseFilter(category, eraRank, q, minImportance);
-        filter.orderByDesc("importance").orderByAsc("id").last("LIMIT " + lim);
-        List<TechNode> top = nodeMapper.selectList(filter);
-        if (top.isEmpty()) {
+        filter.orderByDesc("importance").orderByAsc("id").last("LIMIT " + candidateLimit);
+        List<TechNode> candidates = nodeMapper.selectList(filter);
+        if (candidates.isEmpty()) {
             return new Tree(List.of(), List.of());
         }
-        Set<Long> ids = top.stream().map(TechNode::getId).collect(Collectors.toSet());
-        List<NodeBrief> nodes = top.stream().sorted(ORDER).map(NodeBrief::from).toList();
+        Set<Long> candidateIds = candidates.stream().map(TechNode::getId).collect(Collectors.toSet());
         QueryWrapper<TechEdge> edgeFilter = new QueryWrapper<>();
-        edgeFilter.in("from_id", ids).in("to_id", ids);
-        List<EdgeBrief> edges = edgeMapper.selectList(edgeFilter).stream()
+        edgeFilter.in("from_id", candidateIds).in("to_id", candidateIds);
+        List<TechEdge> candidateEdges = edgeMapper.selectList(edgeFilter);
+
+        Map<Long, Integer> degree = new HashMap<>();
+        for (TechEdge edge : candidateEdges) {
+            degree.merge(edge.getFromId(), 1, Integer::sum);
+            degree.merge(edge.getToId(), 1, Integer::sum);
+        }
+
+        Map<Long, TechNode> byId = candidates.stream()
+                .collect(Collectors.toMap(TechNode::getId, Function.identity(), (a, b) -> a));
+        LinkedHashSet<Long> selectedIds = new LinkedHashSet<>();
+        int anchorCount = Math.min(candidates.size(), Math.max(1, lim * 7 / 10));
+        for (int i = 0; i < anchorCount; i++) {
+            selectedIds.add(candidates.get(i).getId());
+        }
+
+        List<TechEdge> edgeRank = candidateEdges.stream()
+                .sorted((a, b) -> Integer.compare(edgeSignal(b, degree), edgeSignal(a, degree)))
+                .toList();
+        for (TechEdge edge : edgeRank) {
+            if (selectedIds.size() >= lim) {
+                break;
+            }
+            boolean fromSelected = selectedIds.contains(edge.getFromId());
+            boolean toSelected = selectedIds.contains(edge.getToId());
+            if (fromSelected && !toSelected) {
+                selectedIds.add(edge.getToId());
+            } else if (toSelected && !fromSelected) {
+                selectedIds.add(edge.getFromId());
+            }
+        }
+
+        candidates.stream()
+                .sorted((a, b) -> {
+                    int signal = Integer.compare(nodeSignal(b, degree), nodeSignal(a, degree));
+                    return signal != 0 ? signal : ORDER.compare(a, b);
+                })
+                .map(TechNode::getId)
+                .forEach(id -> {
+                    if (selectedIds.size() < lim) {
+                        selectedIds.add(id);
+                    }
+                });
+
+        Set<Long> ids = selectedIds.stream().limit(lim).collect(Collectors.toCollection(LinkedHashSet::new));
+        List<NodeBrief> nodes = ids.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .sorted(ORDER)
+                .map(NodeBrief::from)
+                .toList();
+        Set<Long> visibleIds = nodes.stream().map(NodeBrief::id).collect(Collectors.toSet());
+        List<EdgeBrief> edges = candidateEdges.stream()
+                .filter(e -> visibleIds.contains(e.getFromId()) && visibleIds.contains(e.getToId()))
                 .map(e -> new EdgeBrief(e.getFromId(), e.getToId()))
                 .toList();
         return new Tree(nodes, edges);
+    }
+
+    private int nodeSignal(TechNode node, Map<Long, Integer> degree) {
+        return (node.getImportance() == null ? 0 : node.getImportance()) + degree.getOrDefault(node.getId(), 0) * 12;
+    }
+
+    private int edgeSignal(TechEdge edge, Map<Long, Integer> degree) {
+        return degree.getOrDefault(edge.getFromId(), 0) + degree.getOrDefault(edge.getToId(), 0);
     }
 
     private QueryWrapper<TechNode> baseFilter(String category, Integer eraRank, String q,

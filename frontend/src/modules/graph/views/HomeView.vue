@@ -6,11 +6,11 @@
   />
 
   <main class="layout" :class="{ 'dialog-layout': graphMode === 'dialog' }">
-    <aside v-if="graphMode === 'map'" class="side-rail" aria-label="科技树控制台">
+    <aside v-if="graphMode === 'map'" class="side-rail" aria-label="知识图谱控制台">
       <div class="rail-head">
-        <span class="accent-tag">SPARROW TECH TREE</span>
-        <h1>人类科技树</h1>
-        <p>按领域与时代探索技术演进</p>
+        <span class="accent-tag">SPARROW KNOWLEDGE GRAPH</span>
+        <h1>点线知识图谱</h1>
+        <p>按领域与时代探索技术关系</p>
       </div>
 
       <div class="rail-stats" aria-label="图谱指标">
@@ -81,7 +81,7 @@
         <div class="graph-toolbar">
           <div class="toolbar-title">
             <MapPinned :size="16" />
-            <strong>{{ dialogActive ? '会话临时图谱' : '科技图谱' }}</strong>
+            <strong>{{ dialogActive ? '会话临时图谱' : '知识图谱' }}</strong>
             <span>{{ dialogActive ? `提取 ${nodeCount} 个相关节点` : `显示 ${nodeCount} / ${totalNodes}` }}</span>
           </div>
 
@@ -152,17 +152,11 @@
           <div
             ref="chartRef"
             class="chart-area"
-            :class="{ 'is-panning': graphPanning }"
-            @pointerdown="startGraphPan"
-            @pointermove="moveGraphPan"
-            @pointerup="stopGraphPan"
-            @pointercancel="cancelGraphPan"
-            @lostpointercapture="cancelGraphPan"
           ></div>
 
           <div v-if="treeLoading" class="graph-overlay">
             <LoaderCircle class="spin" :size="22" />
-            <strong>正在加载科技树</strong>
+            <strong>正在加载知识图谱</strong>
             <span>整理节点、关系和时代分组</span>
           </div>
 
@@ -191,10 +185,10 @@
             </div>
           </div>
 
-          <label v-if="!treeLoading && !treeError" class="edge-label-toggle">
+          <label v-if="hasInformativeEdgeLabels && !treeLoading && !treeError" class="edge-label-toggle">
             <input v-model="showEdgeLabels" type="checkbox" />
             <span></span>
-            <strong>Show Edge Labels</strong>
+            <strong>显示边名</strong>
           </label>
 
         </div>
@@ -383,20 +377,19 @@ import type { Tree, NodeBrief, NodeDetail, KnowledgeStatus, Overview, EdgeBrief 
 import { useUserStore } from '../../user/store'
 
 const ERA_COLORS: Record<number, string> = {
-  1: '#2f3a2f',
-  2: '#51606f',
-  3: '#b45309',
-  4: '#0f766e',
-  5: '#2563eb',
-  6: '#7c3aed',
-  7: '#c2410c',
-  8: '#15803d',
-  9: '#be123c',
-  10: '#111827',
+  1: '#ff6b35',
+  2: '#596579',
+  3: '#0f6da8',
+  4: '#1f9a6a',
+  5: '#4f8dd3',
+  6: '#8a63c7',
+  7: '#ed6a3a',
+  8: '#2c9f63',
+  9: '#e21b5a',
+  10: '#0a4c7a',
 }
-const COL_W = 230
-const ROW_H = 68
-const DEFAULT_VIEW = { zoom: 0.55, center: [4.5 * COL_W, 0] as [number, number] }
+const DEFAULT_VIEW = { zoom: 0.34, center: [0, 0] as [number, number] }
+const DEFAULT_EDGE_LABEL = '前置'
 const PROGRESS_KEY = 'sparrow_node_progress'
 const DIALOG_NODE_LIMIT = 140
 const DIALOG_NEIGHBOR_LIMIT = 10
@@ -416,6 +409,11 @@ type DialogMessage = {
   terms?: string[]
   nodes?: NodeBrief[]
 }
+type GraphPoint = {
+  x: number
+  y: number
+  degree: number
+}
 
 const user = useUserStore()
 const chartRef = ref<HTMLElement | null>(null)
@@ -424,14 +422,7 @@ const dialogInputRef = ref<HTMLTextAreaElement | null>(null)
 let chart: echarts.ECharts | null = null
 let latestNodeRequest = 0
 let dialogMessageId = 0
-let graphPan: {
-  pointerId: number
-  startX: number
-  startY: number
-  center: [number, number]
-  zoom: number
-  moved: boolean
-} | null = null
+let layoutCache: { key: string; positions: Record<number, GraphPoint> } | null = null
 let suppressNextGraphClick = false
 
 const treeData = ref<Tree | null>(null)
@@ -474,13 +465,20 @@ const knowledgeError = ref('')
 const showLogin = ref(false)
 const showMember = ref(false)
 const graphFullScreen = ref(false)
-const graphPanning = ref(false)
 const searchQuery = ref('')
 const searchOpen = ref(false)
 const activeSearchIndex = ref(0)
 
 const nodeCount = computed(() => treeData.value?.nodes.length ?? 0)
 const edgeCount = computed(() => treeData.value?.edges.length ?? 0)
+const hasInformativeEdgeLabels = computed(() => {
+  const labels = new Set(
+    (treeData.value?.edges ?? [])
+      .map(edge => edge.label?.trim())
+      .filter((label): label is string => Boolean(label && label !== DEFAULT_EDGE_LABEL)),
+  )
+  return labels.size > 0
+})
 const totalNodes = computed(() => overview.value?.totalNodes ?? nodeCount.value)
 const totalEdges = computed(() => overview.value?.totalEdges ?? edgeCount.value)
 const categories = computed(() => overview.value?.categories ?? [])
@@ -936,123 +934,183 @@ async function runDialogExtraction(queryOverride?: string) {
   }
 }
 
-function layoutNodes(nodes: NodeBrief[]) {
-  const byEra: Record<number, NodeBrief[]> = {}
-  for (const node of nodes) (byEra[node.eraRank] = byEra[node.eraRank] || []).push(node)
-  const pos: Record<number, { x: number; y: number }> = {}
-  for (const [rank, list] of Object.entries(byEra)) {
-    const eraRank = Number(rank)
-    for (let i = 0; i < list.length; i++) {
-      pos[list[i].id] = {
-        x: (eraRank - 1) * COL_W,
-        y: (i - (list.length - 1) / 2) * ROW_H,
-      }
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function stableNoise(seed: number, salt: number) {
+  const x = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
+  return (x - Math.floor(x)) * 2 - 1
+}
+
+function layoutNodes(nodes: NodeBrief[], edges: EdgeBrief[] = treeData.value?.edges ?? []) {
+  if (!nodes.length) return {}
+  const key = `${nodes.map(node => `${node.id}:${node.eraRank}:${node.category ?? ''}`).join('|')}::${edges.map(edge => `${edge.from}-${edge.to}`).join('|')}`
+  if (layoutCache?.key === key) return layoutCache.positions
+
+  const nodeIds = new Set(nodes.map(node => node.id))
+  const validEdges = edges.filter(edge => nodeIds.has(edge.from) && nodeIds.has(edge.to))
+  const degree = new Map(nodes.map(node => [node.id, 0]))
+  for (const edge of validEdges) {
+    degree.set(edge.from, (degree.get(edge.from) ?? 0) + 1)
+    degree.set(edge.to, (degree.get(edge.to) ?? 0) + 1)
+  }
+
+  const sortedNodes = [...nodes].sort((a, b) =>
+    a.eraRank - b.eraRank ||
+    String(a.category ?? '').localeCompare(String(b.category ?? '')) ||
+    a.id - b.id,
+  )
+  const eraRanks = [...new Set(sortedNodes.map(node => node.eraRank))].sort((a, b) => a - b)
+
+  // 时代从左到右排成时间轴;每个时代一个网格块,块内按领域+重要度铺开,确定性不重叠。
+  const CELL_X = 72
+  const CELL_Y = 50
+  const ERA_GAP = 128
+  const countByEra = new Map<number, number>()
+  for (const node of sortedNodes) countByEra.set(node.eraRank, (countByEra.get(node.eraRank) ?? 0) + 1)
+  const eraOffset = new Map<number, number>()
+  const eraColsMap = new Map<number, number>()
+  const eraRowsMap = new Map<number, number>()
+  let eraCursor = 0
+  for (const rank of eraRanks) {
+    const count = countByEra.get(rank) ?? 1
+    const cols = Math.max(1, Math.round(Math.sqrt(count * 0.78)))
+    eraOffset.set(rank, eraCursor)
+    eraColsMap.set(rank, cols)
+    eraRowsMap.set(rank, Math.ceil(count / cols))
+    eraCursor += cols * CELL_X + ERA_GAP
+  }
+  const eraFill = new Map<number, number>()
+  const positions: Record<number, GraphPoint> = {}
+  for (const node of sortedNodes) {
+    const rank = node.eraRank
+    const idx = eraFill.get(rank) ?? 0
+    eraFill.set(rank, idx + 1)
+    const cols = eraColsMap.get(rank) ?? 1
+    const rows = eraRowsMap.get(rank) ?? 1
+    const col = idx % cols
+    const row = Math.floor(idx / cols)
+    const xJitter = stableNoise(node.id, 17) * CELL_X * 0.3
+    const yJitter = stableNoise(node.id, 41) * CELL_Y * 0.36
+    const wave = Math.sin(col * 0.9 + rank * 0.7) * 9
+    positions[node.id] = {
+      x: Math.round((eraOffset.get(rank) ?? 0) + col * CELL_X + xJitter),
+      y: Math.round((row - (rows - 1) / 2) * CELL_Y + yJitter + wave),
+      degree: degree.get(node.id) ?? 0,
     }
   }
-  return pos
+  layoutCache = { key, positions }
+  return positions
 }
 
 function buildOption() {
   if (!treeData.value) return {}
   const nodes = treeData.value.nodes
   const edges = treeData.value.edges
-  const pos = layoutNodes(nodes)
+  const pos = layoutNodes(nodes, edges)
   const chain = highlight.value ? highlight.value.chainIds : null
   const selected = highlight.value ? highlight.value.selectedId : null
   const learningNodeId = learningCurrentNode.value?.id ?? null
   const learningIds = learningActive.value ? new Set(learningPath.value.nodes.map(node => node.id)) : null
   const isDialogGraph = dialogActive.value
   const tempIds = dialogNodeIds.value
-  const eras: Record<number, string> = {}
-  for (const node of nodes) eras[node.eraRank] = node.era
+  const showInlineEdgeLabels = showEdgeLabels.value && hasInformativeEdgeLabels.value
+  const adjacentIds = new Set<number>()
+  if (selected != null) {
+    for (const edge of edges) {
+      if (edge.from === selected) adjacentIds.add(edge.to)
+      if (edge.to === selected) adjacentIds.add(edge.from)
+    }
+  }
 
-  const eraLabels: any[] = Object.entries(eras).map(([rank, eraName]) => {
-    const eraRank = Number(rank)
-    const eraNodes = nodes.filter(node => node.eraRank === eraRank)
-    const minY = eraNodes.length ? Math.min(...eraNodes.map(node => pos[node.id].y)) : 0
+  const data: any[] = nodes.map(node => {
+    const point = pos[node.id] ?? { x: 0, y: 0, degree: 0 }
+    const inChain = Boolean(chain && (chain.has(node.id) || node.id === selected))
+    const adjacent = adjacentIds.has(node.id)
+    const dim = (chain || selected != null) && !inChain && !adjacent
+    const isSelected = node.id === selected
+    const inLearningPath = learningIds?.has(node.id) ?? false
+    const isLearningCurrent = node.id === learningNodeId
+    const isDialogNode = tempIds.has(node.id)
+    const importance = node.importance ?? 0
+    const size = clamp(
+      5 + Math.min(5, Math.sqrt(point.degree) * 0.9) + Math.min(3.5, importance * 0.035),
+      5,
+      14,
+    )
+    const labelAlways = isSelected || adjacent || inChain || inLearningPath || isDialogNode
+    const labelVisible = labelAlways || nodes.length <= 160 || (nodes.length <= 540 && (point.degree >= 1 || importance >= 35))
+    const color = ERA_COLORS[node.eraRank] || '#111111'
+
     return {
-      id: `era-${rank}`,
-      name: eraName,
-      x: (eraRank - 1) * COL_W,
-      y: minY - 72,
-      symbol: 'rect',
-      symbolSize: [1, 1],
-      itemStyle: { color: 'transparent' },
-      label: {
-        show: true,
-        color: ERA_COLORS[eraRank] || '#111111',
-        fontSize: 14,
-        fontWeight: 800,
-        formatter: eraName,
+      id: String(node.id),
+      name: node.name,
+      x: point.x,
+      y: point.y,
+      symbol: node.premium ? 'diamond' : 'circle',
+      symbolSize: isLearningCurrent ? size + 6 : isSelected ? size + 5 : adjacent ? size + 2.5 : size,
+      itemStyle: {
+        color,
+        opacity: dim ? 0.1 : labelAlways ? 0.98 : 0.88,
+        borderColor: isDialogNode ? '#ffffff' : isLearningCurrent ? '#e21b5a' : isSelected ? '#111827' : adjacent || inChain ? '#f43f5e' : 'rgba(255,255,255,0.92)',
+        borderWidth: isLearningCurrent ? 2.8 : isSelected ? 2.4 : adjacent || inChain ? 1.8 : 0.8,
+        shadowBlur: isLearningCurrent ? 18 : isSelected ? 14 : adjacent || inChain || isDialogNode ? 8 : 0,
+        shadowColor: isLearningCurrent || isSelected || adjacent || inChain
+          ? 'rgba(226, 27, 90, 0.34)'
+          : 'transparent',
       },
-      tooltip: { show: false },
-      _nodeId: null,
+      label: {
+        show: labelVisible,
+        color: dim ? 'rgba(107, 114, 128, 0.2)' : labelAlways ? '#111827' : 'rgba(58, 68, 80, 0.62)',
+        fontSize: labelAlways ? 11 : 8,
+        fontWeight: isLearningCurrent || isSelected ? 900 : labelAlways ? 760 : 600,
+        formatter: `${node.premium ? 'PRO · ' : ''}${node.name}`,
+        position: 'right',
+        distance: labelAlways ? 6 : 3,
+        backgroundColor: labelAlways ? 'rgba(255, 255, 255, 0.88)' : 'transparent',
+        borderColor: isSelected || adjacent || inChain ? 'rgba(226, 27, 90, 0.2)' : 'transparent',
+        borderWidth: labelAlways ? 1 : 0,
+        borderRadius: 4,
+        padding: labelAlways ? [2, 5] : 0,
+        opacity: dim && !inLearningPath ? 0.18 : 1,
+      },
+      _nodeId: node.id,
     }
   })
 
-  const data: any[] = [
-    ...nodes.map(node => {
-      const inChain = chain && (chain.has(node.id) || node.id === selected)
-      const dim = chain && !inChain
-      const isSelected = node.id === selected
-      const inLearningPath = learningIds?.has(node.id) ?? false
-      const isLearningCurrent = node.id === learningNodeId
-      const labelLength = Array.from(node.name).length
-      const isDialogNode = tempIds.has(node.id)
-      return {
-        id: String(node.id),
-        name: node.name,
-        x: pos[node.id].x,
-        y: pos[node.id].y,
-        symbol: isDialogGraph ? 'circle' : 'roundRect',
-        symbolSize: isDialogGraph
-          ? (isSelected ? 24 : inChain ? 21 : 18)
-          : [
-              Math.max(labelLength * 14 + (node.premium ? 48 : 30) + (isLearningCurrent ? 20 : 0), 84),
-              isLearningCurrent ? 42 : 34,
-            ],
-        itemStyle: {
-          color: ERA_COLORS[node.eraRank] || '#111111',
-          opacity: dim ? 0.18 : 1,
-          borderColor: isDialogNode ? '#ffffff' : isLearningCurrent ? '#ff5722' : isSelected ? '#000000' : inChain ? '#ff5722' : '#ffffff',
-          borderWidth: isDialogGraph ? (isSelected ? 4 : 2) : isLearningCurrent ? 4 : isSelected ? 3 : inChain ? 2 : 1,
-          shadowBlur: isDialogGraph ? (isSelected ? 20 : 8) : isLearningCurrent ? 26 : inChain ? 14 : 0,
-          shadowColor: isLearningCurrent ? 'rgba(255, 87, 34, 0.56)' : 'rgba(255, 87, 34, 0.34)',
-        },
-        label: {
-          show: true,
-          color: isDialogGraph ? '#2f3437' : '#ffffff',
-          fontSize: isDialogGraph ? 11 : 12,
-          fontWeight: isLearningCurrent ? 900 : 700,
-          formatter: `${node.premium ? 'PRO · ' : ''}${node.name}`,
-          position: isDialogGraph ? 'right' : 'inside',
-          backgroundColor: isDialogGraph ? 'rgba(255, 255, 255, 0.76)' : 'transparent',
-          borderRadius: isDialogGraph ? 3 : 0,
-          padding: isDialogGraph ? [2, 4] : 0,
-          opacity: dim && !inLearningPath ? 0.28 : 1,
-        },
-        _nodeId: node.id,
-      }
-    }),
-    ...eraLabels,
-  ]
-
   const edgeData = edges.map(edge => {
-    const active = chain && (chain.has(edge.from) || edge.from === selected) && (chain.has(edge.to) || edge.to === selected)
+    const sourceActive = edge.from === selected || edge.to === selected
+    const chainActive = chain && (chain.has(edge.from) || edge.from === selected) && (chain.has(edge.to) || edge.to === selected)
+    const learningActiveEdge = Boolean(learningIds?.has(edge.from) && learningIds?.has(edge.to))
+    const active = Boolean(sourceActive || chainActive || learningActiveEdge)
+    const dim = (chain || selected != null) && !active
+    const edgeLabel = edge.label?.trim() || DEFAULT_EDGE_LABEL
+    const sourceName = nodeById.value.get(edge.from)?.name ?? String(edge.from)
+    const targetName = nodeById.value.get(edge.to)?.name ?? String(edge.to)
+    const curveSeed = ((edge.from * 31 + edge.to * 17) % 11) - 5
     return {
       source: String(edge.from),
       target: String(edge.to),
+      edgeLabel,
+      relationText: `${sourceName} → ${targetName}`,
       label: {
-        show: showEdgeLabels.value,
-        formatter: 'PRE',
-        color: '#7a7a7a',
-        fontSize: 9,
+        show: showInlineEdgeLabels && active && edgeLabel !== DEFAULT_EDGE_LABEL,
+        formatter: edgeLabel,
+        position: 'middle',
+        color: active ? '#e21b5a' : '#7a7a7a',
+        fontSize: 10,
+        backgroundColor: 'rgba(255,255,255,0.9)',
+        borderRadius: 3,
+        padding: [2, 5],
       },
       lineStyle: {
-        color: active ? '#ff5722' : isDialogGraph ? '#b8b8b8' : '#d5d5d5',
-        width: active ? 2.2 : isDialogGraph ? 1.15 : 1,
-        opacity: chain ? (active ? 0.96 : 0.16) : isDialogGraph ? 0.52 : 0.62,
-        curveness: isDialogGraph ? 0.08 : 0.18,
+        color: active ? '#e21b5a' : isDialogGraph ? '#9ea9b5' : '#aeb8c3',
+        width: active ? 1.55 : isDialogGraph ? 0.7 : 0.55,
+        opacity: dim ? 0.025 : active ? 0.86 : isDialogGraph ? 0.22 : 0.14,
+        curveness: curveSeed * (active ? 0.026 : 0.018),
+        shadowBlur: active ? 4 : 0,
+        shadowColor: 'rgba(226, 27, 90, 0.28)',
       },
     }
   })
@@ -1070,6 +1128,11 @@ function buildOption() {
       textStyle: { color: '#111111', width: 260, overflow: 'break' as const },
       extraCssText: 'max-width:300px;white-space:normal;box-shadow:0 12px 28px rgba(0,0,0,.12);border-radius:4px;',
       formatter: (params: any) => {
+        if (params.dataType === 'edge') {
+          const label = params.data?.edgeLabel || DEFAULT_EDGE_LABEL
+          const relation = params.data?.relationText || ''
+          return `<strong>${relation}</strong><br/>关系: ${label}`
+        }
         if (!params.data?._nodeId) return params.name
         const node = nodeById.value.get(params.data._nodeId)
         const guideIndex = learningPath.value.nodes.findIndex(item => item.id === params.data._nodeId)
@@ -1082,22 +1145,63 @@ function buildOption() {
     series: [{
       type: 'graph',
       layout: 'none',
-      roam: 'scale',
+      roam: true,
       zoom: currentView.value.zoom,
       center: currentView.value.center,
       data,
       edges: edgeData,
       edgeSymbol: ['none', 'arrow'],
-      edgeSymbolSize: 7,
-      labelLayout: { hideOverlap: true },
-      emphasis: { disabled: true },
+      edgeSymbolSize: [0, 3],
+      edgeLabel: {
+        show: false,
+        position: 'middle',
+        formatter: (params: any) => params.data?.edgeLabel ?? DEFAULT_EDGE_LABEL,
+      },
+      labelLayout: {
+        hideOverlap: nodes.length > 260,
+        moveOverlap: 'shiftY',
+      },
+      animation: nodes.length <= 420,
+      animationDurationUpdate: nodes.length > 420 ? 0 : 260,
+      animationEasingUpdate: 'cubicOut',
+      emphasis: {
+        focus: 'adjacency',
+        label: {
+          show: true,
+          backgroundColor: 'rgba(255, 255, 255, 0.92)',
+        },
+        itemStyle: {
+          shadowBlur: 22,
+          shadowColor: 'rgba(255, 87, 34, 0.42)',
+        },
+        lineStyle: {
+          width: 1.7,
+          opacity: 0.9,
+        },
+      },
       silent: false,
     }],
   }
 }
 
 function renderTree() {
-  chart?.setOption(buildOption() as any, true)
+  const option = buildOption()
+  chart?.setOption(option as any, true)
+}
+
+/** 数据变更后把视图自动缩放/居中到当前所有节点的范围(看全 + 不偏位)。 */
+function fitView() {
+  if (!chart || !treeData.value?.nodes.length) return
+  const positions = layoutNodes(treeData.value.nodes, treeData.value.edges)
+  const pts = Object.values(positions)
+  if (!pts.length) return
+  const xs = pts.map(p => p.x)
+  const ys = pts.map(p => p.y)
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+  // ECharts graph 的 zoom 是相对"数据 fit 视图"的倍数(zoom≈1 即填满),不是像素比例
+  currentView.value = { zoom: 0.92, center: [cx, cy] }
+  chart.setOption({ series: [{ zoom: 0.92, center: [cx, cy] }] } as any)
 }
 
 async function loadTree() {
@@ -1110,6 +1214,7 @@ async function loadTree() {
       limit: graphLimit.value,
     })
     renderTree()
+    fitView()
   } catch (error: any) {
     treeError.value = error.message || '无法连接图谱服务'
   } finally {
@@ -1188,18 +1293,49 @@ async function refreshGraph() {
   }
 }
 
+function graphViewportCenter(): [number, number] {
+  const rect = chartRef.value?.getBoundingClientRect()
+  return [
+    Math.round((rect?.width || 720) / 2),
+    Math.round((rect?.height || 520) / 2),
+  ]
+}
+
+function defaultGraphView() {
+  return {
+    zoom: DEFAULT_VIEW.zoom,
+    center: graphViewportCenter(),
+  }
+}
+
+function centerForPoint(point: GraphPoint, zoom: number): [number, number] {
+  const [cx, cy] = graphViewportCenter()
+  return [
+    Math.round(cx - point.x * zoom),
+    Math.round(cy - point.y * zoom),
+  ]
+}
+
 function resetGraphView() {
-  currentView.value = { ...DEFAULT_VIEW }
-  chart?.setOption({
-    series: [{
-      zoom: currentView.value.zoom,
-      center: currentView.value.center,
-    }],
-  } as any)
+  fitView()
 }
 
 function focusEra(rank: number) {
-  currentView.value = { zoom: 0.82, center: [(rank - 1) * COL_W, 0] }
+  if (!treeData.value) return
+  const pos = layoutNodes(treeData.value.nodes, treeData.value.edges)
+  const eraPoints = treeData.value.nodes
+    .filter(node => node.eraRank === rank && pos[node.id])
+    .map(node => pos[node.id])
+  if (!eraPoints.length) return
+  const center = {
+    x: eraPoints.reduce((sum, point) => sum + point.x, 0) / eraPoints.length,
+    y: eraPoints.reduce((sum, point) => sum + point.y, 0) / eraPoints.length,
+    degree: 0,
+  }
+  currentView.value = {
+    zoom: 0.9,
+    center: centerForPoint(center, 0.9),
+  }
   chart?.setOption({
     series: [{
       zoom: currentView.value.zoom,
@@ -1211,9 +1347,9 @@ function focusEra(rank: number) {
 function centerNode(id: number, zoom = 0.92) {
   const node = nodeById.value.get(id)
   if (!node || !treeData.value) return
-  const pos = layoutNodes(treeData.value.nodes)[id]
+  const pos = layoutNodes(treeData.value.nodes, treeData.value.edges)[id]
   if (!pos) return
-  currentView.value = { zoom, center: [pos.x, pos.y] }
+  currentView.value = { zoom, center: centerForPoint(pos, zoom) }
   chart?.setOption({
     series: [{
       zoom: currentView.value.zoom,
@@ -1355,66 +1491,6 @@ function updateCurrentViewFromChart() {
   }
 }
 
-function startGraphPan(event: PointerEvent) {
-  if ((event.pointerType === 'mouse' && event.button !== 0) || treeLoading.value || treeError.value) return
-  graphPan = {
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    center: [...currentView.value.center],
-    zoom: currentView.value.zoom || 1,
-    moved: false,
-  }
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-}
-
-function moveGraphPan(event: PointerEvent) {
-  if (!graphPan || graphPan.pointerId !== event.pointerId) return
-  const dx = event.clientX - graphPan.startX
-  const dy = event.clientY - graphPan.startY
-  if (!graphPan.moved && Math.hypot(dx, dy) < 4) return
-  graphPan.moved = true
-  graphPanning.value = true
-
-  const zoom = Math.max(graphPan.zoom, 0.05)
-  currentView.value = {
-    zoom,
-    center: [
-      graphPan.center[0] - dx / zoom,
-      graphPan.center[1] - dy / zoom,
-    ],
-  }
-  chart?.setOption({
-    series: [{
-      center: currentView.value.center,
-    }],
-  } as any, false, true)
-  event.preventDefault()
-}
-
-function stopGraphPan(event: PointerEvent) {
-  if (!graphPan || graphPan.pointerId !== event.pointerId) return
-  const moved = graphPan.moved
-  graphPan = null
-  graphPanning.value = false
-  if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) {
-    ;(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId)
-  }
-  if (moved) {
-    suppressNextGraphClick = true
-    window.setTimeout(() => {
-      suppressNextGraphClick = false
-    }, 120)
-    event.preventDefault()
-  }
-}
-
-function cancelGraphPan(event?: PointerEvent) {
-  if (event && graphPan?.pointerId !== event.pointerId) return
-  graphPan = null
-  graphPanning.value = false
-}
-
 function handleResize() {
   chart?.resize()
 }
@@ -1445,7 +1521,8 @@ function handleKeydown(event: KeyboardEvent) {
 
 onMounted(async () => {
   if (chartRef.value) {
-    chart = echarts.init(chartRef.value)
+    chart = echarts.init(chartRef.value, undefined, { renderer: 'canvas' })
+    currentView.value = defaultGraphView()
     chart.on('click', (params: any) => {
       if (suppressNextGraphClick) {
         suppressNextGraphClick = false
@@ -1467,7 +1544,6 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('focus', handleFocus)
   window.removeEventListener('keydown', handleKeydown)
-  cancelGraphPan()
   chart?.dispose()
 })
 </script>
@@ -2040,9 +2116,12 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background-color: #fafafa;
-  background-image: radial-gradient(#d7d7d7 1.15px, transparent 1.15px);
-  background-size: 24px 24px;
+  background-color: #f8fafb;
+  background-image:
+    radial-gradient(rgba(82, 94, 111, 0.18) 0.9px, transparent 1px),
+    radial-gradient(rgba(226, 27, 90, 0.08) 0.8px, transparent 1px);
+  background-position: 0 0, 9px 9px;
+  background-size: 18px 18px, 36px 36px;
 }
 
 .chart-area {

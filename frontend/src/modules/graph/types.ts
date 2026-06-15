@@ -14,6 +14,7 @@ export interface NodeBrief {
 export interface EdgeBrief {
   from: number
   to: number
+  label?: string | null
 }
 
 export interface Tree {
