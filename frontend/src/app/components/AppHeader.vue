@@ -15,43 +15,53 @@
     </nav>
 
     <div class="actions">
-      <button
-        v-if="user.profile && !user.profile.member"
-        class="btn accent"
-        type="button"
-        @click="$emit('openMember')"
-      >
-        开通会员
-      </button>
-      <button
-        v-if="user.profile && user.profile.member"
-        class="btn accent"
-        type="button"
-        @click="$emit('openMember')"
-      >
-        会员续期
-      </button>
-      <span v-if="user.profile" class="user-info">
-        <span class="status-dot"></span>
-        {{ user.profile.username }}
-        <span v-if="user.profile.member" class="member-badge">PRO</span>
-      </span>
       <button v-if="!user.profile" class="btn primary" type="button" @click="$emit('openLogin')">
         登录 / 注册
       </button>
-      <button v-if="user.profile" class="btn ghost" type="button" @click="user.logout()">
-        退出
-      </button>
+      <div v-else class="user-menu">
+        <button class="user-trigger" type="button" @click.stop="menuOpen = !menuOpen">
+          <span class="status-dot"></span>
+          <span class="user-name">{{ user.profile.username }}</span>
+          <span v-if="user.profile.member" class="member-badge">PRO</span>
+          <ChevronDown :size="14" />
+        </button>
+        <div v-if="menuOpen" class="user-dropdown">
+          <button type="button" @click="select('openLearning')"><GraduationCap :size="15" />我的学习</button>
+          <button type="button" @click="select('openMember')"><Crown :size="15" />{{ user.profile.member ? '会员续期' : '开通会员' }}</button>
+          <button type="button" @click="select('openSettings')"><Settings :size="15" />设置</button>
+          <div class="menu-sep"></div>
+          <button type="button" class="danger" @click="logout"><LogOut :size="15" />退出登录</button>
+        </div>
+      </div>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
+import { onMounted, onUnmounted, ref } from 'vue'
+import { ChevronDown, Crown, GraduationCap, LogOut, Settings } from '@lucide/vue'
 import { useUserStore } from '../../modules/user/store'
 
 const user = useUserStore()
+const emit = defineEmits<{ openLogin: []; openMember: []; focusAi: []; openLearning: []; openSettings: [] }>()
+const menuOpen = ref(false)
 
-defineEmits<{ openLogin: []; openMember: []; focusAi: [] }>()
+function select(action: 'openLearning' | 'openMember' | 'openSettings') {
+  menuOpen.value = false
+  emit(action)
+}
+
+function logout() {
+  menuOpen.value = false
+  user.logout()
+}
+
+function closeMenu(event: MouseEvent) {
+  if (!(event.target as HTMLElement).closest('.user-menu')) menuOpen.value = false
+}
+
+onMounted(() => document.addEventListener('click', closeMenu))
+onUnmounted(() => document.removeEventListener('click', closeMenu))
 </script>
 
 <style scoped>
@@ -165,6 +175,83 @@ defineEmits<{ openLogin: []; openMember: []; focusAi: [] }>()
   padding: 2px 5px;
   font-size: 10px;
   letter-spacing: 0.08em;
+}
+
+.user-menu {
+  position: relative;
+}
+
+.user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.16s ease;
+}
+
+.user-trigger:hover {
+  border-color: var(--ink);
+}
+
+.user-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 200;
+  min-width: 172px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+  padding: 6px;
+}
+
+.user-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 0 10px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.user-dropdown button:hover {
+  background: var(--surface);
+}
+
+.user-dropdown button svg {
+  color: var(--ink-2);
+}
+
+.user-dropdown button.danger,
+.user-dropdown button.danger svg {
+  color: var(--danger);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line);
 }
 
 .btn {

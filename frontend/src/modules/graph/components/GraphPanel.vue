@@ -129,18 +129,18 @@
             <div class="section-title">
               <ExternalLink :size="15" />
               <span>资料来源</span>
-              <small>{{ sources.length }}</small>
+              <small>{{ sources.length + 1 }}</small>
             </div>
             <div class="source-list">
               <a
-                v-for="source in sources"
+                v-for="source in allSources"
                 :key="`${source.title}-${source.url}`"
                 :href="source.url"
                 target="_blank"
                 rel="noreferrer"
               >
-                <strong>{{ source.title || '参考资料' }}</strong>
-                <span>{{ source.updatedAt ? `更新于 ${source.updatedAt}` : source.url }}</span>
+                <strong>{{ source.title || currentName }}</strong>
+                <span>{{ source.updatedAt ? `更新于 ${source.updatedAt} · ${source.source}` : source.source }}</span>
               </a>
             </div>
           </section>
@@ -309,6 +309,20 @@ const currentCategory = computed(() => current.value?.category ?? '')
 const currentPremium = computed(() => Boolean(current.value?.premium))
 const recommendedNode = computed(() => props.detail?.unlocks?.[0] ?? null)
 const sources = computed(() => props.detail?.sources ?? [])
+
+const allSources = computed(() => {
+  const baikeSource = {
+    title: currentName.value,
+    url: `https://baike.baidu.com/item/${encodeURIComponent(currentName.value || '')}`,
+    source: '百度百科',
+    updatedAt: undefined
+  }
+  const originalSources = sources.value.map(src => ({
+    ...src,
+    source: (src as any).source || '维基百科'
+  }))
+  return [baikeSource, ...originalSources]
+})
 const canGoPrev = computed(() => props.learningActive && props.learningIndex > 0)
 const canGoNext = computed(() => props.learningActive && props.learningIndex < props.learningTotal - 1)
 const pathWindowStart = computed(() => Math.max(props.pathNodes.length - pathVisibleLimit.value, 0))

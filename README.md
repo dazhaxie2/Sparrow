@@ -1,17 +1,3 @@
-# Sparrow · 人类科技树(Phase 2 M5)
-
-从 50 万年前的「火」到未来的 AGI:77 项关键技术、110+ 条依赖边的可视化科技树,
-附带 AI 向导(RAG/Agent)与会员支付闭环。
-
-当前形态是 **Phase 2 M2~M5 主干已落地**:Spring Cloud Gateway + Nacos + OpenFeign,
-拆成 5 个运行时服务 `gateway / user / graph / ai / trade`,完成四个业务库拆分与
-trade/user 支付链路 Seata AT 运行态回滚演练,接入并验证 Kafka 投递/消费与消费幂等。
-M4 graph 主读路径已切 Neo4j(MySQL `tech_node/tech_edge` 退化为种子写入源),
-M5 接入 LangChain4j Agent 工具调用与 Sentinel 兜底限流(Dashboard 待后续接入)。
-
-前端入口和 API 契约保持不变:宿主机只暴露 `http://localhost:8080`,
-前端仍请求 `/api/**`。
-
 ## 一键启动
 
 默认启动完整链路(gateway/user/graph/ai/trade + MySQL/Redis/Nacos/Kafka/Neo4j/Milvus/Sentinel):
@@ -97,7 +83,7 @@ AI_EMBEDDING_MODEL=text-embedding-v3
 
 ## 本地验证
 
-本机 Java 仍可能是 Java 8,后端验证统一使用 Docker 内的 Java 17:
+Java 17:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File backend/scripts/mvn17.ps1 test
@@ -119,12 +105,3 @@ powershell -ExecutionPolicy Bypass -File backend/scripts/phase2-rollback-check.p
 
 `smoke.ps1` 验证注册登录、科技树浏览、AI、会员下单、Mock 支付回调校验、重复回调幂等、会员解锁和订单列表。
 若未配置模型,AI 会走规则降级或部分模型能力不可用。
-
-## 后续里程碑
-
-- M2:✅ 拆分业务库 + Seata AT 已落地,回滚演练已脚本化(`backend/scripts/phase2-rollback-check.ps1`)。
-- M3:✅ Kafka 事件骨架已落地,坏消息容错(ErrorHandlingDeserializer + DefaultErrorHandler)已接入。
-- M4:✅ graph 主读路径已切 Neo4j(启动迁移 77 节点/124 边 + 唯一约束),Neo4j 不可达时 `GraphService` 自动降级 MySQL 邻接表(反向 BFS 多跳);运行态已验证多跳一致 + 停机降级(tree/prereq 仍正常)。
-- M5:✅ LangChain4j Agent(LRU 会话记忆)+ Sentinel 限流(Nacos 持久化数据源 + Dashboard 写回 Nacos)+ RAG/向量(embedding-3 → Milvus);运行态已验证 Agent 工具调用、规则动态下发、Dashboard push 写回 Nacos、向量检索端到端。详见 [docs/阶段二服务化实施状态.md](docs/阶段二服务化实施状态.md) 的「运行态验证记录」。
-
-更多状态见 [docs/阶段二服务化实施状态.md](docs/阶段二服务化实施状态.md) 和 [ROADMAP.md](ROADMAP.md)。

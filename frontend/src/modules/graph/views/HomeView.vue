@@ -3,6 +3,8 @@
     @open-login="showLogin = true"
     @open-member="showMemberModal"
     @focus-ai="openAiGuide"
+    @open-learning="showLearning = true"
+    @open-settings="showSettings = true"
   />
 
   <main class="layout" :class="{ 'dialog-layout': graphMode === 'dialog' }">
@@ -152,6 +154,13 @@
           <div
             ref="chartRef"
             class="chart-area"
+            :class="{ 'is-panning': graphPanning }"
+            @pointerdown="startGraphPan"
+            @pointermove="moveGraphPan"
+            @pointerup="stopGraphPan"
+            @pointercancel="cancelGraphPan"
+            @lostpointercapture="cancelGraphPan"
+            @wheel="onGraphWheel"
           ></div>
 
           <div v-if="treeLoading" class="graph-overlay">
@@ -328,7 +337,7 @@
       <div v-if="compareNodes.length === 2" class="compare-result">
         <div>
           <span>共同前置</span>
-          <p v-if="commonPrerequisites.length">{{ commonPrerequisites.map(node => node.name).join('、') }}</p>
+          <p v-if="commonPrerequisites.length">{{ commonPrerequisites.slice(0, 12).map(node => node.name).join('、') }}<span v-if="commonPrerequisites.length > 12" class="more-count"> …等 {{ commonPrerequisites.length }} 项</span></p>
           <p v-else>暂无共同前置节点</p>
         </div>
         <div>
@@ -342,6 +351,50 @@
 
   <LoginModal v-if="showLogin" @close="showLogin = false" />
   <MemberModal v-if="showMember" @close="showMember = false" />
+
+  <Teleport to="body">
+    <div v-if="showLearning" class="lc-mask" @click.self="showLearning = false">
+      <div class="lc-modal">
+        <header class="lc-head">
+          <strong>我的学习</strong>
+          <button type="button" @click="showLearning = false"><X :size="16" /></button>
+        </header>
+        <div class="lc-body">
+          <section v-for="key in (['want', 'read', 'mastered'] as const)" :key="key" class="lc-group">
+            <h4>{{ LEARNING_LABELS[key] }}<small>{{ learningGroups[key].length }}</small></h4>
+            <p v-if="!learningGroups[key].length" class="lc-empty">暂无</p>
+            <div v-else class="lc-list">
+              <div v-for="item in learningGroups[key]" :key="item.id" class="lc-item">
+                <button type="button" class="lc-go" @click="openLearningNode(item.id)">
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ item.era }}{{ item.yearLabel ? ' · ' + item.yearLabel : '' }}</small>
+                </button>
+                <button type="button" class="lc-rm" title="移出" @click="removeProgress(item.id)"><X :size="13" /></button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <Teleport to="body">
+    <div v-if="showSettings" class="lc-mask" @click.self="showSettings = false">
+      <div class="lc-modal settings">
+        <header class="lc-head">
+          <strong>设置</strong>
+          <button type="button" @click="showSettings = false"><X :size="16" /></button>
+        </header>
+        <div class="lc-body">
+          <label class="set-row">
+            <span>图谱默认显示边标签</span>
+            <input v-model="showEdgeLabels" type="checkbox" />
+          </label>
+          <button type="button" class="set-clear" @click="clearAllProgress">清空我的学习记录</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -391,6 +444,8 @@ const ERA_COLORS: Record<number, string> = {
 const DEFAULT_VIEW = { zoom: 0.34, center: [0, 0] as [number, number] }
 const DEFAULT_EDGE_LABEL = '前置'
 const PROGRESS_KEY = 'sparrow_node_progress'
+const LEARNING_BRIEF_KEY = 'sparrow_learning_briefs'
+const LEARNING_LABELS: Record<'want' | 'read' | 'mastered', string> = { want: '想学', read: '已读', mastered: '已掌握' }
 const DIALOG_NODE_LIMIT = 140
 const DIALOG_NEIGHBOR_LIMIT = 10
 
@@ -424,6 +479,8 @@ let latestNodeRequest = 0
 let dialogMessageId = 0
 let layoutCache: { key: string; positions: Record<number, GraphPoint> } | null = null
 let suppressNextGraphClick = false
+let graphPan: { pointerId: number; lastX: number; lastY: number; moved: boolean } | null = null
+const graphPanning = ref(false)
 
 const treeData = ref<Tree | null>(null)
 const selectedDetail = ref<NodeDetail | null>(null)
@@ -437,6 +494,9 @@ const learningPath = ref<{ active: boolean; nodes: NodeBrief[]; index: number }>
 })
 const currentView = ref({ ...DEFAULT_VIEW })
 const progressMap = ref<Record<number, ProgressState>>({})
+const learningBriefs = ref<Record<number, { name: string; era: string; yearLabel: string }>>({})
+const showLearning = ref(false)
+const showSettings = ref(false)
 const compareNodes = ref<NodeBrief[]>([])
 const compareChains = ref<Record<number, NodeBrief[]>>({})
 const compareDetails = ref<Record<number, NodeDetail>>({})
@@ -649,19 +709,61 @@ function loadProgress() {
   try {
     const raw = localStorage.getItem(PROGRESS_KEY)
     progressMap.value = raw ? JSON.parse(raw) : {}
+    const rawBrief = localStorage.getItem(LEARNING_BRIEF_KEY)
+    learningBriefs.value = rawBrief ? JSON.parse(rawBrief) : {}
   } catch {
     progressMap.value = {}
+    learningBriefs.value = {}
   }
 }
 
 function saveProgress() {
   localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressMap.value))
+  localStorage.setItem(LEARNING_BRIEF_KEY, JSON.stringify(learningBriefs.value))
 }
 
 function setCurrentProgress(state: ProgressState) {
-  const id = selectedDetail.value?.id ?? selectedPreview.value?.id
-  if (!id) return
+  const current = selectedDetail.value ?? selectedPreview.value
+  const id = current?.id
+  if (!id || !current) return
   progressMap.value = { ...progressMap.value, [id]: state }
+  learningBriefs.value = {
+    ...learningBriefs.value,
+    [id]: { name: current.name, era: current.era, yearLabel: current.yearLabel },
+  }
+  saveProgress()
+}
+
+function removeProgress(id: number) {
+  const { [id]: _state, ...restMap } = progressMap.value
+  const { [id]: _brief, ...restBrief } = learningBriefs.value
+  progressMap.value = restMap
+  learningBriefs.value = restBrief
+  saveProgress()
+}
+
+const learningGroups = computed(() => {
+  const groups: Record<'want' | 'read' | 'mastered', Array<{ id: number; name: string; era: string; yearLabel: string }>> = {
+    want: [], read: [], mastered: [],
+  }
+  for (const [idStr, state] of Object.entries(progressMap.value)) {
+    const id = Number(idStr)
+    const brief = learningBriefs.value[id]
+    if (groups[state]) {
+      groups[state].push({ id, name: brief?.name || `节点 #${id}`, era: brief?.era || '', yearLabel: brief?.yearLabel || '' })
+    }
+  }
+  return groups
+})
+
+function openLearningNode(id: number) {
+  showLearning.value = false
+  void showNode(id, { focus: true })
+}
+
+function clearAllProgress() {
+  progressMap.value = {}
+  learningBriefs.value = {}
   saveProgress()
 }
 
@@ -1145,7 +1247,7 @@ function buildOption() {
     series: [{
       type: 'graph',
       layout: 'none',
-      roam: true,
+      roam: false,
       zoom: currentView.value.zoom,
       center: currentView.value.center,
       data,
@@ -1165,7 +1267,7 @@ function buildOption() {
       animationDurationUpdate: nodes.length > 420 ? 0 : 260,
       animationEasingUpdate: 'cubicOut',
       emphasis: {
-        focus: 'adjacency',
+        // 移除 focus: 'adjacency'，避免鼠标悬浮时全图虚化
         label: {
           show: true,
           backgroundColor: 'rgba(255, 255, 255, 0.92)',
@@ -1201,7 +1303,7 @@ function fitView() {
   const cy = (Math.min(...ys) + Math.max(...ys)) / 2
   // ECharts graph 的 zoom 是相对"数据 fit 视图"的倍数(zoom≈1 即填满),不是像素比例
   currentView.value = { zoom: 0.92, center: [cx, cy] }
-  chart.setOption({ series: [{ zoom: 0.92, center: [cx, cy] }] } as any)
+  renderTree()
 }
 
 async function loadTree() {
@@ -1213,7 +1315,6 @@ async function loadTree() {
       category: activeCategory.value,
       limit: graphLimit.value,
     })
-    renderTree()
     fitView()
   } catch (error: any) {
     treeError.value = error.message || '无法连接图谱服务'
@@ -1308,12 +1409,9 @@ function defaultGraphView() {
   }
 }
 
-function centerForPoint(point: GraphPoint, zoom: number): [number, number] {
-  const [cx, cy] = graphViewportCenter()
-  return [
-    Math.round(cx - point.x * zoom),
-    Math.round(cy - point.y * zoom),
-  ]
+function centerForPoint(point: GraphPoint, _zoom: number): [number, number] {
+  // ECharts graph 的 series.center 是数据坐标(视图中心对准的数据点),直接用节点坐标
+  return [point.x, point.y]
 }
 
 function resetGraphView() {
@@ -1333,15 +1431,10 @@ function focusEra(rank: number) {
     degree: 0,
   }
   currentView.value = {
-    zoom: 0.9,
-    center: centerForPoint(center, 0.9),
+    zoom: 1.5,
+    center: centerForPoint(center, 1.5),
   }
-  chart?.setOption({
-    series: [{
-      zoom: currentView.value.zoom,
-      center: currentView.value.center,
-    }],
-  } as any)
+  renderTree()
 }
 
 function centerNode(id: number, zoom = 0.92) {
@@ -1350,18 +1443,22 @@ function centerNode(id: number, zoom = 0.92) {
   const pos = layoutNodes(treeData.value.nodes, treeData.value.edges)[id]
   if (!pos) return
   currentView.value = { zoom, center: centerForPoint(pos, zoom) }
-  chart?.setOption({
-    series: [{
-      zoom: currentView.value.zoom,
-      center: currentView.value.center,
-    }],
-  } as any)
+  renderTree()
 }
 
 async function toggleGraphFullScreen() {
   graphFullScreen.value = !graphFullScreen.value
   await nextTick()
   chart?.resize()
+}
+
+function clearSelection() {
+  highlight.value = null
+  selectedDetail.value = null
+  selectedPreview.value = null
+  selectedChain.value = []
+  if (learningActive.value) clearLearningPath()
+  renderTree()
 }
 
 async function showNode(id: number, options: { focus?: boolean; fromLearning?: boolean } = {}) {
@@ -1480,6 +1577,63 @@ function clearSearch() {
   searchOpen.value = false
 }
 
+/** 全区拖拽平移:用 ECharts graphRoam action(原生 transform,流畅),空白区也响应。 */
+function startGraphPan(event: PointerEvent) {
+  if ((event.pointerType === 'mouse' && event.button !== 0) || treeLoading.value || treeError.value) return
+  // 先不捕获指针;确认是拖拽(移动超阈值)再捕获,否则会拦截 ECharts 的节点点击
+  graphPan = { pointerId: event.pointerId, lastX: event.clientX, lastY: event.clientY, moved: false }
+}
+
+function moveGraphPan(event: PointerEvent) {
+  if (!graphPan || graphPan.pointerId !== event.pointerId) return
+  const dx = event.clientX - graphPan.lastX
+  const dy = event.clientY - graphPan.lastY
+  if (!graphPan.moved && Math.hypot(dx, dy) < 4) return
+  if (!graphPan.moved) {
+    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+  }
+  graphPan.moved = true
+  graphPanning.value = true
+  graphPan.lastX = event.clientX
+  graphPan.lastY = event.clientY
+  chart?.dispatchAction({ type: 'graphRoam', seriesIndex: 0, dx, dy })
+  event.preventDefault()
+}
+
+/** 全区滚轮缩放:同样走 graphRoam action,以光标为中心缩放。 */
+function onGraphWheel(event: WheelEvent) {
+  if (!chart || treeLoading.value || treeError.value) return
+  event.preventDefault()
+  const rect = chartRef.value?.getBoundingClientRect()
+  const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12
+  chart.dispatchAction({
+    type: 'graphRoam',
+    seriesIndex: 0,
+    zoom: factor,
+    originX: rect ? event.clientX - rect.left : undefined,
+    originY: rect ? event.clientY - rect.top : undefined,
+  })
+}
+
+function stopGraphPan(event: PointerEvent) {
+  if (!graphPan || graphPan.pointerId !== event.pointerId) return
+  const moved = graphPan.moved
+  graphPan = null
+  graphPanning.value = false
+  const el = event.currentTarget as HTMLElement
+  if (el.hasPointerCapture(event.pointerId)) el.releasePointerCapture(event.pointerId)
+  if (moved) {
+    suppressNextGraphClick = true
+    window.setTimeout(() => { suppressNextGraphClick = false }, 120)
+  }
+}
+
+function cancelGraphPan(event?: PointerEvent) {
+  if (event && graphPan?.pointerId !== event.pointerId) return
+  graphPan = null
+  graphPanning.value = false
+}
+
 function updateCurrentViewFromChart() {
   const option = chart?.getOption() as any
   const series = option?.series?.[0]
@@ -1528,7 +1682,16 @@ onMounted(async () => {
         suppressNextGraphClick = false
         return
       }
-      if (params.dataType === 'node' && params.data?._nodeId) void showNode(params.data._nodeId, { focus: false })
+      if (params.dataType === 'node' && params.data?._nodeId) {
+        const clickedId = params.data._nodeId
+        const currentId = selectedDetail.value?.id ?? selectedPreview.value?.id
+        // 二次点击同一节点 -> 取消选中
+        if (clickedId === currentId) {
+          clearSelection()
+        } else {
+          void showNode(clickedId, { focus: false })
+        }
+      }
     })
     chart.on('graphRoam', updateCurrentViewFromChart)
     window.addEventListener('resize', handleResize)
@@ -2759,9 +2922,180 @@ onUnmounted(() => {
   bottom: 18px;
   z-index: 90;
   width: min(560px, calc(100vw - 36px));
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
   border: 1px solid var(--ink);
   background: var(--panel);
   box-shadow: var(--shadow-md);
+}
+
+.compare-result .more-count {
+  color: var(--muted);
+}
+
+.lc-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.lc-modal {
+  width: min(480px, calc(100vw - 32px));
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.lc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.lc-head strong {
+  font-size: 16px;
+}
+
+.lc-head button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.lc-head button:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.lc-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px;
+}
+
+.lc-group + .lc-group {
+  margin-top: 18px;
+}
+
+.lc-group h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.lc-group h4 small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.lc-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.lc-list {
+  display: grid;
+  gap: 6px;
+}
+
+.lc-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.lc-item:hover {
+  border-color: var(--accent);
+}
+
+.lc-go {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  padding: 9px 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lc-go strong {
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-go small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lc-rm {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.lc-rm:hover {
+  color: var(--danger);
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.set-clear {
+  margin-top: 14px;
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--danger);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.set-clear:hover {
+  background: rgba(220, 38, 38, 0.06);
 }
 
 .compare-head {

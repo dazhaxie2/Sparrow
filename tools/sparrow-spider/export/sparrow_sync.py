@@ -15,6 +15,14 @@ import pymysql
 
 import config
 from knowledge_extraction.extractor import canonical_name_of
+from opencc import OpenCC
+
+_cc = OpenCC("t2s")
+
+
+def _s(text):
+    """繁体→简体(维基部分词条/正文为繁体,统一转简,保证显示与搜索一致)。"""
+    return _cc.convert(text) if text else text
 from storage import db
 from topic_discovery.seeds import SPARROW_NODES
 
@@ -95,7 +103,7 @@ def run():
         relations = db.all_relations(src)
 
         # 维基别名:sparrow 候选的维基标题 → sparrow_code(让指向"用火"之类别名的边能落到内置节点)
-        title_to_sparrow_code = {c["page_title"]: c["sparrow_code"]
+        title_to_sparrow_code = {_s(c["page_title"]): c["sparrow_code"]
                                  for c in db.candidates_with_page(src)
                                  if c["sparrow_code"] and c["page_title"]}
         sparrow_titles = set(title_to_sparrow_code)
@@ -106,15 +114,15 @@ def run():
             for c in extracted:
                 if c["sparrow_code"] or not c["era_rank"]:
                     continue
-                if c["page_title"] and c["page_title"] in sparrow_titles:
+                if c["page_title"] and _s(c["page_title"]) in sparrow_titles:
                     continue  # 与内置节点同词条,跳过,避免重复概念
-                name = canonical_name_of(c)
+                name = _s(canonical_name_of(c))
                 if not name or len(name) > 128:
                     skipped += 1
                     continue
                 code = f"sp_{c['id']}"
                 importance = c["importance"] if c["importance"] else 1
-                summary = c["summary"] or name  # tech_node.summary NOT NULL,空则退回名称
+                summary = _s(c["summary"]) or name  # tech_node.summary NOT NULL,空则退回名称
                 cur.execute(
                     "INSERT INTO tech_node "
                     "(id, code, name, era, era_rank, year_label, summary, detail, premium, category, importance) "
@@ -122,8 +130,8 @@ def run():
                     "ON DUPLICATE KEY UPDATE era=VALUES(era), era_rank=VALUES(era_rank), "
                     "year_label=VALUES(year_label), summary=VALUES(summary), detail=VALUES(detail), "
                     "category=COALESCE(tech_node.category, VALUES(category)), importance=VALUES(importance)",
-                    (config.SPARROW_ID_BASE + c["id"], code, name, c["era"],
-                     c["era_rank"], c["year_label"], summary, c["detail"],
+                    (config.SPARROW_ID_BASE + c["id"], code, name, _s(c["era"]),
+                     c["era_rank"], _s(c["year_label"]), summary, _s(c["detail"]),
                      c["category"], importance),
                 )
                 new_nodes += 1
@@ -134,10 +142,11 @@ def run():
                 if not c["sparrow_code"]:
                     continue
                 if c["detail"]:
+                    detail_s = _s(c["detail"])
                     cur.execute(
                         "UPDATE tech_node SET detail = %s WHERE code = %s "
                         "AND CHAR_LENGTH(COALESCE(detail, '')) < CHAR_LENGTH(%s)",
-                        (c["detail"], c["sparrow_code"], c["detail"]),
+                        (detail_s, c["sparrow_code"], detail_s),
                     )
                     enriched += cur.rowcount
                 if c["category"]:
@@ -159,8 +168,8 @@ def run():
             edge_set = set()
             dropped = 0
             for r in relations:
-                f_id = name_to_id.get(r["from_name"])
-                t_id = name_to_id.get(r["to_name"])
+                f_id = name_to_id.get(_s(r["from_name"]))
+                t_id = name_to_id.get(_s(r["to_name"]))
                 if not f_id or not t_id or f_id == t_id:
                     dropped += 1
                     continue
@@ -200,8 +209,8 @@ def run():
                     "VALUES (%s, %s, %s, %s, %s) "
                     "ON DUPLICATE KEY UPDATE name=VALUES(name), title=VALUES(title), "
                     "url=VALUES(url), content=VALUES(content)",
-                    (c["sparrow_code"] or f"sp_{c['id']}", canonical_name_of(c),
-                     page["title"], page["url"], page["extract_text"][:12000]),
+                    (c["sparrow_code"] or f"sp_{c['id']}", _s(canonical_name_of(c)),
+                     _s(page["title"]), page["url"], _s(page["extract_text"][:12000])),
                 )
                 docs += 1
 

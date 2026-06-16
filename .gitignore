@@ -9,6 +9,7 @@ frontend/dist/
 docs/*
 .claude/
 .codex-logs/
+.opencode/*
 
 ### STS ###
 .apt_generated
