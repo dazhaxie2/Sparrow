@@ -9,12 +9,22 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * 向量知识库搜索工具。
+ * 供 TechTreeAgent 调用,用于在科技知识库中搜索相关技术节点和词条。
+ */
 @Component
 public class VectorSearchTool {
 
     private final AiService aiService;
     private final MilvusStore milvus;
 
+    /**
+     * 构造函数。
+     *
+     * @param aiService AI 服务(提供向量化能力)
+     * @param milvus    Milvus 向量存储
+     */
     public VectorSearchTool(AiService aiService, MilvusStore milvus) {
         this.aiService = aiService;
         this.milvus = milvus;

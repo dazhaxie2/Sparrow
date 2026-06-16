@@ -8,6 +8,10 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.kafka.annotation.EnableKafka;
 
+/**
+ * Sparrow AI 服务启动类。
+ * 提供基于科技树图谱的 AI 问答能力,支持 Agent 工具链、RAG 检索增强和规则引擎三种模式。
+ */
 @SpringBootApplication
 @ConfigurationPropertiesScan
 @EnableDiscoveryClient
@@ -16,6 +20,11 @@ import org.springframework.kafka.annotation.EnableKafka;
 @ComponentScan({"com.sparrow.ai", "com.sparrow.common"})
 public class AiApplication {
 
+    /**
+     * 启动 Spring Boot 应用。
+     *
+     * @param args 启动参数
+     */
     public static void main(String[] args) {
         SpringApplication.run(AiApplication.class, args);
     }

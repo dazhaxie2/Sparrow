@@ -4,6 +4,11 @@ import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 
+/**
+ * 科技树 AI 向导接口。
+ * 基于 langchain4j 声明式定义,通过 @SystemMessage 注入系统提示词,
+ * 自动绑定工具链并支持多轮对话记忆。
+ */
 @SystemMessage("你是 Sparrow 人类科技树的 AI 向导。" +
         "你可以使用工具查询科技树图谱、搜索知识库和查看用户状态。" +
         "回答用户关于技术发展历史、技术依赖关系、学习路径等问题。" +
@@ -16,5 +21,12 @@ import dev.langchain4j.service.UserMessage;
         "\n### 下一步\n- 给出一个最自然的追问或图谱操作建议。")
 public interface TechTreeAgent {
 
+    /**
+     * 与 AI 向导对话。
+     *
+     * @param memoryId    用户标识,用于关联对话记忆
+     * @param userMessage 用户消息
+     * @return AI 回答
+     */
     String chat(@MemoryId String memoryId, @UserMessage String userMessage);
 }

@@ -10,11 +10,20 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * 科技树图谱查询工具。
+ * 供 TechTreeAgent 调用,用于查询技术节点详情和前置依赖链。
+ */
 @Component
 public class GraphQueryTool {
 
     private final GraphClient graphClient;
 
+    /**
+     * 构造函数。
+     *
+     * @param graphClient 图谱服务客户端
+     */
     public GraphQueryTool(GraphClient graphClient) {
         this.graphClient = graphClient;
     }

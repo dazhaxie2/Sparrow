@@ -8,11 +8,20 @@ import org.springframework.stereotype.Component;
 
 import java.util.Map;
 
+/**
+ * 用户进度查询工具。
+ * 供 TechTreeAgent 调用,用于查询用户会员状态和基本信息。
+ */
 @Component
 public class UserProgressTool {
 
     private final UserClient userClient;
 
+    /**
+     * 构造函数。
+     *
+     * @param userClient 用户服务客户端
+     */
     public UserProgressTool(UserClient userClient) {
         this.userClient = userClient;
     }

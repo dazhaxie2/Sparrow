@@ -12,6 +12,10 @@ import org.springframework.stereotype.Component;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * 图谱变更事件监听器。
+ * 监听 GRAPH_CHANGED 事件,触发 RAG 向量索引同步。
+ */
 @Component
 public class GraphChangedListener {
 
@@ -26,11 +30,23 @@ public class GraphChangedListener {
         return t;
     });
 
+    /**
+     * 构造函数。
+     *
+     * @param ragIndexer               RAG 索引器
+     * @param consumedEventRepository 消费事件仓库(用于幂等)
+     */
     public GraphChangedListener(RagIndexer ragIndexer, ConsumedEventRepository consumedEventRepository) {
         this.ragIndexer = ragIndexer;
         this.consumedEventRepository = consumedEventRepository;
     }
 
+    /**
+     * 处理图谱变更事件。
+     * 检查事件是否已处理,避免重复消费,然后异步触发 RAG 索引同步。
+     *
+     * @param event 图谱变更事件
+     */
     @KafkaListener(
             topics = Topics.GRAPH_CHANGED,
             groupId = "${sparrow.kafka.groups.ai:sparrow-ai}",
@@ -53,6 +69,9 @@ public class GraphChangedListener {
         });
     }
 
+    /**
+     * 应用关闭时清理线程池。
+     */
     @PreDestroy
     void shutdown() {
         reindexExecutor.shutdownNow();
