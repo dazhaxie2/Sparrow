@@ -36,6 +36,12 @@ public class Neo4jMigrator implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        // 维基级数据集下 SDN saveAll 整图迁移既慢又易 OOM;允许用环境变量关闭启动迁移,
+        // 让 graph 直接复用 Neo4j 卷中的现有数据(压测/快速重启场景)。
+        if ("false".equalsIgnoreCase(System.getenv("GRAPH_MIGRATE_ON_BOOT"))) {
+            log.warn("GRAPH_MIGRATE_ON_BOOT=false,跳过 MySQL->Neo4j 启动迁移,复用 Neo4j 现有数据");
+            return;
+        }
         try {
             ensureSchema();
             migrateIfNeeded();

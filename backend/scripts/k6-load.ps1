@@ -1,4 +1,4 @@
-﻿# Sparrow Phase 3 - k6 load test wrapper (10k+ QPS)
+# Sparrow Phase 3 - k6 load test wrapper (10k+ QPS)
 #
 # Runs the k6 engine against the gateway. Tries native k6 first; falls back to
 # the grafana/k6 Docker image joined to the sparrow network (sparrow_sparrow_net)
@@ -6,10 +6,10 @@
 # the unreliable host.docker.internal path.
 #
 # Usage:
-#   powershell -File backend/scripts/k6-load2.ps1                                            # default 10000 QPS / 60s / P99 500ms
-#   powershell -File backend/scripts/k6-load2.ps1 -Qps 1000 -DurationSeconds 60 -P99Ms 300    # Stage A small-sample
-#   powershell -File backend/scripts/k6-load2.ps1 -Qps 10000 -DurationSeconds 120 -RampUp 15  # Stage B full
-#   powershell -File backend/scripts/k6-load2.ps1 -K6Mode native                              # force local k6
+#   powershell -File backend/scripts/k6-load.ps1                                            # default 10000 QPS / 60s / P99 500ms
+#   powershell -File backend/scripts/k6-load.ps1 -Qps 1000 -DurationSeconds 60 -P99Ms 300    # Stage A small-sample
+#   powershell -File backend/scripts/k6-load.ps1 -Qps 10000 -DurationSeconds 120 -RampUp 15  # Stage B full
+#   powershell -File backend/scripts/k6-load.ps1 -K6Mode native                              # force local k6
 
 param(
     [int]$Qps = 10000,

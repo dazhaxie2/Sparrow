@@ -8,7 +8,7 @@ frontend/dist/
 !**/src/test/**/target/
 docs/*
 .claude/
-.codex-logs/
+.codex-logs/*
 .opencode/*
 
 ### STS ###

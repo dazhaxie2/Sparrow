@@ -1,15 +1,18 @@
 // Sparrow Phase 3 - k6 load test script (10k+ QPS)
 //
-// Endpoint mix mirrors backend/scripts/phase2-load.mjs (9 endpoints, weighted):
-//   40% GET  /api/graph/tree          Redis cached read
-//   15% GET  /api/graph/overview      Redis cached read
-//   10% GET  /api/graph/search        MySQL full-text
-//   10% GET  /api/graph/node/{id}     Neo4j read
-//    8% GET  /api/graph/nodes         MySQL paged
-//    7% POST /api/user/login          MySQL + Redis write
-//    5% GET  /api/trade/products      static
-//    3% GET  /api/trade/orders        authed MySQL read
-//    2% POST /api/ai/ask              Sentinel rate-limited (expect many 429)
+// Endpoint mix = realistic wiki-scale frontend (no full /tree; ai/* off in slim stack):
+//   28% GET  /api/graph/overview        Redis cached, small aggregate (landing)
+//   22% GET  /api/graph/subgraph        MySQL bounded subgraph (limit=400 render)
+//   13% GET  /api/graph/search          MySQL full-text
+//   12% GET  /api/graph/node/{id}       Neo4j read
+//   10% GET  /api/graph/nodes           MySQL paged
+//    8% POST /api/user/login            MySQL + Redis write
+//    5% GET  /api/trade/products        static
+//    2% GET  /api/trade/orders          authed MySQL read
+// NOTE: /api/graph/tree (full 10935-node/97798-edge, ~10MB) dropped on purpose. The
+//   wiki-scale frontend renders via /overview + /subgraph; the full tree OOMs graph at
+//   768m heap regardless of cache (Redis get + Jackson deserialize + Spring reserialize
+//   = ~3x payload transient heap per request), so it is not a real capacity signal.
 //
 // Open model: ramping-arrival-rate. Env-driven. See k6-load.ps1.
 //   k6 run k6-phase3-ascii.js -e BASE_URL=http://sparrow-gateway:8080 \
@@ -51,15 +54,14 @@ const SEARCH_TERMS = ["zhengqi", "hulianwang", "dianli", "jisuanji", "huo", "lun
 const NODE_IDS = [1, 5, 10, 20, 30, 41, 50, 60, 65, 70, 77];
 
 const ENDPOINTS = [
-  { w: 40, name: "graph_tree" },
-  { w: 15, name: "graph_overview" },
-  { w: 10, name: "graph_search" },
-  { w: 10, name: "graph_node" },
-  { w:  8, name: "graph_nodes" },
-  { w:  7, name: "user_login" },
+  { w: 28, name: "graph_overview" },
+  { w: 22, name: "graph_subgraph" },
+  { w: 13, name: "graph_search" },
+  { w: 12, name: "graph_node" },
+  { w: 10, name: "graph_nodes" },
+  { w:  8, name: "user_login" },
   { w:  5, name: "trade_products" },
-  { w:  3, name: "trade_orders" },
-  { w:  2, name: "ai_ask" },
+  { w:  2, name: "trade_orders" },
 ];
 const W_TOTAL = ENDPOINTS.reduce((s, e) => s + e.w, 0);
 const CUM = [];
@@ -113,8 +115,8 @@ function fire() {
   let resp;
 
   switch (name) {
-    case "graph_tree":
-      resp = http.get(`${BASE_URL}/api/graph/tree`, { tags: { ep: name }, timeout: "10s" });
+    case "graph_subgraph":
+      resp = http.get(`${BASE_URL}/api/graph/subgraph?limit=400`, { tags: { ep: name }, timeout: "10s" });
       break;
     case "graph_overview":
       resp = http.get(`${BASE_URL}/api/graph/overview`, { tags: { ep: name }, timeout: "10s" });

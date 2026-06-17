@@ -37,6 +37,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -47,6 +48,7 @@ public class GraphService {
     private static final Logger log = LoggerFactory.getLogger(GraphService.class);
     private static final String TREE_CACHE_KEY = "sparrow:graph:tree";
     private static final String OVERVIEW_CACHE_KEY = "sparrow:graph:overview";
+    private static final String SUBGRAPH_CACHE_PREFIX = "sparrow:graph:subgraph:";
     private static final Duration TREE_CACHE_TTL = Duration.ofHours(1);
 
     /** 领域轴的稳定列顺序(与种子回填、前端筛选一致);数据中出现的其它领域追加在后。 */
@@ -187,10 +189,40 @@ public class GraphService {
         return mysqlReader.searchNodes(q, limit);
     }
 
-    /** 有界子图:过滤后取前 limit 重要节点 + 其间的边,供前端渲染(默认/领域/时代视图)。 */
+    /**
+     * 有界子图:过滤后取前 limit 重要节点 + 其间的边,供前端渲染(默认/领域/时代视图)。
+     * 自由文本检索(q)结果发散不缓存;其余为有限组合,Redis 缓存命中可绕开重 MySQL 查询
+     * (全 importance 扫描 + filesort + 边 IN 查询)——压测中 subgraph 是 MySQL 头号 CPU 大户。
+     */
     public Tree subgraph(String category, Integer eraRank, String q,
                          Integer minImportance, int limit) {
-        return mysqlReader.subgraph(category, eraRank, q, minImportance, limit);
+        String cacheKey = (q == null || q.isBlank())
+                ? subgraphCacheKey(category, eraRank, minImportance, limit) : null;
+        if (cacheKey != null) {
+            String cached = redis.opsForValue().get(cacheKey);
+            if (cached != null) {
+                try {
+                    return objectMapper.readValue(cached, Tree.class);
+                } catch (JsonProcessingException ignored) {
+                }
+            }
+        }
+        Tree tree = mysqlReader.subgraph(category, eraRank, q, minImportance, limit);
+        if (cacheKey != null) {
+            try {
+                redis.opsForValue().set(cacheKey, objectMapper.writeValueAsString(tree), TREE_CACHE_TTL);
+            } catch (JsonProcessingException ignored) {
+            }
+        }
+        return tree;
+    }
+
+    private String subgraphCacheKey(String category, Integer eraRank, Integer minImportance, int limit) {
+        return SUBGRAPH_CACHE_PREFIX
+                + (category == null ? "_" : category) + ":"
+                + (eraRank == null ? "_" : eraRank) + ":"
+                + (minImportance == null ? "_" : minImportance) + ":"
+                + limit;
     }
 
     /** 节点邻域子图(中心 + 直接前置 + 直接后继),前端展开式浏览用。 */
@@ -281,6 +313,10 @@ public class GraphService {
 
     public GraphChangedEvent requestReindex() {
         redis.delete(List.of(TREE_CACHE_KEY, OVERVIEW_CACHE_KEY));
+        Set<String> subgraphKeys = redis.keys(SUBGRAPH_CACHE_PREFIX + "*");
+        if (subgraphKeys != null && !subgraphKeys.isEmpty()) {
+            redis.delete(subgraphKeys);
+        }
         int nodeCount = readWithFallback("countAll",
                 () -> Math.toIntExact(neoRepo.countAll()), mysqlReader::count);
         GraphChangedEvent event = new GraphChangedEvent(

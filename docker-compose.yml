@@ -1,4 +1,4 @@
-name: sparrow
+﻿name: sparrow
 
 # Phase 2 docker-compose:
 # - M2 默认拆四个业务库:sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai
@@ -21,9 +21,9 @@ services:
       --collation-server=utf8mb4_unicode_ci
       --skip-name-resolve=ON
       --max_connections=1500
-      --innodb_buffer_pool_size=4G
-      --innodb_buffer_pool_instances=8
-      --innodb_log_file_size=1G
+      --innodb_buffer_pool_size=${MYSQL_BUFFER_POOL:-512M}
+      --innodb_buffer_pool_instances=4
+      --innodb_log_file_size=512M
       --innodb_log_buffer_size=128M
       --innodb_flush_log_at_trx_commit=2
       --innodb_flush_method=O_DIRECT
@@ -45,8 +45,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4.0'
-          memory: 6G
+          cpus: '6.0'
+          memory: 2G
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
       interval: 5s
@@ -249,7 +249,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
+          cpus: '6.0'
           memory: 1500M
     depends_on:
       mysql: { condition: service_healthy }
@@ -274,12 +274,13 @@ services:
       NEO4J_PASSWORD: sparrow2024
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      GRAPH_MIGRATE_ON_BOOT: "false"
     expose: ["8082"]
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 2G
+          cpus: '6.0'
+          memory: 3.5G
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
