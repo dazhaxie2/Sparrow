@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sparrow Phase 2 — 批量注册/登录用户并收集 token,供压测使用。
  *
  * 用法:
@@ -21,8 +21,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const args = parseArgs(process.argv.slice(2));
 const BASE_URL = args["base-url"] || "http://localhost:8080";
-const COUNT = parseInt(args["count"] || "10000", 10);
-const CONCURRENCY = parseInt(args["concurrency"] || "20", 10);
+// Phase 3 默认池 50000 / 并发 50,匹配 10k QPS 下 authed 端点所需身份多样性。
+const COUNT = parseInt(args["count"] || "50000", 10);
+const CONCURRENCY = parseInt(args["concurrency"] || "50", 10);
 
 const OUT_FILE = join(__dirname, "..", "tokens.json");
 

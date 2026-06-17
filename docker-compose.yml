@@ -13,13 +13,40 @@ services:
       MYSQL_DATABASE: sparrow
       MYSQL_USER: sparrow
       MYSQL_PASSWORD: sparrow123
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    # ⚠️ Windows 下挂载的 my.cnf 因权限 0777 会被 MySQL 忽略("world-writable config file ignored"),
+    #    故关键 Phase 3 参数通过 command 行强制注入,与 my.cnf 内容保持一致。
+    #    真正生效的是这里的命令行参数;my.cnf 仅作 Linux 环境下的备份与文档。
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --skip-name-resolve=ON
+      --max_connections=1500
+      --innodb_buffer_pool_size=4G
+      --innodb_buffer_pool_instances=8
+      --innodb_log_file_size=1G
+      --innodb_log_buffer_size=128M
+      --innodb_flush_log_at_trx_commit=2
+      --innodb_flush_method=O_DIRECT
+      --innodb_io_capacity=2000
+      --innodb_io_capacity_max=4000
+      --thread_cache_size=100
+      --table_open_cache=4000
+      --max_prepared_stmt_count=65535
+      --tmp_table_size=256M
+      --max_heap_table_size=256M
+      --slow_query_log=ON
+      --long_query_time=0.2
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/docker/mysql/init:/docker-entrypoint-initdb.d:ro
       - ./backend/docker/mysql/my.cnf:/etc/mysql/conf.d/sparrow.cnf:ro
     ports:
       - "3307:3306"
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 6G
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
       interval: 5s
@@ -34,6 +61,11 @@ services:
       - ./backend/docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     ports:
       - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1500M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -88,6 +120,11 @@ services:
       - "7687:7687"
     volumes:
       - neo4j_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
     healthcheck:
       test: ["CMD-SHELL", "cypher-shell -u neo4j -p sparrow2024 'RETURN 1' || exit 1"]
       interval: 10s
@@ -129,7 +166,12 @@ services:
       - ETCD_SNAPSHOT_COUNT=50000
     volumes:
       - etcd_data:/etcd
-    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD-SHELL", "etcdctl endpoint health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
     networks: [sparrow_net]
 
   minio:
@@ -140,6 +182,11 @@ services:
     volumes:
       - minio_data:/minio_data
     command: minio server /minio_data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
     networks: [sparrow_net]
 
   milvus:
@@ -152,7 +199,14 @@ services:
       - milvus_data:/var/lib/milvus
     ports:
       - "19530:19530"
-    depends_on: [etcd, minio]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9091/api/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      etcd: { condition: service_healthy }
+      minio: { condition: service_healthy }
     networks: [sparrow_net]
 
   # ===== 5 个业务服务 =====
@@ -166,6 +220,11 @@ services:
       REDIS_HOST: redis
     ports:
       - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1500M
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -187,6 +246,11 @@ services:
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     expose: ["8081"]
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1500M
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -211,6 +275,11 @@ services:
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     expose: ["8082"]
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -234,6 +303,11 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       TRADE_FAIL_AFTER_MEMBERSHIP_GRANT: ${TRADE_FAIL_AFTER_MEMBERSHIP_GRANT:-false}
     expose: ["8084"]
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1500M
     depends_on:
       mysql: { condition: service_healthy }
       nacos: { condition: service_healthy }
@@ -262,13 +336,18 @@ services:
       SPARROW_SENTINEL_LOCAL_FALLBACK: "false"
       SPARROW_SENTINEL_WRITE_BACK: "true"
     expose: ["8083"]
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
       nacos: { condition: service_healthy }
       kafka: { condition: service_healthy }
-      sparrow-graph: { condition: service_started }
-      milvus: { condition: service_started }
+      sparrow-graph: { condition: service_healthy }
+      milvus: { condition: service_healthy }
       sentinel-dashboard: { condition: service_started }
     networks: [sparrow_net]
 

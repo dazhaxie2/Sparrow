@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 
 /**
  * Sparrow Phase 2 — 多端点混合压测引擎

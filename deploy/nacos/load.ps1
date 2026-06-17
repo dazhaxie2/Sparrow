@@ -7,12 +7,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Web
 
 Get-ChildItem -Path $PSScriptRoot -Filter "*.yaml" | ForEach-Object {
     $dataId = $_.Name
     $content = Get-Content $_.FullName -Raw -Encoding UTF8
-    $body = "dataId=$dataId&group=DEFAULT_GROUP&type=yaml&content=" + [System.Web.HttpUtility]::UrlEncode($content)
-    Add-Type -AssemblyName System.Web
     $body = "dataId=$dataId&group=DEFAULT_GROUP&type=yaml&content=" + [System.Web.HttpUtility]::UrlEncode($content)
     $resp = Invoke-RestMethod -Method Post `
         -Uri "http://$NacosAddr/nacos/v1/cs/configs" `

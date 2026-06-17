@@ -1,4 +1,4 @@
-# Sparrow load test — Phase 1 / Phase 2 统一入口
+﻿# Sparrow load test — Phase 1 / Phase 2 统一入口
 #
 # Phase 1: 50 QPS / P99 < 200ms(单端点 /api/graph/tree)
 # Phase 2: 1000 QPS / P99 < 300ms(多端点混合,需先准备 token)

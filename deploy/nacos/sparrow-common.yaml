@@ -1,10 +1,12 @@
 # sparrow-common.yaml —— 共享配置(所有 5 个服务都 import)
+# Phase 3 抬升:HikariCP 30→50、Lettuce 50→100,支撑 10k QPS 包络。
+# 单实例天花板:5 服务 ×50 = 250 连接 < MySQL max_connections=1500,余量充足。
 
 spring:
   datasource:
     hikari:
-      maximum-pool-size: ${HIKARI_MAX_POOL:30}
-      minimum-idle: ${HIKARI_MIN_IDLE:10}
+      maximum-pool-size: ${HIKARI_MAX_POOL:50}
+      minimum-idle: ${HIKARI_MIN_IDLE:20}
       connection-timeout: 5000
       idle-timeout: 300000
       max-lifetime: 1200000
@@ -13,9 +15,9 @@ spring:
     redis:
       lettuce:
         pool:
-          max-active: ${LETTUCE_MAX_ACTIVE:50}
-          max-idle: 20
-          min-idle: 10
+          max-active: ${LETTUCE_MAX_ACTIVE:100}
+          max-idle: 40
+          min-idle: 20
           max-wait: 3000ms
 
 mybatis-plus:

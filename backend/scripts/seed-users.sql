@@ -4,7 +4,7 @@
 --
 -- 生成策略:
 --   - 用户名格式:loaduser_00000001 ~ loaduser_10000000
---   - 密码统一:$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy (明文 = "test123456")
+--   - 密码统一:$2a$10$gkyaaERbu7GaZC4wRm15IujD0jxgIi6R2Obs2ufZAfe1gqaCsnmiW (明文 = "test123456")
 --   - 会员分布:~10% 有效会员,~5% 过期会员,~85% 非会员
 --   - 批量插入,每批 5000 行,自动提交
 
@@ -52,7 +52,7 @@ BEGIN
                     SET @vals = CONCAT(@vals,
                         IF(i > 0, ',', ''),
                         '(CONCAT(''loaduser_'', LPAD(', done, ', 8, ''0'')),',
-                        '''$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'',',
+                        '''$2a$10$gkyaaERbu7GaZC4wRm15IujD0jxgIi6R2Obs2ufZAfe1gqaCsnmiW'',',
                         '''', @expire, ''',',
                         'DATE_SUB(NOW(), INTERVAL FLOOR(RAND() * 730) DAY))');
                 ELSEIF member_ratio <= 15 THEN
@@ -61,7 +61,7 @@ BEGIN
                     SET @vals = CONCAT(@vals,
                         IF(i > 0, ',', ''),
                         '(CONCAT(''loaduser_'', LPAD(', done, ', 8, ''0'')),',
-                        '''$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'',',
+                        '''$2a$10$gkyaaERbu7GaZC4wRm15IujD0jxgIi6R2Obs2ufZAfe1gqaCsnmiW'',',
                         '''', @expire, ''',',
                         'DATE_SUB(NOW(), INTERVAL FLOOR(RAND() * 730) DAY))');
                 ELSE
@@ -69,7 +69,7 @@ BEGIN
                     SET @vals = CONCAT(@vals,
                         IF(i > 0, ',', ''),
                         '(CONCAT(''loaduser_'', LPAD(', done, ', 8, ''0'')),',
-                        '''$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'',',
+                        '''$2a$10$gkyaaERbu7GaZC4wRm15IujD0jxgIi6R2Obs2ufZAfe1gqaCsnmiW'',',
                         'NULL,',
                         'DATE_SUB(NOW(), INTERVAL FLOOR(RAND() * 730) DAY))');
                 END IF;
@@ -97,9 +97,11 @@ BEGIN
 END$$
 DELIMITER ;
 
--- 调用:生成 1000 万用户(ID 从 100 开始,避开测试用户 1-99)
+-- 调用:生成用户(ID 从 100 开始,避开测试用户 1-99)
+-- 默认 1000 万;小样本阶段可先 SET @SEED_TOTAL=100000; 再 SOURCE 本文件。
 -- 预计耗时:5-15 分钟(取决于硬件)
-CALL seed_users(100, 10000000, 5000);
+SET @SEED_TOTAL = COALESCE(@SEED_TOTAL, 10000000);
+CALL seed_users(100, @SEED_TOTAL, 5000);
 
 -- 清理存储过程
 DROP PROCEDURE IF EXISTS seed_users;

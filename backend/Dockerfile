@@ -46,28 +46,28 @@ WORKDIR /app
 COPY --from=build /build/sparrow-gateway/target/sparrow-gateway.jar app.jar
 COPY --from=frontend-build /build/dist /app/static
 EXPOSE 8080
-ENTRYPOINT ["java","-Xms128m","-Xmx256m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS user-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-user/target/sparrow-user.jar app.jar
 EXPOSE 8081
-ENTRYPOINT ["java","-Xms128m","-Xmx256m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS graph-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-graph/target/sparrow-graph.jar app.jar
 EXPOSE 8082
-ENTRYPOINT ["java","-Xms128m","-Xmx256m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms512m","-Xmx1536m","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS ai-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-ai/target/sparrow-ai.jar app.jar
 EXPOSE 8083
-ENTRYPOINT ["java","-Xms192m","-Xmx384m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms512m","-Xmx1g","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS trade-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-trade/target/sparrow-trade.jar app.jar
 EXPOSE 8084
-ENTRYPOINT ["java","-Xms128m","-Xmx256m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]

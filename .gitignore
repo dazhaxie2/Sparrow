@@ -43,6 +43,9 @@ build/
 # 本地机密(LLM key 等)
 /.env
 
+# 压测运行时产物:批量登录拿到的 token,不应入库
+backend/tokens.json
+
 # SparrowSpider local runtime artifacts
 tools/sparrow-spider/out/
 tools/sparrow-spider/**/__pycache__/
