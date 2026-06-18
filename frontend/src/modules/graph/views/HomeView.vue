@@ -232,18 +232,6 @@
         </button>
       </header>
 
-      <div class="workbench-steps" aria-label="工作流状态">
-        <div class="active">
-          <span>Step 1/2</span>
-          <strong>对话提取</strong>
-        </div>
-        <div :class="{ active: dialogActive }">
-          <span>Step 2/2</span>
-          <strong>临时图谱</strong>
-        </div>
-        <small :class="{ live: dialogLoading || dialogActive }"></small>
-      </div>
-
       <div ref="dialogFeedRef" class="dialog-feed">
         <div v-if="!dialogMessages.length" class="dialog-empty">
           <MessageSquareText :size="24" />
@@ -261,23 +249,8 @@
             <strong>{{ message.role === 'user' ? 'YOU' : 'AGENT' }}</strong>
             <span v-if="message.title">{{ message.title }}</span>
           </div>
-          <p>{{ message.content }}</p>
-
-          <div v-if="message.terms?.length" class="dialog-terms">
-            <span v-for="term in message.terms" :key="term">{{ term }}</span>
-          </div>
-
-          <div v-if="message.nodes?.length" class="dialog-node-list">
-            <button
-              v-for="node in message.nodes.slice(0, 10)"
-              :key="node.id"
-              type="button"
-              @click="showNode(node.id, { focus: true })"
-            >
-              <span>{{ node.name }}</span>
-              <small>{{ node.era }}</small>
-            </button>
-          </div>
+          <div v-if="message.role === 'assistant'" class="dialog-md" v-html="renderMarkdown(message.content)" />
+          <p v-else>{{ message.content }}</p>
         </article>
 
         <div v-if="dialogLoading" class="dialog-state">
@@ -419,6 +392,8 @@ import {
 } from '../api'
 import type { Tree, NodeBrief, NodeDetail, KnowledgeStatus, Overview, EdgeBrief } from '../types'
 import { useUserStore } from '../../user/store'
+import { askAi } from '../../ai/api/chat'
+import { renderMarkdown } from '../../ai/utils/markdown'
 
 const ERA_COLORS: Record<number, string> = {
   1: '#ff6b35',
@@ -900,6 +875,27 @@ function exitDialogMode() {
   void nextTick(() => chart?.resize())
 }
 
+// 对话模式的"回答"由真 AI 给出(/api/ai/ask)。图谱构造仍保留,但只用于"图谱跟随对话变化",
+// 不再往消息里塞术语/节点清单。未登录或出错时给出友好提示,均渲染为 Markdown。
+async function replyWithAi(messageId: number, query: string) {
+  try {
+    if (!user.isLoggedIn()) {
+      updateDialogMessage(messageId, {
+        title: '需登录',
+        content: '### 结论\n请先登录后使用 AI 对话。\n\n### 下一步\n- 登录后即可获得带图谱上下文的 AI 回答。',
+      })
+      return
+    }
+    const res = await askAi(query)
+    updateDialogMessage(messageId, { title: '', content: res.answer })
+  } catch (error: any) {
+    updateDialogMessage(messageId, {
+      title: '出错',
+      content: `### 结论\nAI 暂不可用：${error.message || ''}\n\n### 下一步\n- 请稍后重试。`,
+    })
+  }
+}
+
 async function runDialogExtraction(queryOverride?: string) {
   const query = (typeof queryOverride === 'string' ? queryOverride : dialogQuery.value).trim()
   if (!query || dialogLoading.value) return
@@ -918,11 +914,8 @@ async function runDialogExtraction(queryOverride?: string) {
   const terms = extractQuestionTerms(query)
   dialogTerms.value = terms
   if (!terms.length) {
-    dialogError.value = '没有识别到可检索的技术词'
-    updateDialogMessage(assistantMessageId, {
-      title: 'NO MATCH',
-      content: dialogError.value,
-    })
+    // 没有可检索的技术词(如"你好"):不改图谱,直接给 AI 对话回答
+    await replyWithAi(assistantMessageId, query)
     dialogLoading.value = false
     return
   }
@@ -979,12 +972,8 @@ async function runDialogExtraction(queryOverride?: string) {
       .sort((a, b) => scoreDialogNode(b, query, terms) - scoreDialogNode(a, query, terms) || a.eraRank - b.eraRank || a.id - b.id)
       .slice(0, DIALOG_NODE_LIMIT)
     if (!nodes.length) {
-      dialogError.value = '没有找到匹配的图谱节点'
-      updateDialogMessage(assistantMessageId, {
-        title: 'NO MATCH',
-        content: dialogError.value,
-        terms,
-      })
+      // 图谱没命中相关节点:不改图谱,仍给出 AI 对话回答
+      await replyWithAi(assistantMessageId, query)
       return
     }
 
@@ -1009,19 +998,11 @@ async function runDialogExtraction(queryOverride?: string) {
     await nextTick()
     renderTree()
     if (nodes[0]) centerNode(nodes[0].id, 1.08)
-    updateDialogMessage(assistantMessageId, {
-      title: 'GRAPH READY',
-      content: `已构造 ${nodes.length} 个节点、${edges.length} 条关系的临时图谱。`,
-      terms,
-      nodes,
-    })
+    // 图谱已随对话更新;回答交给真 AI(不再展示术语/节点清单)
+    await replyWithAi(assistantMessageId, query)
   } catch (error: any) {
-    dialogError.value = error.message || '临时图谱生成失败'
-    updateDialogMessage(assistantMessageId, {
-      title: 'ERROR',
-      content: dialogError.value,
-      terms,
-    })
+    // 图谱构造失败也不打断对话,直接给 AI 回答
+    await replyWithAi(assistantMessageId, query)
   } finally {
     dialogLoading.value = false
   }
@@ -2481,6 +2462,42 @@ onUnmounted(() => {
   color: var(--ink-2);
   font-size: 12px;
   line-height: 1.7;
+}
+
+.dialog-md {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+.dialog-md :deep(h3),
+.dialog-md :deep(h4) {
+  margin: 10px 0 5px;
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.dialog-md :deep(h3:first-child) {
+  margin-top: 0;
+}
+
+.dialog-md :deep(p) {
+  margin: 0 0 7px;
+}
+
+.dialog-md :deep(ul),
+.dialog-md :deep(ol) {
+  margin: 0 0 7px;
+  padding-left: 17px;
+}
+
+.dialog-md :deep(li) {
+  margin: 2px 0;
+}
+
+.dialog-md :deep(a) {
+  color: var(--accent);
 }
 
 .dialog-terms {
