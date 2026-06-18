@@ -68,14 +68,6 @@
           </div>
         </section>
       </div>
-
-      <div class="rail-foot" aria-label="知识库状态">
-        <Database :size="13" />
-        <div>
-          <span>{{ knowledgeStatusText }}</span>
-          <strong>{{ ragStatusText }}</strong>
-        </div>
-      </div>
     </aside>
 
     <section class="graph-workspace">
@@ -403,7 +395,6 @@ import * as echarts from 'echarts'
 import {
   AlertTriangle,
   BrainCircuit,
-  Database,
   GitCompare,
   Layers,
   LoaderCircle,
@@ -1718,12 +1709,12 @@ onUnmounted(() => {
   min-height: 0;
   background: var(--surface);
   gap: 14px;
-  padding: 14px;
+  padding: 0 14px 14px;
 }
 
 .layout.dialog-layout {
   gap: 8px;
-  padding: 8px;
+  padding: 0 8px 8px;
   background: #eef1f4;
 }
 
@@ -1945,39 +1936,6 @@ onUnmounted(() => {
   background: var(--accent);
   color: var(--bg);
   font-weight: 700;
-}
-
-.rail-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 16px;
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-}
-
-.rail-foot svg {
-  flex: none;
-  color: var(--accent);
-}
-
-.rail-foot div {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.rail-foot span {
-  overflow: hidden;
-  color: var(--ink-2);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rail-foot strong {
-  color: var(--ink);
-  font-size: 11px;
 }
 
 .graph-shell {
