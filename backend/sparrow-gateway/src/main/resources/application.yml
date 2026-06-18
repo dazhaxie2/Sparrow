@@ -22,6 +22,10 @@ spring:
               - "http://localhost:5173"
               - "http://localhost:4173"
               - "http://localhost:8080"
+              # 生产域名(Cloudflare 终止 HTTPS 后以 http 回源,网关因 scheme 不一致会把同源 POST
+              # 当跨域处理,故必须显式放行,否则登录/注册等 POST 预检被 CORS 拒成 403 空响应体)
+              - "https://dazhaxie75.top"
+              - "https://*.dazhaxie75.top"
             allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
             allowedHeaders: ["*"]
             allowCredentials: true
