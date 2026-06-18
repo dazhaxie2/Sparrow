@@ -46,6 +46,10 @@ jobs:
           # 待服务器内存确认充足后再加入这行
           docker compose up -d mysql redis nacos seata-server kafka neo4j sparrow-gateway sparrow-user sparrow-graph sparrow-trade
 
+      - name: Ensure restart policy (auto-recover on reboot)
+        shell: powershell
+        run: docker ps -aq | ForEach-Object { docker update --restart unless-stopped $_ }
+
       - name: Prune dangling images
         shell: powershell
         run: docker image prune -f
