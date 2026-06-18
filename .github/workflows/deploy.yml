@@ -10,6 +10,11 @@ on:
       - "**/*.md"
       - "docs/**"
   workflow_dispatch:
+    inputs:
+      deploy_ai:
+        description: "同时部署 AI 层(ai/milvus/etcd/minio/sentinel;16G 机器内存吃紧,仅在需要 AI 问答时勾选)"
+        type: boolean
+        default: false
 
 # 同一时刻只跑一个部署,后到的排队(不取消正在进行的,避免半截重启)
 concurrency:
@@ -32,19 +37,29 @@ jobs:
           git reset --hard origin/main
           git log -1 --oneline
 
-      - name: Build images
+      - name: Build core images
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade sparrow-ai
+          # 默认只构建核心栈;AI 镜像(sparrow-ai)仅在按需部署步骤里构建,省一次重 build、降内存峰值
+          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade
 
-      - name: Deploy (up -d, full stack)
+      - name: Deploy core stack (up -d)
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          # 服务器内存充足,起全栈(含 ai 及 milvus/etcd/minio/sentinel 等依赖);
-          # spider 在 compose profile 内,不带 --profile 不会启动
+          # AI 层(ai/milvus/etcd/minio/sentinel)已移入 compose profile "ai",spider 在 profile "spider";
+          # 不带 --profile 的 up -d 只拉起核心栈,避免在 16G 机器上过量提交内存把 Docker 引擎压崩。
           docker compose up -d
+
+      - name: Deploy AI tier (按需,仅 workflow_dispatch 勾选 deploy_ai)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_ai }}
+        shell: powershell
+        run: |
+          Set-Location $env:DEPLOY_DIR
+          # 显式带 --profile ai 构建并拉起 AI 层(与核心栈共存,内存吃紧,按需开启)
+          docker compose --profile ai build sparrow-ai
+          docker compose --profile ai up -d
 
       - name: Ensure restart policy (auto-recover on reboot)
         shell: powershell
