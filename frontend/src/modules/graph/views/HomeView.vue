@@ -882,7 +882,7 @@ async function replyWithAi(messageId: number, query: string) {
     if (!user.isLoggedIn()) {
       updateDialogMessage(messageId, {
         title: '需登录',
-        content: '### 结论\n请先登录后使用 AI 对话。\n\n### 下一步\n- 登录后即可获得带图谱上下文的 AI 回答。',
+        content: '请先登录后再使用 AI 对话，登录后我会结合图谱上下文跟你聊。',
       })
       return
     }
@@ -891,7 +891,7 @@ async function replyWithAi(messageId: number, query: string) {
   } catch (error: any) {
     updateDialogMessage(messageId, {
       title: '出错',
-      content: `### 结论\nAI 暂不可用：${error.message || ''}\n\n### 下一步\n- 请稍后重试。`,
+      content: `抱歉，AI 暂时不可用${error.message ? '（' + error.message + '）' : ''}，请稍后再试。`,
     })
   }
 }
@@ -907,8 +907,8 @@ async function runDialogExtraction(queryOverride?: string) {
   pushDialogMessage({ role: 'user', content: query })
   const assistantMessageId = pushDialogMessage({
     role: 'assistant',
-    title: 'BUILDING',
-    content: '正在解析问题并构造关联图谱。',
+    title: '',
+    content: '正在思考…',
   })
 
   const terms = extractQuestionTerms(query)

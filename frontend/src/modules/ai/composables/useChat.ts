@@ -5,7 +5,7 @@ import type { ChatMessage } from '../types'
 const WELCOME: ChatMessage = {
   role: 'assistant',
   content:
-    '### 结论\n你好，我是科技树 AI 向导。选择一个节点后，我会带着当前上下文回答前置知识、重要性和下一步学习建议。\n\n### 下一步\n- 点击图谱节点，或直接输入你想理解的技术问题。',
+    '你好，我是科技树 AI 向导。选一个节点，我会结合上下文跟你聊它的前置知识、为什么重要、接下来学什么；也可以直接问我任何技术问题。',
   mode: 'guide',
   format: 'markdown:v1',
 }

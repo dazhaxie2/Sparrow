@@ -212,7 +212,7 @@ public class AiService {
      */
     private AskResult result(String answer, String mode, String intent, List<SourceRef> sources,
                              List<AgentStep> steps, long remaining) {
-        return new AskResult(normalizeMarkdownAnswer(answer, mode, intent, sources),
+        return new AskResult(cleanupAnswer(answer),
                 mode, "markdown:v1", intent, sources, steps, remaining);
     }
 
@@ -224,14 +224,9 @@ public class AiService {
      * @return 格式化后的用户消息
      */
     private String agentUserMessage(String question, String intent) {
-        return "用户原问题:\n" + question + "\n\n" +
-                "识别意图: " + intentLabel(intent) + "\n\n" +
-                "请无论用户使用何种语言,最终都用中文回答。严格使用 Markdown v1 模板:" +
-                "\n### 结论\n1-2 句直接回答。" +
-                "\n### 关键依据\n- 2-4 条图谱、知识库或工具依据。" +
-                "\n### 学习路径\n1. 可执行的前置或后续学习顺序。" +
-                "\n### 下一步\n- 一个最自然的追问或图谱操作建议。" +
-                "\n不要使用 emoji,不要用加粗文本冒充标题,不要输出代码块。";
+        return "用户问题:\n" + question + "\n\n" +
+                "请用中文自然、口语化地回答,直接讲重点,把相关的技术依赖与历史脉络说清楚;" +
+                "不要套用「结论/关键依据/学习路径/下一步」之类的固定小标题模板,不要使用 emoji,不要输出代码块。";
     }
 
     /**
@@ -308,71 +303,19 @@ public class AiService {
     }
 
     /**
-     * 标准化 Markdown 回答格式。
-     * 将 AI 生成的回答统一为 Markdown v1 模板格式,确保包含结论、关键依据、学习路径和下一步四个部分。
+     * 轻量清洗回答:仅统一换行、去首尾空白、折叠多余空行;不再强制套用固定小标题模板,
+     * 保留模型自然、口语化的表达。空白回答给出兜底文案。
      *
-     * @param answer  原始回答内容
-     * @param mode    回答模式
-     * @param intent  意图分类
-     * @param sources 来源列表
-     * @return 标准化后的 Markdown 回答
+     * @param answer 原始回答内容
+     * @return 清洗后的回答
      */
-    private String normalizeMarkdownAnswer(String answer, String mode, String intent, List<SourceRef> sources) {
+    private String cleanupAnswer(String answer) {
         String normalized = answer == null ? "" : answer
                 .replace("\r\n", "\n")
                 .replace("\r", "\n")
-                .trim();
-        if (normalized.isBlank()) {
-            normalized = "资料不足以生成可靠回答。";
-        }
-        normalized = normalized
-                .replaceAll("(?m)^#{1,2}\\s+", "### ")
-                .replaceAll("(?m)^\\*\\*(结论|关键依据|学习路径|下一步|前置链|解锁方向)\\*\\*\\s*[:：]?", "### $1")
+                .trim()
                 .replaceAll("\n{3,}", "\n\n");
-        if (hasRequiredSections(normalized)) {
-            return normalized;
-        }
-        String body = normalized
-                .replaceAll("(?m)^###\\s+", "")
-                .replaceFirst("^(结论|关键依据|依据|学习路径|前置链|解锁方向|下一步)\\s*\\n", "")
-                .trim();
-        return "### 结论\n" + body + "\n\n" +
-                "### 关键依据\n" +
-                "- 回答模式: " + answerModeLabel(mode) + "。\n" +
-                "- 问题意图: " + intentLabel(intent) + "。\n" +
-                "- 参考上下文: " + (sources.isEmpty() ? "未命中明确来源,已按可用图谱规则兜底。" : "命中 " + sources.size() + " 个相关节点。") + "\n\n" +
-                "### 学习路径\n" +
-                "1. 先确认当前命中节点是否符合你的问题。\n" +
-                "2. 再沿着前置链理解依赖,或沿着解锁方向继续探索。\n\n" +
-                "### 下一步\n" +
-                "- 可以继续追问它的前置链、历史意义或推荐学习顺序。";
-    }
-
-    /**
-     * 检查回答是否包含所有必需的 Markdown 章节。
-     *
-     * @param answer 回答内容
-     * @return true 表示包含结论、关键依据和下一步三个章节
-     */
-    private boolean hasRequiredSections(String answer) {
-        return answer.contains("### 结论")
-                && (answer.contains("### 关键依据") || answer.contains("### 依据"))
-                && answer.contains("### 下一步");
-    }
-
-    /**
-     * 获取回答模式的中文标签。
-     *
-     * @param mode 模式标识
-     * @return 中文标签
-     */
-    private String answerModeLabel(String mode) {
-        return switch (mode) {
-            case "agent" -> "Agent 工具链";
-            case "rag" -> "RAG 检索增强";
-            case "rules" -> "图谱规则";
-            default -> mode;
-        };
+        return normalized.isBlank() ? "资料不足以生成可靠回答。" : normalized;
     }
 
     /**
@@ -469,13 +412,10 @@ public class AiService {
      * @return 系统提示词
      */
     private String systemPrompt() {
-        return "你是 Sparrow 人类科技树的 AI 向导。请仅基于提供的科技树资料回答用户问题," +
-                "重点讲清技术之间的依赖关系与历史脉络;资料不足以回答时,如实说明。回答用中文,简洁、准确。" +
-                "\n请严格使用 Markdown v1 模板,不要使用 emoji,不要输出代码块:" +
-                "\n### 结论\n用 1-2 句直接回答问题。" +
-                "\n### 关键依据\n- 列出 2-4 条来自图谱或知识库的依据。" +
-                "\n### 学习路径\n1. 给出可执行的前置或后续学习顺序。" +
-                "\n### 下一步\n- 给出一个最自然的追问或图谱操作建议。";
+        return "你是 Sparrow 科技树的 AI 向导。请基于提供的科技树资料回答用户问题," +
+                "自然地讲清技术之间的依赖关系与历史脉络;资料不足以回答时,如实说明。" +
+                "回答用中文,像聊天那样自然、口语化,直接说重点;" +
+                "不要套用「结论/关键依据/学习路径/下一步」这类固定小标题模板,不要使用 emoji,不要输出代码块。";
     }
 
     /**
