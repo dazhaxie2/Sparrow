@@ -348,7 +348,7 @@ services:
       redis: { condition: service_healthy }
       nacos: { condition: service_healthy }
       kafka: { condition: service_healthy }
-      sparrow-graph: { condition: service_healthy }
+      sparrow-graph: { condition: service_started }
       milvus: { condition: service_healthy }
       sentinel-dashboard: { condition: service_started }
     networks: [sparrow_net]

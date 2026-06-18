@@ -32,19 +32,19 @@ jobs:
           git reset --hard origin/main
           git log -1 --oneline
 
-      - name: Build images (core stack)
+      - name: Build images
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade
+          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade sparrow-ai
 
-      - name: Deploy (up -d, core stack)
+      - name: Deploy (up -d, full stack)
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          # 先只起核心栈(科技树+登录+交易);重的 ai/milvus/etcd/minio/sentinel 等
-          # 待服务器内存确认充足后再加入这行
-          docker compose up -d mysql redis nacos seata-server kafka neo4j sparrow-gateway sparrow-user sparrow-graph sparrow-trade
+          # 服务器内存充足,起全栈(含 ai 及 milvus/etcd/minio/sentinel 等依赖);
+          # spider 在 compose profile 内,不带 --profile 不会启动
+          docker compose up -d
 
       - name: Ensure restart policy (auto-recover on reboot)
         shell: powershell
