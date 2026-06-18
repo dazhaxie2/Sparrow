@@ -284,7 +284,9 @@ services:
       resources:
         limits:
           cpus: '6.0'
-          memory: 4G
+          # 运行期只读 Neo4j+小缓存(迁移路径 GRAPH_MIGRATE_ON_BOOT=false 已禁用),
+          # 4G 系迁移时遗留的过度配置;降到 2G 给同机 AI 层腾内存。
+          memory: 2G
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }

@@ -38,6 +38,9 @@ public class MilvusStore {
 
     private static final Logger log = LoggerFactory.getLogger(MilvusStore.class);
 
+    /** 向量分批插入的批大小:控制单批装箱的 float 数(BATCH×dim),避免重建时堆内存尖峰。 */
+    private static final int INSERT_BATCH = 1000;
+
     public record ChunkHit(String code, String url, String text) {
     }
 
@@ -131,20 +134,19 @@ public class MilvusStore {
                         .withName("embedding").withDataType(DataType.FloatVector).withDimension(dim).build())
                 .build());
 
-        List<List<Float>> floatVectors = new ArrayList<>(vectors.size());
-        for (float[] v : vectors) {
-            List<Float> row = new ArrayList<>(v.length);
-            for (float f : v) {
-                row.add(f);
-            }
-            floatVectors.add(row);
+        // 分批插入:每批 INSERT_BATCH 条,装箱后的 List<List<Float>> 与底层 gRPC FloatArray
+        // 随批生成、随批回收;避免 10935×2048 个 float 一次性装箱(数百 MB)把堆压爆
+        // (此处曾是 milvus-sync 线程 OutOfMemoryError 的根因)。
+        int total = nodeIds.size();
+        for (int start = 0; start < total; start += INSERT_BATCH) {
+            int end = Math.min(start + INSERT_BATCH, total);
+            client.insert(InsertParam.newBuilder()
+                    .withCollectionName(name)
+                    .withFields(List.of(
+                            new InsertParam.Field("node_id", nodeIds.subList(start, end)),
+                            new InsertParam.Field("embedding", toFloatRows(vectors.subList(start, end)))))
+                    .build());
         }
-        client.insert(InsertParam.newBuilder()
-                .withCollectionName(name)
-                .withFields(List.of(
-                        new InsertParam.Field("node_id", nodeIds),
-                        new InsertParam.Field("embedding", floatVectors)))
-                .build());
         client.flush(FlushParam.newBuilder().addCollectionName(name).build());
 
         client.createIndex(CreateIndexParam.newBuilder()
@@ -157,7 +159,7 @@ public class MilvusStore {
                 .withCollectionName(name).build());
 
         ready.set(true);
-        log.info("Milvus 集合已重建并载入: {} 条向量, dim={}", nodeIds.size(), dim);
+        log.info("Milvus 集合已重建并载入: {} 条向量, dim={} (每批 {} 插入)", nodeIds.size(), dim, INSERT_BATCH);
     }
 
     public void rebuildChunks(List<String> chunkIds, List<String> codes, List<String> urls,
@@ -192,23 +194,20 @@ public class MilvusStore {
                         .withName("embedding").withDataType(DataType.FloatVector).withDimension(dim).build())
                 .build());
 
-        List<List<Float>> floatVectors = new ArrayList<>(vectors.size());
-        for (float[] v : vectors) {
-            List<Float> row = new ArrayList<>(v.length);
-            for (float f : v) {
-                row.add(f);
-            }
-            floatVectors.add(row);
+        // 同 rebuild():分批插入,避免一次性装箱所有 chunk 向量撑爆堆。
+        int total = chunkIds.size();
+        for (int start = 0; start < total; start += INSERT_BATCH) {
+            int end = Math.min(start + INSERT_BATCH, total);
+            client.insert(InsertParam.newBuilder()
+                    .withCollectionName(name)
+                    .withFields(List.of(
+                            new InsertParam.Field("chunk_id", chunkIds.subList(start, end)),
+                            new InsertParam.Field("code", codes.subList(start, end)),
+                            new InsertParam.Field("url", urls.subList(start, end)),
+                            new InsertParam.Field("text", texts.subList(start, end)),
+                            new InsertParam.Field("embedding", toFloatRows(vectors.subList(start, end)))))
+                    .build());
         }
-        client.insert(InsertParam.newBuilder()
-                .withCollectionName(name)
-                .withFields(List.of(
-                        new InsertParam.Field("chunk_id", chunkIds),
-                        new InsertParam.Field("code", codes),
-                        new InsertParam.Field("url", urls),
-                        new InsertParam.Field("text", texts),
-                        new InsertParam.Field("embedding", floatVectors)))
-                .build());
         client.flush(FlushParam.newBuilder().addCollectionName(name).build());
 
         client.createIndex(CreateIndexParam.newBuilder()
@@ -265,5 +264,18 @@ public class MilvusStore {
                 .build());
         SearchResultsWrapper wrapper = new SearchResultsWrapper(resp.getData().getResults());
         return wrapper.getIDScore(0).stream().map(s -> s.getLongID()).toList();
+    }
+
+    /** float[] 批量装箱为 Milvus 客户端要求的 List<List<Float>>(仅在单批范围内存活,随批回收)。 */
+    private static List<List<Float>> toFloatRows(List<float[]> vectors) {
+        List<List<Float>> rows = new ArrayList<>(vectors.size());
+        for (float[] v : vectors) {
+            List<Float> row = new ArrayList<>(v.length);
+            for (float f : v) {
+                row.add(f);
+            }
+            rows.add(row);
+        }
+        return rows;
     }
 }
