@@ -5,7 +5,6 @@ import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.lang.Nullable;
@@ -25,6 +24,13 @@ public class AgentConfig {
      * 创建 TechTreeAgent Bean。
      * 当 ChatModel 可用时,配置带有工具链和 LRU 对话记忆的 Agent。
      *
+     * <p>不用 {@code @ConditionalOnBean(ChatModel.class)}:该条件只能看到"已注册"的 bean,
+     * 对用户 {@code @Configuration} 的解析顺序敏感。本类(AgentConfig)类名按字母序排在
+     * AiConfig 之前被解析,判定时 ChatModel 尚未注册 → 条件恒假 → Agent bean 永不创建 →
+     * AiService 拿到 null、对话恒降级为 RAG。改为直接注入 {@code @Nullable ChatModel} 并在
+     * 方法内判空:有 key 时 chatModel bean 必然就位,Agent 一定创建;无 key 时入参为 null,
+     * 返回 null,由 AiService 的降级链兜底。
+     *
      * @param chatModel        大语言模型,可为 null
      * @param graphQueryTool   图谱查询工具
      * @param vectorSearchTool 向量搜索工具
@@ -33,7 +39,6 @@ public class AgentConfig {
      * @return TechTreeAgent 实例,若 chatModel 为 null 则返回 null
      */
     @Bean
-    @ConditionalOnBean(ChatModel.class)
     public TechTreeAgent techTreeAgent(@Nullable ChatModel chatModel,
                                        GraphQueryTool graphQueryTool,
                                        VectorSearchTool vectorSearchTool,
