@@ -8,13 +8,16 @@ import com.sparrow.graph.interfaces.dto.GraphDtos.Neighborhood;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeDetail;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodePage;
-import com.sparrow.graph.interfaces.dto.GraphDtos.Overview;
 import com.sparrow.graph.interfaces.dto.GraphDtos.Tree;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.util.List;
 
@@ -33,10 +36,22 @@ public class GraphController {
         return ApiResponse.ok(graphService.tree());
     }
 
-    /** 维基级入口:领域×时代聚合总览(响应体小)。 */
+    /**
+     * 将 byte[] 直接写入 Servlet OutputStream,绕开 Spring 消息转换器。
+     * 高并发下避免为 ~259KB/~380KB 的缓存 payload 创建中间 String/byte[] 副本。
+     */
+    private static ResponseEntity<StreamingResponseBody> streamJson(byte[] data) {
+        StreamingResponseBody body = outputStream -> outputStream.write(data);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(data.length))
+                .body(body);
+    }
+
+    /** 维基级入口:领域×时代聚合总览(响应体小,流式字节回写)。 */
     @GetMapping("/overview")
-    public ApiResponse<Overview> overview() {
-        return ApiResponse.ok(graphService.overview());
+    public ResponseEntity<StreamingResponseBody> overview() {
+        return streamJson(graphService.overviewBytes());
     }
 
     /** 过滤 + 分页节点列表。 */
@@ -59,15 +74,15 @@ public class GraphController {
         return ApiResponse.ok(graphService.search(q, limit));
     }
 
-    /** 有界子图:过滤后取前 limit 重要节点 + 其间的边(默认/领域/时代视图渲染)。 */
+    /** 有界子图:过滤后取前 limit 重要节点 + 其间的边(默认/领域/时代视图渲染,流式字节回写)。 */
     @GetMapping("/subgraph")
-    public ApiResponse<Tree> subgraph(
+    public ResponseEntity<StreamingResponseBody> subgraph(
             @RequestParam(required = false) String category,
             @RequestParam(required = false) Integer eraRank,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Integer minImportance,
             @RequestParam(defaultValue = "400") int limit) {
-        return ApiResponse.ok(graphService.subgraph(category, eraRank, q, minImportance, limit));
+        return streamJson(graphService.subgraphBytes(category, eraRank, q, minImportance, limit));
     }
 
     /** 节点邻域子图(展开式浏览)。 */

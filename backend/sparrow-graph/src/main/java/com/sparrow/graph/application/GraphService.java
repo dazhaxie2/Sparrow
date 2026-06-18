@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -105,16 +106,14 @@ public class GraphService {
     }
 
     /**
-     * 维基级入口:领域×时代聚合总览(响应体小,可缓存)。聚合在 Java 内做,
-     * 避免把上万节点全量推给前端;只回每格计数 + 代表节点。
+     * 维基级入口:领域×时代聚合总览(响应体小,可缓存)。返回 byte[]:
+     * Redis 缓存 String → getBytes(UTF_8),Controller 用 StreamingResponseBody
+     * 直接写入 OutputStream,绕开 Spring 消息转换器,降低高并发下 ~259KB/req 的堆驻留。
      */
-    public Overview overview() {
+    public byte[] overviewBytes() {
         String cached = redis.opsForValue().get(OVERVIEW_CACHE_KEY);
         if (cached != null) {
-            try {
-                return objectMapper.readValue(cached, Overview.class);
-            } catch (JsonProcessingException ignored) {
-            }
+            return cached.getBytes(StandardCharsets.UTF_8);
         }
         List<NodeBrief> nodes = readWithFallback("overviewNodes",
                 () -> neoRepo.findAllOrdered().stream().map(NodeBrief::from).toList(),
@@ -122,12 +121,9 @@ public class GraphService {
         long totalEdges = readWithFallback("overviewEdges",
                 neoRepo::countEdges, mysqlReader::countEdges);
         Overview overview = aggregateOverview(nodes, totalEdges);
-        try {
-            redis.opsForValue().set(OVERVIEW_CACHE_KEY,
-                    objectMapper.writeValueAsString(overview), TREE_CACHE_TTL);
-        } catch (JsonProcessingException ignored) {
-        }
-        return overview;
+        String body = toBodyJson(ApiResponse.ok(overview));
+        redis.opsForValue().set(OVERVIEW_CACHE_KEY, body, TREE_CACHE_TTL);
+        return body.getBytes(StandardCharsets.UTF_8);
     }
 
     private Overview aggregateOverview(List<NodeBrief> nodes, long totalEdges) {
@@ -190,31 +186,25 @@ public class GraphService {
     }
 
     /**
-     * 有界子图:过滤后取前 limit 重要节点 + 其间的边,供前端渲染(默认/领域/时代视图)。
-     * 自由文本检索(q)结果发散不缓存;其余为有限组合,Redis 缓存命中可绕开重 MySQL 查询
-     * (全 importance 扫描 + filesort + 边 IN 查询)——压测中 subgraph 是 MySQL 头号 CPU 大户。
+     * 有界子图:返回 byte[]。同 overviewBytes(),~380KB/req。
+     * 自由文本检索(q)结果发散不缓存;其余为有限组合,Redis 缓存命中绕开 MySQL。
      */
-    public Tree subgraph(String category, Integer eraRank, String q,
-                         Integer minImportance, int limit) {
+    public byte[] subgraphBytes(String category, Integer eraRank, String q,
+                                Integer minImportance, int limit) {
         String cacheKey = (q == null || q.isBlank())
                 ? subgraphCacheKey(category, eraRank, minImportance, limit) : null;
         if (cacheKey != null) {
             String cached = redis.opsForValue().get(cacheKey);
             if (cached != null) {
-                try {
-                    return objectMapper.readValue(cached, Tree.class);
-                } catch (JsonProcessingException ignored) {
-                }
+                return cached.getBytes(StandardCharsets.UTF_8);
             }
         }
         Tree tree = mysqlReader.subgraph(category, eraRank, q, minImportance, limit);
+        String body = toBodyJson(ApiResponse.ok(tree));
         if (cacheKey != null) {
-            try {
-                redis.opsForValue().set(cacheKey, objectMapper.writeValueAsString(tree), TREE_CACHE_TTL);
-            } catch (JsonProcessingException ignored) {
-            }
+            redis.opsForValue().set(cacheKey, body, TREE_CACHE_TTL);
         }
-        return tree;
+        return body.getBytes(StandardCharsets.UTF_8);
     }
 
     private String subgraphCacheKey(String category, Integer eraRank, Integer minImportance, int limit) {
@@ -223,6 +213,15 @@ public class GraphService {
                 + (eraRank == null ? "_" : eraRank) + ":"
                 + (minImportance == null ? "_" : minImportance) + ":"
                 + limit;
+    }
+
+    /** 将响应对象序列化为完整响应体 JSON(缓存原始字节用)。 */
+    private String toBodyJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("响应序列化失败", e);
+        }
     }
 
     /** 节点邻域子图(中心 + 直接前置 + 直接后继),前端展开式浏览用。 */

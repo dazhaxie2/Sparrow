@@ -1,5 +1,4 @@
-﻿# syntax=docker/dockerfile:1.7
-# 共享 build stage:一次性下载依赖 + 编译全部模块。
+﻿# 共享 build stage:一次性下载依赖 + 编译全部模块。
 # 通过 docker compose 的 build.target 选择最终运行 stage。
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /build
@@ -58,10 +57,9 @@ FROM eclipse-temurin:17-jre AS graph-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-graph/target/sparrow-graph.jar app.jar
 EXPOSE 8082
-# 维基级数据集(10935 节点/97798 边)首次 Neo4j 迁移用 SDN saveAll 构建整张对象图,
-# 极耗堆:768m 迁移期 OOM 会毒化线程池令 graph 变僵尸,1536m 仅完成 ~76% 边。
-# 给 2g 让迁移一次性完成;完成后 Neo4j 边数==MySQL,后续启动走"跳过迁移"分支秒起。
-ENTRYPOINT ["java","-Xms512m","-Xmx2048m","-jar","app.jar"]
+# Tomcat max=50 线程 + -Xmx1024m:50 并发×500KB≈25MB 可控。
+# MALLOC_ARENA_MAX=2 + 4G 容器,JDK 镜像 off-heap ~500MB,总 RSS ~2G。
+ENTRYPOINT ["java","-Xms512m","-Xmx1024m","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS ai-runtime
 WORKDIR /app

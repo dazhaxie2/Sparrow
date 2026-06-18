@@ -275,12 +275,13 @@ services:
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       GRAPH_MIGRATE_ON_BOOT: "false"
+      MALLOC_ARENA_MAX: "2"
     expose: ["8082"]
     deploy:
       resources:
         limits:
           cpus: '6.0'
-          memory: 3.5G
+          memory: 4G
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }

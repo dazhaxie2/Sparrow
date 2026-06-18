@@ -1,0 +1,74 @@
+name: deploy
+
+# CI/CD：push 到 main(或手动触发)→ 服务器上的 self-hosted runner 拉取最新代码、
+# docker compose 重建并滚动重启。runner 主动外连 GitHub,无需服务器开放入站端口。
+on:
+  push:
+    branches: [main]
+    # 纯文档/工具改动不触发部署,省一次全量 build
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+# 同一时刻只跑一个部署,后到的排队(不取消正在进行的,避免半截重启)
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows, sparrow]
+    env:
+      # 固定部署目录:.env 与具名卷(COMPOSE_PROJECT_NAME=sparrow)稳定,
+      # 不用 actions/checkout 的临时 _work 目录(那会换项目名→换卷→丢数据)
+      DEPLOY_DIR: C:\srv\Sparrow
+    steps:
+      - name: Sync repo to latest origin/main
+        shell: powershell
+        run: |
+          Set-Location $env:DEPLOY_DIR
+          git fetch --prune origin
+          git reset --hard origin/main
+          git log -1 --oneline
+
+      - name: Build images
+        shell: powershell
+        run: |
+          Set-Location $env:DEPLOY_DIR
+          docker compose build
+
+      - name: Deploy (up -d)
+        shell: powershell
+        run: |
+          Set-Location $env:DEPLOY_DIR
+          docker compose up -d --remove-orphans
+
+      - name: Prune dangling images
+        shell: powershell
+        run: docker image prune -f
+
+      - name: Health check (gateway :8080)
+        shell: powershell
+        run: |
+          $deadline = (Get-Date).AddMinutes(8)
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://localhost:8080/
+              Write-Host "Gateway up: HTTP $($r.StatusCode)"
+              exit 0
+            } catch [System.Net.WebException] {
+              # 4xx/5xx 也说明 gateway 进程已在监听 8080,视为存活
+              if ($null -ne $_.Exception.Response) {
+                $code = [int]$_.Exception.Response.StatusCode
+                Write-Host "Gateway responded HTTP $code (treated as up)"
+                exit 0
+              }
+              Write-Host "waiting for gateway... ($($_.Exception.Message))"
+            } catch {
+              Write-Host "waiting for gateway... ($($_.Exception.Message))"
+            }
+            Start-Sleep -Seconds 10
+          }
+          Write-Host "Health check timed out after 8 min"
+          exit 1
