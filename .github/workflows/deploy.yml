@@ -18,11 +18,11 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, windows, sparrow]
+    runs-on: [self-hosted, windows]
     env:
       # 固定部署目录:.env 与具名卷(COMPOSE_PROJECT_NAME=sparrow)稳定,
       # 不用 actions/checkout 的临时 _work 目录(那会换项目名→换卷→丢数据)
-      DEPLOY_DIR: C:\srv\Sparrow
+      DEPLOY_DIR: C:\Users\hai\Desktop\Sparrow
     steps:
       - name: Sync repo to latest origin/main
         shell: powershell
@@ -32,17 +32,19 @@ jobs:
           git reset --hard origin/main
           git log -1 --oneline
 
-      - name: Build images
+      - name: Build images (core stack)
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          docker compose build
+          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade
 
-      - name: Deploy (up -d)
+      - name: Deploy (up -d, core stack)
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          docker compose up -d --remove-orphans
+          # 先只起核心栈(科技树+登录+交易);重的 ai/milvus/etcd/minio/sentinel 等
+          # 待服务器内存确认充足后再加入这行
+          docker compose up -d mysql redis nacos seata-server kafka neo4j sparrow-gateway sparrow-user sparrow-graph sparrow-trade
 
       - name: Prune dangling images
         shell: powershell
