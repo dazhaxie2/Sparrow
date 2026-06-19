@@ -1,4 +1,4 @@
-# SparrowSpider · 人类科技树知识爬虫
+# SparrowSpider · 科技树知识爬虫
 
 ## 在 Sparrow 应用内跑完整闭环
 

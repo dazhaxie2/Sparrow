@@ -93,9 +93,9 @@ def extract_one(canonical_name: str, page_text: str):
 
 
 def filter_tech_terms(titles, limit=30):
-    """LLM 从链接标题里筛出"人类科技史上的技术/发明"词条。"""
+    """LLM 从链接标题里筛出"科技史上的技术/发明"词条。"""
     prompt = (
-        "下面是一批百科词条标题。请挑出其中属于「人类科技史上的具体技术、发明或工程方法」的标题"
+        "下面是一批百科词条标题。请挑出其中属于「科技史上的具体技术、发明或工程方法」的标题"
         f"(排除人物、地名、组织、概念泛称),最多 {limit} 个,输出 JSON 数组,只输出 JSON。\n\n"
         + json.dumps(titles, ensure_ascii=False)
     )

@@ -32,6 +32,9 @@ public class AiConfig {
                 .baseUrl(props.baseUrl())
                 .apiKey(props.apiKey())
                 .modelName(props.chatModel())
+                // 显式放开输出上限:部分 OpenAI 兼容网关默认 max_tokens 偏小(512/1024)会硬截断长回答,
+                // 给详尽问答留足空间;实际篇幅由提示词把控,避免无意义灌水。
+                .maxTokens(3000)
                 .timeout(Duration.ofSeconds(60))
                 .build();
     }
