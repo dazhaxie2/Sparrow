@@ -48,7 +48,10 @@ const menuOpen = ref(false)
 
 function select(action: 'openLearning' | 'openMember' | 'openSettings') {
   menuOpen.value = false
-  emit(action)
+  // 逐个字面量触发,避免联合类型变量无法匹配 defineEmits 重载签名
+  if (action === 'openLearning') emit('openLearning')
+  else if (action === 'openMember') emit('openMember')
+  else emit('openSettings')
 }
 
 function logout() {

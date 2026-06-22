@@ -1,5 +1,5 @@
 <template>
-  <aside class="panel" :class="{ floating, collapsed: floating && drawerCollapsed, expanded: sheetExpanded }">
+  <aside class="panel" :class="{ floating, collapsed: floating && drawerCollapsed, expanded: sheetExpanded, 'sheet-collapsed': !floating && !sheetExpanded }">
     <div class="panel-header">
       <div>
         <BookOpen :size="15" />
@@ -31,19 +31,14 @@
     <div v-show="!drawerCollapsed" ref="bodyRef" class="panel-body">
       <template v-if="!detail && !preview && !loading && !error">
         <section class="empty-state">
-          <p class="eyebrow">SPARROW GUIDE</p>
-          <h2>选择一个技术节点</h2>
-          <p>点击图谱节点或使用搜索定位。右侧会展示摘要、学习路径、前置技术、可解锁方向和深度内容。</p>
-          <div class="quick-list">
-            <div><Search :size="15" /><span>搜索技术名、时代或摘要关键词</span></div>
-            <div><Route :size="15" /><span>查看前置链并按路径学习</span></div>
-            <div><Sparkles :size="15" /><span>把当前节点交给 AI 向导继续追问</span></div>
-          </div>
+          <p class="eyebrow">NODE INSPECTOR</p>
+          <h2>尚未选择节点</h2>
+          <p>节点摘要、关联技术与学习状态将在此处显示。</p>
         </section>
       </template>
 
       <template v-else>
-        <section class="node-section" :style="{ '--current-era-color': eraColor }">
+        <section class="node-section" :style="{ '--current-node-color': accentColor }">
           <div class="node-meta">
             <span class="era-badge">{{ currentEra }}</span>
             <span v-if="currentCategory" class="category-badge">{{ currentCategory }}</span>
@@ -257,8 +252,6 @@ import {
   PanelRightOpen,
   Play,
   Route,
-  Search,
-  Sparkles,
   Target,
   UnlockKeyhole,
   X,
@@ -276,7 +269,7 @@ const props = defineProps<{
   loading: boolean
   error: string
   progress: ProgressState
-  eraColor: string
+  accentColor: string
   learningActive: boolean
   learningIndex: number
   learningTotal: number
@@ -538,25 +531,6 @@ watch(() => props.floating, value => {
   line-height: 1.85;
 }
 
-.quick-list {
-  margin-top: 20px;
-  border-top: 1px solid var(--line);
-}
-
-.quick-list div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  border-bottom: 1px solid var(--line);
-  color: var(--ink-2);
-  font-size: 13px;
-}
-
-.quick-list svg {
-  color: var(--accent);
-}
-
 .node-meta {
   display: flex;
   flex-wrap: wrap;
@@ -580,16 +554,14 @@ watch(() => props.floating, value => {
 }
 
 .category-badge {
-  border-color: var(--line-strong) !important;
-  background: var(--ink) !important;
-  color: var(--bg) !important;
+  border-color: color-mix(in srgb, var(--current-node-color, var(--accent)) 40%, white) !important;
+  background: color-mix(in srgb, var(--current-node-color, var(--accent)) 10%, white) !important;
+  color: var(--current-node-color, var(--accent)) !important;
   font-weight: 700;
 }
 
 .era-badge {
-  border-color: color-mix(in srgb, var(--current-era-color, var(--accent)) 45%, white) !important;
-  background: color-mix(in srgb, var(--current-era-color, var(--accent)) 9%, white) !important;
-  color: var(--current-era-color, var(--accent)) !important;
+  color: var(--muted) !important;
 }
 
 .node-summary {
@@ -1074,6 +1046,16 @@ watch(() => props.floating, value => {
   .panel.expanded,
   .panel.floating.expanded {
     max-height: 84vh;
+  }
+
+  .panel.sheet-collapsed {
+    flex: 0 0 46px;
+    min-height: 46px;
+    max-height: 46px;
+  }
+
+  .panel.sheet-collapsed .panel-body {
+    display: none;
   }
 
   .sheet-toggle {
