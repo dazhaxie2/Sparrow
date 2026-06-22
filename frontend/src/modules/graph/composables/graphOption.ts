@@ -50,8 +50,11 @@ type ForceEdge = SimulationLinkDatum<ForceNode> & {
 }
 
 const CATEGORY_PALETTE = [
-  '#ff6b35', '#075985', '#17845f', '#7c3aed', '#d12f5b',
-  '#a16207', '#147d92', '#52525b', '#2563eb', '#9f3f76',
+  '#ff5b3a', '#0b5b88', '#706974',
+  '#ff5b3a', '#0b5b88', '#706974',
+  '#ff5b3a', '#0b5b88', '#706974',
+  '#ff5b3a', '#0b5b88', '#706974',
+  '#ff5b3a', '#0b5b88', '#706974',
 ]
 
 export function clamp(value: number, min: number, max: number) {
@@ -157,8 +160,8 @@ export function layoutNodes(nodes: NodeBrief[], edges: Tree['edges']): Record<nu
   const positions: Record<number, GraphPoint> = {}
   for (const node of forceNodes) {
     positions[node.id] = {
-      x: Math.round(node.x ?? 0),
-      y: Math.round(node.y ?? 0),
+      x: Math.round((node.x ?? 0) * 1.9),
+      y: Math.round((node.y ?? 0) * 1.04),
       degree: node.degree,
     }
   }
@@ -195,10 +198,15 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
     const isDialogNode = ctx.dialogNodeIds.has(node.id)
     const importance = node.importance ?? 0
     const labelAlways = isSelected || adjacent || inChain || inLearningPath || isDialogNode
-    const labelVisible = labelAlways || nodes.length <= 90 || (nodes.length <= 420 && (point.degree >= 3 || importance >= 55))
+    const labelVisible = labelAlways
+      || nodes.length <= 90
+      || (nodes.length <= 420 && (point.degree >= 3 || importance >= 55))
+      || (nodes.length <= 900 && (point.degree >= 5 || importance >= 85))
     const color = colorForCategory(node.category, legend)
-    const baseSize = clamp(8 + Math.sqrt(point.degree) * 2 + importance * 0.045, 9, 24)
-    const symbolSize = baseSize + (isLearningCurrent ? 8 : isSelected ? 7 : adjacent ? 3 : 0)
+    const densityScale = nodes.length > 600 ? 0.72 : nodes.length > 350 ? 0.86 : 1
+    const maxNodeSize = nodes.length > 600 ? 11 : nodes.length > 350 ? 13 : 15
+    const baseSize = clamp((5 + Math.sqrt(point.degree) * 1.25 + importance * 0.024) * densityScale, 5, maxNodeSize)
+    const symbolSize = baseSize + (isLearningCurrent ? 6 : isSelected ? 5 : adjacent ? 2 : 0)
     const shortName = node.name.length > 12 ? `${node.name.slice(0, 12)}…` : node.name
 
     return {
@@ -213,18 +221,18 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
         color,
         opacity: dim ? 0.14 : 0.96,
         borderColor: isLearningCurrent || isSelected ? '#ff5722' : adjacent || inChain ? '#e21b5a' : '#ffffff',
-        borderWidth: isLearningCurrent || isSelected ? 3 : adjacent || inChain ? 2.2 : 1.6,
-        shadowBlur: isLearningCurrent || isSelected ? 18 : adjacent || inChain || isDialogNode ? 10 : 0,
+        borderWidth: isLearningCurrent || isSelected ? 2.4 : adjacent || inChain ? 1.8 : nodes.length > 600 ? 0.7 : 1,
+        shadowBlur: isLearningCurrent || isSelected ? 14 : adjacent || inChain || isDialogNode ? 8 : 0,
         shadowColor: 'rgba(255, 87, 34, 0.28)',
       },
       label: {
         show: labelVisible,
         color: dim ? 'rgba(75, 85, 99, 0.2)' : '#30343a',
-        fontSize: labelAlways ? 11 : 9,
+        fontSize: labelAlways ? 10 : nodes.length > 420 ? 7 : 8,
         fontWeight: isLearningCurrent || isSelected ? 800 : 600,
         formatter: `${node.premium ? 'PRO · ' : ''}${shortName}`,
         position: 'right',
-        distance: 7,
+        distance: 5,
         backgroundColor: labelAlways ? 'rgba(255,255,255,0.94)' : 'rgba(255,255,255,0.72)',
         borderColor: labelAlways ? 'rgba(229,229,229,0.95)' : 'transparent',
         borderWidth: labelAlways ? 1 : 0,
@@ -277,7 +285,7 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
       },
       lineStyle: {
         color: active ? '#ff5722' : ctx.dialogActive ? '#9ca8b4' : '#b5bdc6',
-        width: active ? 2.3 : ctx.dialogActive ? 1 : 0.9,
+        width: active ? 1.8 : ctx.dialogActive ? 0.8 : 0.65,
         opacity: dim ? 0.035 : active ? 0.96 : ctx.dialogActive ? 0.44 : 0.38,
         curveness,
       },
@@ -320,8 +328,8 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
       edgeSymbol: ['none', 'arrow'],
       edgeSymbolSize: [0, 5],
       labelLayout: { hideOverlap: nodes.length > 130, moveOverlap: 'shiftY' },
-      animation: nodes.length <= 420,
-      animationDurationUpdate: nodes.length > 420 ? 0 : 260,
+      animation: nodes.length <= 220,
+      animationDurationUpdate: nodes.length > 220 ? 0 : 220,
       animationEasingUpdate: 'cubicOut',
       emphasis: {
         focus: 'adjacency',

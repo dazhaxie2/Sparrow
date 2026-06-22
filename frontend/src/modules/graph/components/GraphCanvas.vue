@@ -73,9 +73,9 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background-color: #fafafa;
-  background-image: radial-gradient(#d3d6d9 1.2px, transparent 1.2px);
-  background-size: 24px 24px;
+  background-color: #fbfbfa;
+  background-image: radial-gradient(rgba(108, 116, 124, 0.2) 0.8px, transparent 0.8px);
+  background-size: 20px 20px;
 }
 
 .graph-canvas-wrap::after {
@@ -83,7 +83,7 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(to bottom, rgba(255,255,255,0.3), transparent 14%, transparent 84%, rgba(255,255,255,0.36));
+  background: linear-gradient(to bottom, rgba(255,255,255,0.2), transparent 12%, transparent 88%, rgba(255,255,255,0.24));
 }
 
 .chart-area {
@@ -135,23 +135,25 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
 
 .graph-legend {
   position: absolute;
-  left: 20px;
-  bottom: 20px;
+  left: 18px;
+  bottom: 18px;
   z-index: 7;
   width: min(520px, calc(100% - 40px));
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 5px 18px rgba(0,0,0,0.07);
-  padding: 13px 15px;
-  backdrop-filter: blur(10px);
+  max-height: 100px;
+  overflow-y: auto;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 8px 24px rgba(20, 24, 29, 0.08);
+  padding: 11px 13px;
+  backdrop-filter: blur(14px);
 }
 
 .legend-title {
   display: block;
-  margin-bottom: 9px;
+  margin-bottom: 8px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.1em;
 }
@@ -159,19 +161,19 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
 .legend-items {
   display: flex;
   flex-wrap: wrap;
-  gap: 9px 15px;
+  gap: 7px 13px;
 }
 
 .legend-items button {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   max-width: 160px;
   border: 0;
   background: transparent;
   color: var(--ink-2);
   padding: 0;
-  font-size: 12px;
+  font-size: 10px;
   cursor: pointer;
 }
 
@@ -181,8 +183,8 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
 
 .legend-dot {
   flex: none;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--category-color);
 }
@@ -195,24 +197,24 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
 
 .legend-items small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
 }
 
 .edge-label-toggle {
   position: absolute;
-  top: 16px;
   right: 18px;
+  bottom: 18px;
   z-index: 7;
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  min-height: 38px;
+  min-height: 32px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.95);
   box-shadow: var(--shadow-sm);
-  padding: 0 13px 0 10px;
+  padding: 0 11px 0 8px;
   color: var(--ink-2);
   cursor: pointer;
   backdrop-filter: blur(10px);
@@ -226,8 +228,8 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
 
 .edge-label-toggle span {
   position: relative;
-  width: 38px;
-  height: 22px;
+  width: 32px;
+  height: 18px;
   border-radius: 999px;
   background: #d8d8d8;
   transition: background 0.16s ease;
@@ -238,8 +240,8 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
@@ -251,7 +253,7 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
 }
 
 .edge-label-toggle input:checked + span::after {
-  transform: translateX(16px);
+  transform: translateX(14px);
 }
 
 .edge-label-toggle strong {
@@ -268,16 +270,16 @@ defineExpose({ getChartEl: () => chartAreaRef.value })
 
 @media (max-width: 720px) {
   .graph-legend {
-    left: 12px;
-    bottom: 12px;
+    left: 10px;
+    bottom: 10px;
     width: calc(100% - 24px);
-    max-height: 126px;
+    max-height: 82px;
     overflow-y: auto;
   }
 
   .edge-label-toggle {
-    top: 10px;
     right: 10px;
+    bottom: 100px;
   }
 }
 </style>

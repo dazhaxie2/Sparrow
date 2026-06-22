@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import * as echarts from 'echarts'
 import type { Tree } from '../types'
-import { buildOption, layoutNodes, type RenderContext } from './graphOption'
+import { buildOption, clamp, layoutNodes, type RenderContext } from './graphOption'
 import { DEFAULT_VIEW } from '../constants'
 
 type RenderState = Omit<RenderContext, 'currentView'>
@@ -14,6 +14,7 @@ export function useGraphChart(opts: {
   isBusy: () => boolean
 }) {
   let chart: echarts.ECharts | null = null
+  let resizeObserver: ResizeObserver | null = null
   const currentView = ref({ ...DEFAULT_VIEW })
 
   function renderTree() {
@@ -47,12 +48,18 @@ export function useGraphChart(opts: {
     ] as [number, number]
   }
 
+  function fitZoom(points: Array<{ x: number; y: number }>) {
+    if (!chart || !points.length) return 0.88
+    return clamp((chart.getWidth() / 1440) * 0.92, 0.42, 0.92)
+  }
+
   /** 数据变更后回到完整图谱视图。 */
   function fitView() {
     const tree = opts.getTree()
     if (!chart || !tree?.nodes.length) return
     const positions = layoutNodes(tree.nodes, tree.edges)
-    currentView.value = { zoom: 0.88, center: layoutCenter(Object.values(positions)) }
+    const points = Object.values(positions)
+    currentView.value = { zoom: fitZoom(points), center: layoutCenter(points) }
     renderTree()
   }
 
@@ -84,6 +91,8 @@ export function useGraphChart(opts: {
 
   function init(el: HTMLElement) {
     chart = echarts.init(el, undefined, { renderer: 'canvas' })
+    resizeObserver = new ResizeObserver(() => chart?.resize())
+    resizeObserver.observe(el)
     currentView.value = { ...DEFAULT_VIEW }
     chart.on('click', (params: any) => {
       if (opts.isBusy()) return
@@ -99,6 +108,8 @@ export function useGraphChart(opts: {
   }
 
   function dispose() {
+    resizeObserver?.disconnect()
+    resizeObserver = null
     chart?.dispose()
     chart = null
   }

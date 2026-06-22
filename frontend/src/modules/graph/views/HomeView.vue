@@ -55,7 +55,7 @@
     </section>
 
     <GraphPanel
-      v-if="graphMode === 'map'"
+      v-if="graphMode === 'map' && (selectedDetail || selectedPreview || nodeLoading || nodeError)"
       :detail="selectedDetail"
       :preview="selectedPreview"
       :path-nodes="pathNodes"
@@ -66,7 +66,7 @@
       :error="nodeError"
       :progress="currentProgress"
       :accent-color="currentNodeColor"
-      :floating="graphFullScreen"
+      :floating="true"
       @select="selectFromPanel"
       @start-path="startLearningPath"
       @path-prev="goLearningPrev"
@@ -79,7 +79,7 @@
     />
 
     <DialogWorkbench
-      v-else
+      v-if="graphMode === 'dialog'"
       :dialog-messages="dialogMessages"
       :dialog-loading="dialogLoading"
       :dialog-error="dialogError"
@@ -155,7 +155,7 @@ const learningPath = ref<{ active: boolean; nodes: NodeBrief[]; index: number }>
 })
 const overview = ref<Overview | null>(null)
 const activeCategory = ref<string | null>(null)
-const graphLimit = ref(400)
+const graphLimit = ref(800)
 const graphMode = ref<GraphMode>('map')
 const showEdgeLabels = ref(false)
 
@@ -608,17 +608,15 @@ onUnmounted(() => {
 
 <style scoped>
 .layout {
+  position: relative;
   display: flex;
-  height: calc(100vh - 64px);
+  height: calc(100vh - 52px);
   min-height: 0;
-  background: var(--surface);
-  gap: 14px;
-  padding: 0 14px 14px;
+  background: #fbfbfa;
+  overflow: hidden;
 }
 
 .layout.dialog-layout {
-  gap: 8px;
-  padding: 0 8px 8px;
   background: #eef1f4;
 }
 
@@ -635,42 +633,37 @@ onUnmounted(() => {
 }
 
 .graph-shell {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  box-shadow: var(--shadow-sm);
+  background: #fbfbfa;
   overflow: hidden;
 }
 
 .graph-shell.fullscreen {
   position: fixed;
-  inset: 76px 18px 18px;
+  inset: 52px 0 0;
   z-index: 60;
-  box-shadow: var(--shadow-md);
 }
 
 @media (max-width: 920px) {
   .layout {
-    flex-direction: column;
-    overflow: auto;
+    height: calc(100vh - 48px);
   }
 
   .graph-workspace {
-    min-height: 68vh;
-    overflow: visible;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .graph-shell.fullscreen {
-    inset: 72px 12px 12px;
+    inset: 48px 0 0;
   }
 
   .layout.dialog-layout {
-    flex-direction: column;
-    overflow: auto;
+    overflow: hidden;
   }
 }
 </style>

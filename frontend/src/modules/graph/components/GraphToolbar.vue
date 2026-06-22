@@ -1,18 +1,13 @@
 <template>
   <div class="graph-toolbar">
     <div class="toolbar-title">
-      <MapPinned :size="16" />
-      <strong>{{ dialogActive ? '会话临时图谱' : '知识图谱' }}</strong>
-      <span>{{ dialogActive ? `提取 ${nodeCount} 个相关节点` : `显示 ${nodeCount} / ${totalNodes}` }}</span>
+      <strong>{{ dialogActive ? '对话临时图谱' : 'Graph Relationship Visualization' }}</strong>
+      <span>{{ dialogActive ? `提取 ${nodeCount} 个相关节点` : `${nodeCount} nodes · ${totalNodes} total` }}</span>
     </div>
 
     <div class="mode-switch" aria-label="图谱模式">
-      <button type="button" :class="{ active: graphMode === 'map' }" @click="$emit('switchMode', 'map')">
-        图谱
-      </button>
-      <button type="button" :class="{ active: graphMode === 'dialog' }" @click="$emit('switchMode', 'dialog')">
-        对话
-      </button>
+      <button type="button" :class="{ active: graphMode === 'map' }" @click="$emit('switchMode', 'map')">图谱</button>
+      <button type="button" :class="{ active: graphMode === 'dialog' }" @click="$emit('switchMode', 'dialog')">对话</button>
     </div>
 
     <div
@@ -21,7 +16,7 @@
       @keydown.down.prevent="moveSearch(1)"
       @keydown.up.prevent="moveSearch(-1)"
     >
-      <Search :size="15" />
+      <Search :size="14" />
       <input
         v-model="searchQuery"
         type="search"
@@ -50,17 +45,18 @@
     </div>
 
     <div v-else class="dialog-mode-status">
-      <BrainCircuit :size="15" />
-      <span>{{ dialogQuery || '关联节点实时构造' }}</span>
+      <BrainCircuit :size="14" />
+      <span>{{ dialogQuery || '关联节点实时构建' }}</span>
     </div>
 
     <div class="toolbar-actions" aria-label="图谱控制">
       <span class="selected-status">{{ selectedStatusText }}</span>
-      <button class="tool-btn" type="button" title="刷新图谱" :disabled="treeLoading" @click="$emit('refresh')">
-        <RefreshCcw :size="15" />
+      <button class="tool-btn text-btn" type="button" title="刷新图谱" :disabled="treeLoading" @click="$emit('refresh')">
+        <RefreshCcw :size="14" />
+        <span>Refresh</span>
       </button>
       <button class="tool-btn" type="button" title="重置视图" @click="$emit('reset')">
-        <RotateCcw :size="16" />
+        <RotateCcw :size="14" />
       </button>
       <button
         class="tool-btn"
@@ -68,8 +64,8 @@
         :title="graphFullScreen ? '退出全屏' : '全屏查看'"
         @click="$emit('toggleFullScreen')"
       >
-        <Minimize2 v-if="graphFullScreen" :size="16" />
-        <Maximize2 v-else :size="16" />
+        <Minimize2 v-if="graphFullScreen" :size="14" />
+        <Maximize2 v-else :size="14" />
       </button>
     </div>
   </div>
@@ -77,16 +73,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import {
-  BrainCircuit,
-  MapPinned,
-  Maximize2,
-  Minimize2,
-  RefreshCcw,
-  RotateCcw,
-  Search,
-  X,
-} from '@lucide/vue'
+import { BrainCircuit, Maximize2, Minimize2, RefreshCcw, RotateCcw, Search, X } from '@lucide/vue'
 import { searchNodes } from '../api'
 import type { NodeBrief } from '../types'
 
@@ -109,7 +96,6 @@ const emit = defineEmits<{
   select: [node: NodeBrief]
 }>()
 
-// 搜索子系统:服务端检索(适配万级规模),带防抖与请求竞态保护
 const searchQuery = ref('')
 const searchOpen = ref(false)
 const activeSearchIndex = ref(0)
@@ -161,93 +147,72 @@ function clearSearch() {
 
 <style scoped>
 .graph-toolbar {
-  min-height: 52px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  position: absolute;
+  inset: 14px 16px auto;
+  z-index: 20;
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) auto minmax(210px, 1fr);
+  align-items: start;
   gap: 12px;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-}
-
-.toolbar-title,
-.toolbar-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: var(--ink-2);
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  pointer-events: none;
 }
 
 .toolbar-title {
-  flex: 1 1 170px;
+  display: grid;
+  gap: 3px;
+  padding-top: 6px;
+  color: var(--ink);
 }
 
 .toolbar-title strong {
-  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.01em;
 }
 
-.toolbar-title svg {
-  color: var(--accent);
+.toolbar-title span {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.mode-switch,
+.search-box,
+.dialog-mode-status,
+.toolbar-actions {
+  pointer-events: auto;
 }
 
 .mode-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 38px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  display: none;
 }
 
-.mode-switch button {
-  min-width: 58px;
-  height: 28px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ink-2);
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.mode-switch button:hover {
-  color: var(--ink);
-}
-
-.mode-switch button.active {
-  background: var(--panel);
-  color: var(--ink);
-  box-shadow: var(--shadow-sm);
-}
-
-.search-box {
-  position: relative;
-  flex: 999 1 300px;
-  height: 36px;
+.search-box,
+.dialog-mode-status {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: min(330px, 36vw);
+  height: 34px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  padding: 0 13px;
+  gap: 7px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(20, 24, 29, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 5px 18px rgba(20, 24, 29, 0.06);
+  padding: 0 11px;
+  backdrop-filter: blur(12px);
 }
 
 .search-box:focus-within {
-  border-color: var(--accent);
-  background: var(--panel);
+  border-color: rgba(255, 87, 34, 0.45);
 }
 
-.search-box svg {
-  flex: 0 0 auto;
+.search-box svg,
+.dialog-mode-status svg {
+  flex: none;
   color: var(--muted);
 }
 
@@ -256,17 +221,17 @@ function clearSearch() {
   min-width: 0;
   height: 100%;
   border: 0;
-  outline: none;
+  outline: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .clear-search {
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
   border: 0;
   background: transparent;
   color: var(--muted);
@@ -278,10 +243,10 @@ function clearSearch() {
   top: calc(100% + 6px);
   left: 0;
   right: 0;
-  z-index: 20;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
+  z-index: 40;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
   box-shadow: var(--shadow-md);
   padding: 4px;
 }
@@ -293,144 +258,99 @@ function clearSearch() {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  padding: 9px 10px;
+  padding: 8px 9px;
   text-align: left;
   cursor: pointer;
 }
 
 .search-results button:hover,
 .search-results button.active {
-  background: rgba(255, 87, 34, 0.08);
+  background: var(--accent-soft);
 }
 
 .search-results span {
-  color: var(--ink);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .search-results small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 9px;
 }
 
 .dialog-mode-status {
-  flex: 999 1 360px;
-  min-width: 0;
-  height: 38px;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
   color: var(--ink-2);
-  padding: 0 14px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.dialog-mode-status svg {
-  flex: none;
-  color: var(--accent);
-}
-
-.dialog-mode-status span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 10px;
 }
 
 .toolbar-actions {
-  flex: 1 1 260px;
+  grid-column: 3;
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  gap: 7px;
 }
 
 .selected-status {
-  max-width: 220px;
-  overflow: hidden;
-  color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: none;
 }
 
 .tool-btn {
-  width: 36px;
-  height: 36px;
+  min-width: 34px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: var(--surface);
-  color: var(--ink-2);
+  gap: 6px;
+  border: 1px solid rgba(20, 24, 29, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 5px 18px rgba(20, 24, 29, 0.06);
+  color: #60666d;
+  padding: 0 9px;
+  font-size: 10px;
   cursor: pointer;
-  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+  backdrop-filter: blur(12px);
 }
 
 .tool-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: rgba(255, 87, 34, 0.38);
   color: var(--accent);
 }
 
 .tool-btn:disabled {
-  color: var(--muted);
+  opacity: 0.5;
   cursor: default;
 }
 
-.tool-btn.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-@media (max-width: 1180px) {
-  .toolbar-actions {
-    justify-content: flex-start;
-  }
-}
-
-@media (max-width: 920px) {
-  .mode-switch,
-  .dialog-mode-status {
-    flex: 1 1 100%;
-  }
-}
-
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .graph-toolbar {
-    gap: 8px;
-    padding: 8px;
-  }
-
-  .toolbar-title {
-    flex: 1 1 150px;
+    inset: 10px 10px auto;
+    grid-template-columns: 1fr auto;
   }
 
   .toolbar-title span,
-  .selected-status {
+  .text-btn span {
     display: none;
   }
 
-  .mode-switch {
-    flex: none;
+  .toolbar-title strong {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .search-box {
-    flex: 1 1 190px;
+  .search-box,
+  .dialog-mode-status {
+    top: 43px;
+    left: 0;
+    width: min(280px, calc(100vw - 92px));
+    transform: none;
   }
 
   .toolbar-actions {
-    flex: 0 0 auto;
-    gap: 6px;
-  }
-
-  .tool-btn {
-    width: 34px;
-    height: 34px;
+    grid-column: 2;
   }
 }
 </style>

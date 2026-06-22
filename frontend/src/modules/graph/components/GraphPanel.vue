@@ -289,7 +289,7 @@ defineEmits<{
 }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
-const drawerCollapsed = ref(Boolean(props.floating))
+const drawerCollapsed = ref(false)
 const sheetExpanded = ref(false)
 const pathVisibleLimit = ref(PATH_INITIAL_VISIBLE)
 const current = computed(() => props.detail ?? props.preview)
@@ -374,12 +374,12 @@ watch(() => props.floating, value => {
 
 <style scoped>
 .panel {
-  width: 372px;
+  width: 326px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 10px;
   background: var(--panel);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
@@ -387,13 +387,15 @@ watch(() => props.floating, value => {
 
 .panel.floating {
   position: fixed;
-  top: 92px;
-  right: 32px;
-  bottom: 32px;
+  top: 72px;
+  right: 18px;
+  bottom: auto;
   z-index: 80;
-  width: min(392px, calc(100vw - 64px));
-  border: 1px solid var(--ink);
-  box-shadow: var(--shadow-md);
+  width: min(326px, calc(100vw - 36px));
+  max-height: calc(100vh - 92px);
+  border: 1px solid rgba(20, 24, 29, 0.1);
+  box-shadow: 0 18px 50px rgba(20, 24, 29, 0.14);
+  backdrop-filter: blur(18px);
 }
 
 .panel.floating.collapsed {
@@ -431,21 +433,21 @@ watch(() => props.floating, value => {
 }
 
 .panel-header {
-  min-height: 46px;
+  min-height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 0 16px;
+  padding: 0 13px;
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: rgba(255, 255, 255, 0.97);
 }
 
 .panel-header div {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.08em;
 }
 
@@ -476,10 +478,12 @@ watch(() => props.floating, value => {
 }
 
 .panel-state {
-  border: 1px solid var(--line-strong);
-  padding: 3px 7px;
-  color: var(--muted);
-  font-size: 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  padding: 4px 8px;
+  color: #fff;
+  font-size: 9px;
   letter-spacing: 0.08em;
 }
 
@@ -500,7 +504,7 @@ watch(() => props.floating, value => {
 .error-box,
 .recommend-box,
 .source-block {
-  margin: 18px;
+  margin: 15px;
 }
 
 .eyebrow {
@@ -513,7 +517,7 @@ watch(() => props.floating, value => {
 .empty-state h2,
 .node-title {
   margin-top: 8px;
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1.2;
   letter-spacing: 0;
 }
@@ -1029,23 +1033,22 @@ watch(() => props.floating, value => {
 }
 
 @media (max-width: 920px) {
-  .panel,
   .panel.floating {
-    position: sticky;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 40;
-    width: 100%;
-    min-height: 42vh;
-    max-height: 62vh;
-    border-left: 0;
-    border-top: 1px solid var(--line);
+    position: fixed;
+    top: auto;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    z-index: 80;
+    width: auto;
+    min-height: 0;
+    max-height: 58vh;
+    border: 1px solid rgba(20, 24, 29, 0.1);
+    border-radius: 10px;
   }
 
-  .panel.expanded,
   .panel.floating.expanded {
-    max-height: 84vh;
+    max-height: 76vh;
   }
 
   .panel.sheet-collapsed {
@@ -1056,10 +1059,6 @@ watch(() => props.floating, value => {
 
   .panel.sheet-collapsed .panel-body {
     display: none;
-  }
-
-  .sheet-toggle {
-    display: grid;
   }
 
   .path-controls {

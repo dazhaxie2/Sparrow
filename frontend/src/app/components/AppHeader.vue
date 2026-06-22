@@ -1,7 +1,6 @@
 <template>
   <header class="topbar">
     <button class="brand" type="button" @click="$router.push('/')">
-      <span class="brand-mark">SP</span>
       <span class="brand-copy">
         <strong>SPARROW</strong>
         <span>Human Technology Tree</span>
@@ -9,9 +8,9 @@
     </button>
 
     <nav class="top-nav" aria-label="Primary">
-      <button class="nav-item active" type="button" @click="$router.push('/')">Graph</button>
-      <button class="nav-item" type="button" @click="$emit('focusAi')">AI Guide</button>
-      <button class="nav-item" type="button" @click="$emit('openMember')">Membership</button>
+      <button class="nav-item active" type="button" @click="$router.push('/')">图谱</button>
+      <button class="nav-item" type="button" @click="$emit('focusAi')">对话</button>
+      <button class="nav-item" type="button" @click="$emit('openMember')">工作台</button>
     </nav>
 
     <div class="actions">
@@ -69,20 +68,23 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
 
 <style scoped>
 .topbar {
-  height: 64px;
+  position: relative;
+  z-index: 100;
+  height: 52px;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(260px, 1fr);
+  grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr);
   align-items: center;
-  gap: 18px;
-  padding: 0 22px;
-  background: var(--panel);
+  gap: 14px;
+  padding: 0 18px;
+  background: rgba(255, 255, 255, 0.97);
   border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 8px rgba(20, 24, 29, 0.025);
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 0;
   width: fit-content;
   border: 0;
   background: transparent;
@@ -90,50 +92,42 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
   text-align: left;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  background: var(--ink);
-  color: var(--bg);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
 .brand-copy {
   display: grid;
-  gap: 2px;
+  gap: 0;
 }
 
 .brand-copy strong {
-  font-size: 16px;
-  letter-spacing: 0.12em;
+  font-size: 15px;
+  letter-spacing: 0.14em;
 }
 
 .brand-copy span {
-  color: var(--ink-2);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
 }
 
 .top-nav {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  padding: 4px;
-  gap: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: #f2f2f1;
+  padding: 3px;
+  gap: 2px;
 }
 
 .nav-item {
   border: 0;
   background: transparent;
-  padding: 7px 13px;
+  min-width: 54px;
+  padding: 6px 12px;
+  border-radius: 6px;
   color: var(--ink-2);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
@@ -145,8 +139,9 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
 }
 
 .nav-item.active {
-  background: var(--ink);
-  color: var(--bg);
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(20, 24, 29, 0.08);
 }
 
 .actions {
@@ -258,12 +253,13 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
 }
 
 .btn {
-  min-height: 34px;
-  border: 1px solid var(--line-strong);
+  min-height: 32px;
+  border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
-  padding: 0 14px;
-  font-size: 13px;
+  border-radius: 7px;
+  padding: 0 12px;
+  font-size: 11px;
   cursor: pointer;
   transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
 }
@@ -273,9 +269,9 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
 }
 
 .btn.primary {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--bg);
+  background: #fff;
+  border-color: var(--line);
+  color: var(--ink-2);
 }
 
 .btn.accent {
@@ -290,11 +286,30 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
 
 @media (max-width: 920px) {
   .topbar {
-    grid-template-columns: 1fr auto;
+    height: 48px;
+    grid-template-columns: minmax(88px, 1fr) auto minmax(70px, 1fr);
+    gap: 8px;
+    padding: 0 10px;
   }
 
-  .top-nav {
+  .brand-copy span {
     display: none;
+  }
+
+  .brand-copy strong {
+    font-size: 12px;
+  }
+
+  .nav-item {
+    min-width: 44px;
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+
+  .btn {
+    min-height: 29px;
+    padding: 0 8px;
+    font-size: 10px;
   }
 }
 </style>
