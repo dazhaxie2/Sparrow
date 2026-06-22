@@ -101,11 +101,15 @@ CREATE TABLE IF NOT EXISTS tech_node (
     -- 维基级扩容:领域轴(14 类之一)+ 重要度(LOD 取舍,既有 77 节点回填为 100)
     category   VARCHAR(32)  NULL,
     importance INT          NOT NULL DEFAULT 0,
+    -- 百万级改造:详情为空时跳转的外链(爬虫轻量抓取/合成节点用);现有节点保持 NULL
+    source_url VARCHAR(512) NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_code (code),
     KEY idx_era (era_rank),
     KEY idx_category (category),
-    KEY idx_importance (importance)
+    KEY idx_importance (importance),
+    -- 百万级瓦片采样排序:消除 subgraph 候选查询 filesort(Phase3 文档已标 TODO)
+    KEY idx_importance_id (importance DESC, id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 CREATE TABLE IF NOT EXISTS tech_edge (
@@ -114,7 +118,21 @@ CREATE TABLE IF NOT EXISTS tech_edge (
     to_id   BIGINT NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_edge (from_id, to_id),
-    KEY idx_to (to_id)
+    KEY idx_to (to_id),
+    -- 百万级:正向遍历(from_id 为起点)显式索引
+    KEY idx_from (from_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- 百万级 LOD 布局坐标:SFDP 离线预计算后按层级持久化。
+-- level 0 = 顶层簇代表点(远观), level 3 = 叶节点精确坐标(最深处)。
+CREATE TABLE IF NOT EXISTS node_layout (
+    node_id    BIGINT  NOT NULL,
+    cluster_id BIGINT  NOT NULL COMMENT '所属聚类簇(Louvain 离线算出)',
+    level      TINYINT NOT NULL COMMENT 'LOD 层级 0=顶层簇,1,2,3=叶节点',
+    x          DOUBLE  NOT NULL,
+    y          DOUBLE  NOT NULL,
+    PRIMARY KEY (node_id, level),
+    KEY idx_cluster_level (cluster_id, level)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 CREATE TABLE IF NOT EXISTS undo_log (

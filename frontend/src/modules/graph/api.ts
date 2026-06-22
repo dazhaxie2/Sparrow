@@ -1,6 +1,6 @@
 import { get } from '../../shared/api/request'
 import type {
-  Tree, NodeDetail, NodeBrief, KnowledgeStatus, Overview, Neighborhood, SubgraphFilters,
+  Tree, NodeDetail, NodeBrief, KnowledgeStatus, Overview, Neighborhood, SubgraphFilters, GraphTile,
 } from './types'
 
 export function fetchTree() {
@@ -21,6 +21,11 @@ export function fetchSubgraph(filters: SubgraphFilters = {}) {
   if (filters.minImportance != null) params.set('minImportance', String(filters.minImportance))
   params.set('limit', String(filters.limit ?? 400))
   return get<Tree>(`/api/graph/subgraph?${params.toString()}`)
+}
+
+/** 服务端预计算坐标的 LOD 瓦片：L0 为全景代表点，L1-L3 为指定簇。 */
+export function fetchTile(level: number, clusterId = 0) {
+  return get<GraphTile>(`/api/graph/tiles/${level}/${clusterId}`)
 }
 
 /** 节点邻域子图(展开式浏览)。 */

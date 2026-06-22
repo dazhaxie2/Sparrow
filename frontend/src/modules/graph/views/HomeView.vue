@@ -1,5 +1,7 @@
 <template>
   <AppHeader
+    :graph-mode="graphMode"
+    @show-graph="switchGraphMode('map')"
     @open-login="showLogin = true"
     @open-member="showMemberModal"
     @focus-ai="openAiGuide"
@@ -33,9 +35,7 @@
           :tree-loading="treeLoading"
           :graph-full-screen="graphFullScreen"
           :selected-status-text="selectedStatusText"
-          @switch-mode="switchGraphMode"
           @refresh="refreshGraph"
-          @reset="resetGraphView"
           @toggle-full-screen="toggleGraphFullScreen"
           @select="onSearchSelect"
         />
@@ -127,11 +127,11 @@ import CompareDock from '../components/CompareDock.vue'
 import GraphModals from '../components/GraphModals.vue'
 import LoginModal from '../../user/components/LoginModal.vue'
 import MemberModal from '../../trade/components/MemberModal.vue'
-import { fetchSubgraph, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites } from '../api'
-import type { Tree, NodeBrief, NodeDetail, Overview, EdgeBrief } from '../types'
+import { fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites } from '../api'
+import type { Tree, NodeBrief, NodeDetail, Overview, EdgeBrief, GraphTile } from '../types'
 import { useUserStore } from '../../user/store'
 import { colorForCategory, createCategoryLegend } from '../composables/graphOption'
-import { useGraphChart } from '../composables/useGraphChart'
+import { useSigmaGraph as useGraphChart } from '../composables/useSigmaGraph'
 import { useDialogMode } from '../composables/useDialogMode'
 import { useLearningProgress, type ProgressState } from '../composables/useLearningProgress'
 import { useCompare } from '../composables/useCompare'
@@ -170,6 +170,7 @@ const showLearning = ref(false)
 const showSettings = ref(false)
 
 let latestNodeRequest = 0
+const expandedTileClusters = new Set<number>()
 
 // ── 逻辑 composable ──
 const { progressMap, loadProgress, setProgress, removeProgress, clearAllProgress, progressCounts, learningGroups } = useLearningProgress()
@@ -252,7 +253,6 @@ const {
   fitView,
   centerNode,
   focusCategory,
-  resetGraphView,
 } = graphChart
 
 const dialog = useDialogMode({
@@ -297,6 +297,28 @@ function detailToBrief(detail: NodeDetail): NodeBrief {
     premium: detail.premium,
     category: detail.category,
     importance: detail.importance,
+  }
+}
+
+function tileToTree(tile: GraphTile): Tree {
+  return {
+    nodes: tile.nodes.map(node => ({
+      id: node.id,
+      code: `tile-${node.id}`,
+      name: node.name || `#${node.id}`,
+      era: '',
+      eraRank: 0,
+      yearLabel: '',
+      summary: '',
+      premium: false,
+      category: node.category,
+      importance: node.importance,
+      x: node.x,
+      y: node.y,
+      clusterId: node.clusterId,
+      lodLevel: tile.level,
+    })),
+    edges: tile.edges,
   }
 }
 
@@ -354,7 +376,10 @@ function switchGraphMode(mode: GraphMode) {
 /** 把邻域/详情里的节点与边并入当前显示子图(探索时图谱逐步生长,始终有界)。 */
 function mergeSubgraph(nodes: NodeBrief[], edges: EdgeBrief[]) {
   const map = new Map((treeData.value?.nodes ?? []).map(n => [n.id, n]))
-  for (const n of nodes) if (n && !map.has(n.id)) map.set(n.id, n)
+  for (const n of nodes) {
+    if (!n) continue
+    map.set(n.id, { ...map.get(n.id), ...n })
+  }
   const key = (e: EdgeBrief) => `${e.from}-${e.to}`
   const seen = new Set((treeData.value?.edges ?? []).map(key))
   const mergedEdges = [...(treeData.value?.edges ?? [])]
@@ -390,11 +415,17 @@ async function loadTree() {
   treeError.value = ''
   try {
     // 维基级:不再拉全树,只拉「过滤后按重要度取前 N + 其间的边」的有界子图
-    treeData.value = await fetchSubgraph({
-      category: activeCategory.value,
-      limit: graphLimit.value,
-    })
-    fitView()
+    if (activeCategory.value) {
+      treeData.value = await fetchSubgraph({
+        category: activeCategory.value,
+        limit: graphLimit.value,
+      })
+    } else {
+      treeData.value = tileToTree(await fetchTile(0, 0))
+    }
+    expandedTileClusters.clear()
+    renderTree()
+    requestAnimationFrame(() => fitView())
   } catch (error: any) {
     treeError.value = error.message || '无法连接图谱服务'
   } finally {
@@ -493,13 +524,25 @@ async function showNode(id: number, options: { focus?: boolean; fromLearning?: b
   }
 }
 
-function handleNodeClick(id: number) {
+async function handleNodeClick(id: number) {
   const currentId = selectedDetail.value?.id ?? selectedPreview.value?.id
   // 二次点击同一节点 -> 取消选中
   if (id === currentId) {
     clearSelection()
   } else {
-    void showNode(id, { focus: false })
+    const node = nodeById.value.get(id)
+    const clusterId = node?.clusterId
+    if (node?.lodLevel === 0 && clusterId != null && !expandedTileClusters.has(clusterId)) {
+      expandedTileClusters.add(clusterId)
+      try {
+        const cluster = tileToTree(await fetchTile(3, clusterId))
+        mergeSubgraph(cluster.nodes, cluster.edges)
+        renderTree()
+      } catch {
+        expandedTileClusters.delete(clusterId)
+      }
+    }
+    await showNode(id, { focus: false })
   }
 }
 

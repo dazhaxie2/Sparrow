@@ -85,6 +85,18 @@ public class GraphController {
         return streamJson(graphService.subgraphBytes(category, eraRank, q, minImportance, limit));
     }
 
+    /**
+     * 百万级 LOD 瓦片:按层级 + 簇返回节点坐标 + 簇内边(流式字节回写)。
+     * level 0 = 顶层簇全景(忽略 clusterId);level 1-3 = 指定簇内瓦片。
+     * 前端按视口 zoom 级别请求对应 level,实现"远看簇/放大展开"的无限缩放。
+     */
+    @GetMapping("/tiles/{level}/{clusterId}")
+    public ResponseEntity<StreamingResponseBody> tile(
+            @PathVariable int level,
+            @PathVariable long clusterId) {
+        return streamJson(graphService.tileBytes(level, clusterId));
+    }
+
     /** 节点邻域子图(展开式浏览)。 */
     @GetMapping("/node/{id}/neighborhood")
     public ApiResponse<Neighborhood> neighborhood(@PathVariable Long id) {

@@ -9,6 +9,12 @@ export interface NodeBrief {
   premium: boolean
   category?: string | null
   importance?: number | null
+  /** 服务端预计算布局坐标；普通详情/搜索响应可不提供。 */
+  x?: number
+  y?: number
+  /** LOD 瓦片元数据，用于从远景代表点下钻。 */
+  clusterId?: number
+  lodLevel?: number
 }
 
 export interface EdgeBrief {
@@ -19,6 +25,23 @@ export interface EdgeBrief {
 
 export interface Tree {
   nodes: NodeBrief[]
+  edges: EdgeBrief[]
+}
+
+export interface TileNode {
+  id: number
+  clusterId: number
+  x: number
+  y: number
+  name: string
+  category?: string | null
+  importance?: number | null
+}
+
+export interface GraphTile {
+  level: number
+  clusterId: number
+  nodes: TileNode[]
   edges: EdgeBrief[]
 }
 

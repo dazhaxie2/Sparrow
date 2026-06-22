@@ -13,6 +13,7 @@ import com.sparrow.graph.infrastructure.neo4j.NeoEdgeRecord;
 import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
 import com.sparrow.graph.infrastructure.persistence.KnowledgeMetaRepository;
 import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
+import com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeDetail;
@@ -53,6 +54,7 @@ class GraphServiceTest {
     private GraphEventPublisher eventPublisher;
     private Neo4jMigrator neo4jMigrator;
     private KnowledgeMetaRepository knowledgeMetaRepository;
+    private NodeLayoutMapper nodeLayoutMapper;
     private GraphService service;
 
     @BeforeEach
@@ -66,9 +68,10 @@ class GraphServiceTest {
         eventPublisher = mock(GraphEventPublisher.class);
         neo4jMigrator = mock(Neo4jMigrator.class);
         knowledgeMetaRepository = mock(KnowledgeMetaRepository.class);
+        nodeLayoutMapper = mock(NodeLayoutMapper.class);
         when(redis.opsForValue()).thenReturn(valueOps);
         service = new GraphService(neoRepo, mysqlReader, redis, new ObjectMapper(),
-                userClient, eventPublisher, neo4jMigrator, knowledgeMetaRepository);
+                userClient, eventPublisher, neo4jMigrator, knowledgeMetaRepository, nodeLayoutMapper);
     }
 
     @Test
@@ -167,6 +170,49 @@ class GraphServiceTest {
     }
 
     // ===== Neo4j 不可达降级到 MySQL =====
+
+    @Test
+    void topLevelTileKeepsClusterIdentityAndDisplayName() throws Exception {
+        when(nodeLayoutMapper.topLevelNodes()).thenReturn(List.of(Map.of(
+                "id", 41L,
+                "clusterId", 7L,
+                "x", 12.5,
+                "y", -3.25,
+                "name", "Steam engine",
+                "category", "Energy",
+                "importance", 96)));
+
+        byte[] body = service.tileBytes(0, 999L);
+        var json = new ObjectMapper().readTree(body);
+        var node = json.path("data").path("nodes").get(0);
+
+        assertEquals(0, json.path("data").path("level").asInt());
+        assertEquals(7L, node.path("clusterId").asLong());
+        assertEquals("Steam engine", node.path("name").asText());
+        verify(nodeLayoutMapper).topLevelNodes();
+    }
+
+    @Test
+    void clusterTileReturnsNodesAndInternalEdges() throws Exception {
+        when(nodeLayoutMapper.tileNodes(3, 7L)).thenReturn(List.of(Map.of(
+                "id", 41L,
+                "clusterId", 7L,
+                "x", 12.5,
+                "y", -3.25,
+                "name", "Steam engine",
+                "category", "Energy",
+                "importance", 96)));
+        when(nodeLayoutMapper.tileEdges(3, 7L)).thenReturn(List.of(Map.of(
+                "from", 40L,
+                "to", 41L)));
+
+        byte[] body = service.tileBytes(3, 7L);
+        var json = new ObjectMapper().readTree(body);
+
+        assertEquals(7L, json.path("data").path("clusterId").asLong());
+        assertEquals(1, json.path("data").path("nodes").size());
+        assertEquals(41L, json.path("data").path("edges").get(0).path("to").asLong());
+    }
 
     @Test
     void treeFallsBackToMysqlWhenNeo4jDown() {

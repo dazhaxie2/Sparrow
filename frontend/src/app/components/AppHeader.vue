@@ -8,9 +8,9 @@
     </button>
 
     <nav class="top-nav" aria-label="Primary">
-      <button class="nav-item active" type="button" @click="$router.push('/')">图谱</button>
-      <button class="nav-item" type="button" @click="$emit('focusAi')">对话</button>
-      <button class="nav-item" type="button" @click="$emit('openMember')">工作台</button>
+      <button class="nav-item" :class="{ active: graphMode === 'map' }" type="button" @click="$emit('showGraph')">图谱</button>
+      <button class="nav-item" :class="{ active: graphMode === 'dialog' }" type="button" @click="$emit('focusAi')">AI 向导</button>
+      <button class="nav-item" type="button" @click="$emit('openMember')">会员</button>
     </nav>
 
     <div class="actions">
@@ -42,7 +42,8 @@ import { ChevronDown, Crown, GraduationCap, LogOut, Settings } from '@lucide/vue
 import { useUserStore } from '../../modules/user/store'
 
 const user = useUserStore()
-const emit = defineEmits<{ openLogin: []; openMember: []; focusAi: []; openLearning: []; openSettings: [] }>()
+withDefaults(defineProps<{ graphMode?: 'map' | 'dialog' }>(), { graphMode: 'map' })
+const emit = defineEmits<{ showGraph: []; openLogin: []; openMember: []; focusAi: []; openLearning: []; openSettings: [] }>()
 const menuOpen = ref(false)
 
 function select(action: 'openLearning' | 'openMember' | 'openSettings') {

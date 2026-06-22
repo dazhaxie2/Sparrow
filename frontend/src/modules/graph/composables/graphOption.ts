@@ -191,7 +191,6 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
     const point = positions[node.id] ?? { x: 0, y: 0, degree: 0 }
     const inChain = Boolean(chain && (chain.has(node.id) || node.id === selected))
     const adjacent = adjacentIds.has(node.id)
-    const dim = Boolean((chain || selected != null) && !inChain && !adjacent)
     const isSelected = node.id === selected
     const inLearningPath = learningIds?.has(node.id) ?? false
     const isLearningCurrent = node.id === learningNodeId
@@ -219,7 +218,7 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
       draggable: true,
       itemStyle: {
         color,
-        opacity: dim ? 0.14 : 0.96,
+        opacity: 0.96,
         borderColor: isLearningCurrent || isSelected ? '#ff5722' : adjacent || inChain ? '#e21b5a' : '#ffffff',
         borderWidth: isLearningCurrent || isSelected ? 2.4 : adjacent || inChain ? 1.8 : nodes.length > 600 ? 0.7 : 1,
         shadowBlur: isLearningCurrent || isSelected ? 14 : adjacent || inChain || isDialogNode ? 8 : 0,
@@ -227,7 +226,7 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
       },
       label: {
         show: labelVisible,
-        color: dim ? 'rgba(75, 85, 99, 0.2)' : '#30343a',
+        color: '#30343a',
         fontSize: labelAlways ? 10 : nodes.length > 420 ? 7 : 8,
         fontWeight: isLearningCurrent || isSelected ? 800 : 600,
         formatter: `${node.premium ? 'PRO · ' : ''}${shortName}`,
@@ -258,7 +257,6 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
     const chainActive = Boolean(chain && (chain.has(edge.from) || edge.from === selected) && (chain.has(edge.to) || edge.to === selected))
     const learningActiveEdge = Boolean(learningIds?.has(edge.from) && learningIds?.has(edge.to))
     const active = sourceActive || chainActive || learningActiveEdge
-    const dim = Boolean((chain || selected != null) && !active)
     const edgeLabel = edge.label?.trim() || DEFAULT_EDGE_LABEL
     const sourceName = ctx.nodeById.get(edge.from)?.name ?? String(edge.from)
     const targetName = ctx.nodeById.get(edge.to)?.name ?? String(edge.to)
@@ -286,7 +284,7 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
       lineStyle: {
         color: active ? '#ff5722' : ctx.dialogActive ? '#9ca8b4' : '#b5bdc6',
         width: active ? 1.8 : ctx.dialogActive ? 0.8 : 0.65,
-        opacity: dim ? 0.035 : active ? 0.96 : ctx.dialogActive ? 0.44 : 0.38,
+        opacity: active ? 0.96 : ctx.dialogActive ? 0.44 : 0.38,
         curveness,
       },
     }
@@ -332,8 +330,7 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
       animationDurationUpdate: nodes.length > 220 ? 0 : 220,
       animationEasingUpdate: 'cubicOut',
       emphasis: {
-        focus: 'adjacency',
-        blurScope: 'coordinateSystem',
+        focus: 'none',
         label: { show: true, backgroundColor: 'rgba(255,255,255,0.96)' },
         itemStyle: { shadowBlur: 20, shadowColor: 'rgba(255,87,34,0.35)' },
         lineStyle: { width: 2.2, opacity: 0.95 },

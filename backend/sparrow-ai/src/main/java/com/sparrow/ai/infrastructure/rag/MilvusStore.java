@@ -28,6 +28,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /**
  * Milvus Standalone 的薄封装。连接失败不影响应用启动,
@@ -74,6 +75,45 @@ public class MilvusStore {
         }
     }
 
+    /**
+     * 丢弃当前连接,下次 connect() 重建并重新解析服务名。
+     * 用于 milvus 容器重建后 IP 变化:单例 gRPC channel 仍钉在旧 IP,
+     * 必须丢弃重连才能跟随 Docker DNS 解析到新 IP。
+     */
+    private synchronized void reset() {
+        if (client != null) {
+            try {
+                client.close();
+            } catch (Exception ignore) {
+                // 仅为丢弃坏连接,关闭异常无需处理
+            }
+            client = null;
+        }
+        ready.set(false);
+        chunkReady.set(false);
+    }
+
+    /** 执行有返回值的 Milvus 操作:失败则丢弃旧连接、重连一次再试(第二次失败抛给调用方)。 */
+    private <T> T withReconnect(String op, Supplier<T> action) {
+        connect();
+        try {
+            return action.get();
+        } catch (Exception first) {
+            log.warn("Milvus {} 失败,丢弃旧连接并重连重试: {}", op, first.getMessage());
+            reset();
+            connect();
+            return action.get();
+        }
+    }
+
+    /** 执行无返回值的 Milvus 操作(同上重连语义)。 */
+    private void runWithReconnect(String op, Runnable action) {
+        withReconnect(op, () -> {
+            action.run();
+            return null;
+        });
+    }
+
     public boolean tryLoadExisting(int expectedNodes, int expectedChunks) {
         try {
             connect();
@@ -96,8 +136,7 @@ public class MilvusStore {
             return true;
         } catch (Exception e) {
             log.warn("复用已有 Milvus 集合失败,将重新构建: {}", e.getMessage());
-            ready.set(false);
-            chunkReady.set(false);
+            reset();
             return false;
         }
     }
@@ -115,7 +154,14 @@ public class MilvusStore {
     }
 
     public void rebuild(List<Long> nodeIds, List<float[]> vectors) {
-        connect();
+        boolean chunksWereReady = chunkReady.get();
+        runWithReconnect("重建节点向量集合", () -> doRebuild(nodeIds, vectors));
+        if (chunksWereReady) {
+            chunkReady.set(true);
+        }
+    }
+
+    private void doRebuild(List<Long> nodeIds, List<float[]> vectors) {
         String name = props.collection();
         int dim = vectors.get(0).length;
 
@@ -164,7 +210,16 @@ public class MilvusStore {
 
     public void rebuildChunks(List<String> chunkIds, List<String> codes, List<String> urls,
                               List<String> texts, List<float[]> vectors) {
-        connect();
+        boolean nodesWereReady = ready.get();
+        runWithReconnect("重建语料块向量集合",
+                () -> doRebuildChunks(chunkIds, codes, urls, texts, vectors));
+        if (nodesWereReady) {
+            ready.set(true);
+        }
+    }
+
+    private void doRebuildChunks(List<String> chunkIds, List<String> codes, List<String> urls,
+                                 List<String> texts, List<float[]> vectors) {
         String name = chunkCollection();
 
         R<Boolean> has = client.hasCollection(HasCollectionParam.newBuilder()
@@ -227,6 +282,22 @@ public class MilvusStore {
         if (!chunkReady.get()) {
             return List.of();
         }
+        boolean nodesWereReady = ready.get();
+        try {
+            List<ChunkHit> hits = withReconnect("语料块向量搜索", () -> doSearchChunks(queryVector, topK));
+            chunkReady.set(true);
+            if (nodesWereReady) {
+                ready.set(true);
+            }
+            return hits;
+        } catch (Exception e) {
+            log.warn("Milvus 语料块向量搜索不可用,降级为空结果: {}", e.getMessage());
+            reset();
+            return List.of();
+        }
+    }
+
+    private List<ChunkHit> doSearchChunks(float[] queryVector, int topK) {
         List<Float> vec = new ArrayList<>(queryVector.length);
         for (float f : queryVector) {
             vec.add(f);
@@ -251,6 +322,25 @@ public class MilvusStore {
     }
 
     public List<Long> search(float[] queryVector, int topK) {
+        if (!ready.get()) {
+            return List.of();
+        }
+        boolean chunksWereReady = chunkReady.get();
+        try {
+            List<Long> hits = withReconnect("节点向量搜索", () -> doSearch(queryVector, topK));
+            ready.set(true);
+            if (chunksWereReady) {
+                chunkReady.set(true);
+            }
+            return hits;
+        } catch (Exception e) {
+            log.warn("Milvus 节点向量搜索不可用,降级为空结果: {}", e.getMessage());
+            reset();
+            return List.of();
+        }
+    }
+
+    private List<Long> doSearch(float[] queryVector, int topK) {
         List<Float> vec = new ArrayList<>(queryVector.length);
         for (float f : queryVector) {
             vec.add(f);

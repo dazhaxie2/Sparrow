@@ -50,3 +50,5 @@ backend/tokens.json
 tools/sparrow-spider/out/
 tools/sparrow-spider/**/__pycache__/
 tools/sparrow-spider/**/*.pyc
+backups/
+*.pyc

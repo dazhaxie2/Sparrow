@@ -18,7 +18,10 @@
     "@lucide/vue": "^1.18.0",
     "d3-force": "^3.0.0",
     "echarts": "^6.1.0",
+    "graphology": "^0.25.4",
+    "graphology-layout-forceatlas2": "^0.10.1",
     "pinia": "^3.0.4",
+    "sigma": "^3.0.3",
     "vue": "^3.5.38",
     "vue-router": "^4.6.4"
   }

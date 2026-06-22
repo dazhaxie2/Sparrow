@@ -24,6 +24,8 @@ import com.sparrow.graph.interfaces.dto.GraphDtos.NodePage;
 import com.sparrow.graph.interfaces.dto.GraphDtos.Overview;
 import com.sparrow.graph.interfaces.dto.GraphDtos.OverviewCell;
 import com.sparrow.graph.interfaces.dto.GraphDtos.SourceBrief;
+import com.sparrow.graph.interfaces.dto.GraphDtos.Tile;
+import com.sparrow.graph.interfaces.dto.GraphDtos.TileNode;
 import com.sparrow.graph.interfaces.dto.GraphDtos.Tree;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +52,7 @@ public class GraphService {
     private static final String TREE_CACHE_KEY = "sparrow:graph:tree";
     private static final String OVERVIEW_CACHE_KEY = "sparrow:graph:overview";
     private static final String SUBGRAPH_CACHE_PREFIX = "sparrow:graph:subgraph:";
+    private static final String TILE_CACHE_PREFIX = "sparrow:graph:tile:";
     private static final Duration TREE_CACHE_TTL = Duration.ofHours(1);
 
     /** 领域轴的稳定列顺序(与种子回填、前端筛选一致);数据中出现的其它领域追加在后。 */
@@ -66,12 +69,14 @@ public class GraphService {
     private final GraphEventPublisher eventPublisher;
     private final Neo4jMigrator neo4jMigrator;
     private final KnowledgeMetaRepository knowledgeMetaRepository;
+    private final com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper layoutMapper;
 
     public GraphService(NeoTechNodeRepository neoRepo, MysqlGraphReader mysqlReader,
                         StringRedisTemplate redis, ObjectMapper objectMapper,
                         UserClient userClient, GraphEventPublisher eventPublisher,
                         Neo4jMigrator neo4jMigrator,
-                        KnowledgeMetaRepository knowledgeMetaRepository) {
+                        KnowledgeMetaRepository knowledgeMetaRepository,
+                        com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper layoutMapper) {
         this.neoRepo = neoRepo;
         this.mysqlReader = mysqlReader;
         this.redis = redis;
@@ -80,6 +85,7 @@ public class GraphService {
         this.eventPublisher = eventPublisher;
         this.neo4jMigrator = neo4jMigrator;
         this.knowledgeMetaRepository = knowledgeMetaRepository;
+        this.layoutMapper = layoutMapper;
     }
 
     public Tree tree() {
@@ -205,6 +211,60 @@ public class GraphService {
             redis.opsForValue().set(cacheKey, body, TREE_CACHE_TTL);
         }
         return body.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * LOD 瓦片:返回 byte[](流式字节回写)。
+     * level 0 = 顶层簇全景(忽略 clusterId,返回所有簇心点,无边);
+     * level ≥ 1 = 指定簇内节点坐标 + 簇内边。
+     * 组合有限,Redis 缓存命中绕开数据库。
+     */
+    public byte[] tileBytes(int level, long clusterId) {
+        int lvl = Math.max(0, Math.min(level, 3));
+        String cacheKey = TILE_CACHE_PREFIX + lvl + ":" + clusterId;
+        String cached = redis.opsForValue().get(cacheKey);
+        if (cached != null) {
+            return cached.getBytes(StandardCharsets.UTF_8);
+        }
+        Tile tile = (lvl == 0) ? buildTopLevelTile() : buildClusterTile(lvl, clusterId);
+        String body = toBodyJson(ApiResponse.ok(tile));
+        redis.opsForValue().set(cacheKey, body, TREE_CACHE_TTL);
+        return body.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** 顶层全景:所有簇代表点(level 0),远观视图 —— 几十个簇心点,无边。 */
+    private Tile buildTopLevelTile() {
+        List<TileNode> nodes = layoutMapper.topLevelNodes().stream()
+                .map(row -> new TileNode(
+                        ((Number) row.get("id")).longValue(),
+                        ((Number) row.get("clusterId")).longValue(),
+                        ((Number) row.get("x")).doubleValue(),
+                        ((Number) row.get("y")).doubleValue(),
+                        (String) row.get("name"),
+                        (String) row.get("category"),
+                        row.get("importance") == null ? null : ((Number) row.get("importance")).intValue()))
+                .toList();
+        return new Tile(0, 0L, nodes, List.of());
+    }
+
+    /** 簇内瓦片:指定 level + clusterId 的节点坐标 + 簇内边。 */
+    private Tile buildClusterTile(int level, long clusterId) {
+        List<TileNode> nodes = layoutMapper.tileNodes(level, clusterId).stream()
+                .map(row -> new TileNode(
+                        ((Number) row.get("id")).longValue(),
+                        ((Number) row.get("clusterId")).longValue(),
+                        ((Number) row.get("x")).doubleValue(),
+                        ((Number) row.get("y")).doubleValue(),
+                        (String) row.get("name"),
+                        (String) row.get("category"),
+                        row.get("importance") == null ? null : ((Number) row.get("importance")).intValue()))
+                .toList();
+        List<EdgeBrief> edges = layoutMapper.tileEdges(level, clusterId).stream()
+                .map(row -> new EdgeBrief(
+                        ((Number) row.get("from")).longValue(),
+                        ((Number) row.get("to")).longValue()))
+                .toList();
+        return new Tile(level, clusterId, nodes, edges);
     }
 
     private String subgraphCacheKey(String category, Integer eraRank, Integer minImportance, int limit) {

@@ -5,11 +5,6 @@
       <span>{{ dialogActive ? `提取 ${nodeCount} 个相关节点` : `${nodeCount} nodes · ${totalNodes} total` }}</span>
     </div>
 
-    <div class="mode-switch" aria-label="图谱模式">
-      <button type="button" :class="{ active: graphMode === 'map' }" @click="$emit('switchMode', 'map')">图谱</button>
-      <button type="button" :class="{ active: graphMode === 'dialog' }" @click="$emit('switchMode', 'dialog')">对话</button>
-    </div>
-
     <div
       v-if="graphMode === 'map'"
       class="search-box"
@@ -55,9 +50,6 @@
         <RefreshCcw :size="14" />
         <span>Refresh</span>
       </button>
-      <button class="tool-btn" type="button" title="重置视图" @click="$emit('reset')">
-        <RotateCcw :size="14" />
-      </button>
       <button
         class="tool-btn"
         type="button"
@@ -73,7 +65,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { BrainCircuit, Maximize2, Minimize2, RefreshCcw, RotateCcw, Search, X } from '@lucide/vue'
+import { BrainCircuit, Maximize2, Minimize2, RefreshCcw, Search, X } from '@lucide/vue'
 import { searchNodes } from '../api'
 import type { NodeBrief } from '../types'
 
@@ -89,9 +81,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  switchMode: [mode: 'map' | 'dialog']
   refresh: []
-  reset: []
   toggleFullScreen: []
   select: [node: NodeBrief]
 }>()
@@ -176,15 +166,10 @@ function clearSearch() {
   letter-spacing: 0.04em;
 }
 
-.mode-switch,
 .search-box,
 .dialog-mode-status,
 .toolbar-actions {
   pointer-events: auto;
-}
-
-.mode-switch {
-  display: none;
 }
 
 .search-box,

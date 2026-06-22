@@ -73,4 +73,15 @@ public final class GraphDtos {
                                   boolean ragIndexed, Integer ragNodeCount,
                                   Integer ragChunkCount, String ragIndexUpdatedAt) {
     }
+
+    // ── 百万级 LOD 瓦片 DTO(M2) ──
+
+    /** 瓦片内的可渲染节点:只携带渲染必需字段(id/坐标/领域/重要度),响应体尽量小。 */
+    public record TileNode(Long id, Long clusterId, double x, double y, String name,
+                           String category, Integer importance) {
+    }
+
+    /** 单个 LOD 瓦片:某层级某簇下的节点坐标 + 簇内边。 */
+    public record Tile(int level, Long clusterId, List<TileNode> nodes, List<EdgeBrief> edges) {
+    }
 }
