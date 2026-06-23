@@ -8,8 +8,9 @@
     </button>
 
     <nav class="top-nav" aria-label="Primary">
-      <button class="nav-item" :class="{ active: graphMode === 'map' }" type="button" @click="$emit('showGraph')">图谱</button>
-      <button class="nav-item" :class="{ active: graphMode === 'dialog' }" type="button" @click="$emit('focusAi')">AI 向导</button>
+      <button class="nav-item" :class="{ active: $route.path === '/' && graphMode === 'map' }" type="button" @click="$emit('showGraph')">图谱</button>
+      <router-link class="nav-item" :class="{ active: $route.path.startsWith('/chains') }" to="/chains">产业链</router-link>
+      <button class="nav-item" :class="{ active: $route.path === '/' && graphMode === 'dialog' }" type="button" @click="$emit('focusAi')">AI 向导</button>
       <button class="nav-item" type="button" @click="$emit('openMember')">会员</button>
     </nav>
 
@@ -133,6 +134,13 @@ onUnmounted(() => document.removeEventListener('click', closeMenu))
   text-transform: uppercase;
   cursor: pointer;
   transition: color 0.16s ease, background 0.16s ease;
+}
+
+/* router-link 渲染为 a 标签,补齐链接默认样式重置。 */
+a.nav-item {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
 }
 
 .nav-item:hover {

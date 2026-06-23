@@ -8,6 +8,7 @@
   python main.py --extract             # LLM/规则 抽取知识与依赖边
   python main.py --expand              # 用已爬词条的内链扩展候选(需 AI_API_KEY)
   python main.py --export              # 导出 Sparrow seed SQL + RAG 语料
+  python main.py --chains              # 抓取四条产业链并同步到 sparrow_chain
   python main.py --all --limit 20      # 串行执行完整流水线
   python main.py --status              # 查看各阶段进度
 """
@@ -48,6 +49,10 @@ def main():
     parser.add_argument("--export", action="store_true", help="导出 Sparrow 产物文件")
     parser.add_argument("--sync-sparrow", action="store_true",
                         help="直连同步进 Sparrow 业务库(节点/边/增补/RAG 语料 + 缓存失效)")
+    parser.add_argument("--chains", action="store_true",
+                        help="抓取四条产业链并同步到独立 sparrow_chain 业务库")
+    parser.add_argument("--chain-companies", default="",
+                        help="仅重跑指定种子公司，逗号分隔（需与 --chains 同用）")
     parser.add_argument("--all", action="store_true",
                         help="完整流水线: 种子+分类发现→爬取→排序→抽取→建边→同步")
     parser.add_argument("--status", action="store_true", help="查看进度")
@@ -56,7 +61,7 @@ def main():
 
     if not any([args.init_seeds, args.discover_categories, args.crawl, args.rank, args.extract,
                 args.build_edges, args.expand, args.expand_links, args.export, args.sync_sparrow,
-                args.all, args.status]):
+                args.chains, args.all, args.status]):
         parser.print_help()
         return
 
@@ -112,6 +117,12 @@ def main():
     if args.sync_sparrow or args.all:
         from export import sparrow_sync
         sparrow_sync.run()
+    if args.chains:
+        import chain_pipeline
+        from export import chain_sync
+        selected = [name.strip() for name in args.chain_companies.split(",") if name.strip()]
+        chain_pipeline.run(selected)
+        chain_sync.run()
 
 
 if __name__ == "__main__":

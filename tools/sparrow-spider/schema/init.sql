@@ -52,3 +52,30 @@ CREATE TABLE IF NOT EXISTS tech_relation (
     PRIMARY KEY (id),
     UNIQUE KEY uk_rel (from_name, to_name)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- 产业链专题抓取结果：与科技树候选/关系表完全隔离。
+CREATE TABLE IF NOT EXISTS supply_chain_company (
+    id         BIGINT       NOT NULL AUTO_INCREMENT,
+    chain_slug VARCHAR(64)  NOT NULL,
+    name       VARCHAR(160) NOT NULL,
+    wiki_title VARCHAR(200) NULL,
+    page_id    BIGINT       NULL,
+    summary    TEXT         NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_chain_name (chain_slug, name),
+    KEY idx_chain_slug (chain_slug)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+CREATE TABLE IF NOT EXISTS supply_chain_relation (
+    id                BIGINT       NOT NULL AUTO_INCREMENT,
+    chain_slug        VARCHAR(64)  NOT NULL,
+    company_name      VARCHAR(160) NOT NULL COMMENT '被供应方',
+    counterparty_name VARCHAR(160) NOT NULL COMMENT '上游提供方',
+    counterparty_type VARCHAR(32)  NULL COMMENT '供应商/代工厂/材料商',
+    edge_type         VARCHAR(32)  NULL COMMENT '供货/代工/材料供应/授权',
+    product           VARCHAR(200) NULL,
+    confidence        VARCHAR(16)  NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_rel (chain_slug, company_name, counterparty_name),
+    KEY idx_chain_slug (chain_slug)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;

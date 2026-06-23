@@ -1,0 +1,29 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: sparrow-chain
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:localhost:8848}
+      config:
+        file-extension: yaml
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+  config:
+    import:
+      - optional:nacos:sparrow-common.yaml
+      - optional:nacos:sparrow-chain.yaml
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:sparrow_chain}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${MYSQL_USER:sparrow}
+    password: ${MYSQL_PASSWORD:sparrow123}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com.sparrow: info

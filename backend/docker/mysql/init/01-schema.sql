@@ -11,12 +11,15 @@ CREATE DATABASE IF NOT EXISTS sparrow_graph
     DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS sparrow_ai
     DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS sparrow_chain
+    DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 GRANT ALL PRIVILEGES ON sparrow.* TO 'sparrow'@'%';
 GRANT ALL PRIVILEGES ON sparrow_user.* TO 'sparrow'@'%';
 GRANT ALL PRIVILEGES ON sparrow_trade.* TO 'sparrow'@'%';
 GRANT ALL PRIVILEGES ON sparrow_graph.* TO 'sparrow'@'%';
 GRANT ALL PRIVILEGES ON sparrow_ai.* TO 'sparrow'@'%';
+GRANT ALL PRIVILEGES ON sparrow_chain.* TO 'sparrow'@'%';
 FLUSH PRIVILEGES;
 
 USE sparrow_user;
@@ -176,4 +179,44 @@ CREATE TABLE IF NOT EXISTS kafka_consumed_event (
     consumed_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (consumer, event_id),
     KEY idx_topic_consumed_at (topic, consumed_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- ── 产业链专题(sparrow_chain 库,与科技树图谱语义隔离) ──
+USE sparrow_chain;
+
+-- 产业链主表:每条对应一条独立供应链(英伟达链/苹果链/特斯拉链/SpaceX链)。
+CREATE TABLE IF NOT EXISTS chain (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    slug        VARCHAR(64)  NOT NULL COMMENT 'URL 友好标识(nvidia-ai 等)',
+    name        VARCHAR(120) NOT NULL,
+    description TEXT,
+    cover_color VARCHAR(16)  NULL COMMENT '列表卡片主题色',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_slug (slug)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- 供应链节点:核心公司 / 供应商 / 代工厂 / 材料商。
+CREATE TABLE IF NOT EXISTS chain_node (
+    id         BIGINT      NOT NULL AUTO_INCREMENT,
+    chain_id   BIGINT      NOT NULL,
+    name       VARCHAR(160) NOT NULL,
+    node_type  VARCHAR(32) NULL COMMENT '核心公司/供应商/代工厂/材料商',
+    summary    TEXT,
+    importance INT         NOT NULL DEFAULT 0 COMMENT '度中心度,决定节点大小',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_chain_name (chain_id, name),
+    KEY idx_chain (chain_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- 供应链边:from 供货给 to(有向)。edge_type 区分供货/代工/材料供应/授权。
+CREATE TABLE IF NOT EXISTS chain_edge (
+    id        BIGINT      NOT NULL AUTO_INCREMENT,
+    chain_id  BIGINT      NOT NULL,
+    from_id   BIGINT      NOT NULL COMMENT '供应方节点 id',
+    to_id     BIGINT      NOT NULL COMMENT '被供应方节点 id',
+    edge_type VARCHAR(32) NULL COMMENT '供货/代工/材料供应/授权',
+    product   VARCHAR(200) NULL COMMENT '具体供应的产品或环节',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_edge (from_id, to_id, edge_type),
+    KEY idx_chain (chain_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;

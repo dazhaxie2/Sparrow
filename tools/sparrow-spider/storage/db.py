@@ -184,3 +184,64 @@ def all_relations(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM tech_relation ORDER BY id")
         return cur.fetchall()
+
+
+# ───────────────────── 产业链专题（与科技树表隔离） ─────────────────────
+
+def upsert_supply_chain_company(conn, chain_slug, name, wiki_title, page_id, summary):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO supply_chain_company "
+            "(chain_slug, name, wiki_title, page_id, summary) VALUES (%s, %s, %s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE wiki_title=VALUES(wiki_title), page_id=VALUES(page_id), "
+            "summary=VALUES(summary)",
+            (chain_slug[:64], name[:160], (wiki_title or "")[:200] or None, page_id, summary),
+        )
+
+
+def replace_supply_chain_relations(conn, chain_slug, company_name, relations):
+    """以一次成功抽取的完整结果替换该公司旧关系；解析失败时调用方不会触发本函数。"""
+    conn.begin()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM supply_chain_relation WHERE chain_slug=%s AND company_name=%s",
+                (chain_slug, company_name),
+            )
+            rows = [(
+                chain_slug[:64], company_name[:160], r["counterparty"][:160],
+                r["node_type"][:32], r["edge_type"][:32], r.get("product"),
+                r.get("confidence", "low")[:16],
+            ) for r in relations]
+            if rows:
+                cur.executemany(
+                    "INSERT INTO supply_chain_relation "
+                    "(chain_slug, company_name, counterparty_name, counterparty_type, edge_type, product, confidence) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                    "ON DUPLICATE KEY UPDATE counterparty_type=VALUES(counterparty_type), "
+                    "edge_type=VALUES(edge_type), product=VALUES(product), confidence=VALUES(confidence)",
+                    rows,
+                )
+        conn.commit()
+        return len(rows)
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def supply_chain_companies(conn, chain_slug=None):
+    with conn.cursor() as cur:
+        if chain_slug:
+            cur.execute("SELECT * FROM supply_chain_company WHERE chain_slug=%s ORDER BY id", (chain_slug,))
+        else:
+            cur.execute("SELECT * FROM supply_chain_company ORDER BY chain_slug, id")
+        return cur.fetchall()
+
+
+def supply_chain_relations(conn, chain_slug=None):
+    with conn.cursor() as cur:
+        if chain_slug:
+            cur.execute("SELECT * FROM supply_chain_relation WHERE chain_slug=%s ORDER BY id", (chain_slug,))
+        else:
+            cur.execute("SELECT * FROM supply_chain_relation ORDER BY chain_slug, id")
+        return cur.fetchall()

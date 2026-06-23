@@ -18,6 +18,7 @@ docker compose up -d --build
 | 功能 | 入口 | 说明 |
 |---|---|---|
 | 科技树图谱 | 首页 | 按时代分层布局,点击节点看详情,自动高亮完整前置技术链 |
+| 产业链专题 | `/chains` | 英伟达、苹果、特斯拉、SpaceX 四条独立供应链网络图 |
 | AI 向导 | 右下角 | 默认随 Compose 启动;登录后提问,免费用户每日 3 次 |
 | 会员支付 | 右上角 | 下单 -> 沙箱收银台 -> 模拟支付回调 -> 会员开通(幂等) |
 
@@ -29,17 +30,18 @@ backend
 ├── sparrow-gateway  # 唯一入口:静态前端、路由、Redis token 鉴权、X-User-Id 注入
 ├── sparrow-user     # 用户、登录、会员状态
 ├── sparrow-graph    # 科技树节点、依赖关系、会员内容解锁
+├── sparrow-chain    # 产业链专题节点与供应关系（独立 sparrow_chain 库）
 ├── sparrow-ai       # AI 问答、RAG、向量索引;默认随 Compose 启动
 └── sparrow-trade    # 商品、订单、支付、支付回调
 ```
 
 服务化边界纪律:
 
-- 运行时只保留 5 个服务,不新增 `notify` 等第 6 个服务。
+- 运行时包含 6 个业务服务；产业链因数据语义和采集链路独立而单列 `sparrow-chain`。
 - `gateway` 负责剥离外部伪造的 `X-User-Id`,根据 Redis token 重新注入身份。
 - 下游 MVC 服务只读取 `X-User-Id`,不再各自查 Redis token。
 - 服务间调用使用 OpenFeign,例如 `trade -> user` 开通会员、`ai -> graph/user` 查询上下文。
-- 数据默认拆为 `sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai` 四个业务库。
+- 数据默认拆为 `sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai / sparrow_chain` 五个业务库。
 - 支付回调的 `trade` 标记支付 + `user` 开通会员使用 Seata AT 全局事务配置。
 - `trade` 在事务提交后发布 `OrderPaidEvent`;`graph` 可通过内部 `/internal/graph/reindex` 发布 `GraphChangedEvent`;`ai` 监听图谱变更后登记 `kafka_consumed_event` 幂等记录并异步触发 RAG 索引同步。
 - `user` 消费 `OrderPaidEvent` 写 `member_grant_log` 会员开通流水(审计/对账),`order_no` 唯一键天然幂等;会员开通本身仍由 trade 全局事务完成,事件消费不重复开通。
@@ -57,6 +59,9 @@ GET  /api/user/me              当前用户(需 Bearer token)
 GET  /api/graph/tree           全树(Redis 缓存)
 GET  /api/graph/node/{id}      节点详情(含前置/解锁;会员内容鉴权)
 GET  /api/graph/node/{id}/prerequisites  完整前置链(反向 BFS)
+GET  /api/chains               四条产业链概览
+GET  /api/chains/{slug}        单条产业链元数据
+GET  /api/chains/{slug}/graph  供应链节点与有向边
 GET  /api/trade/products       商品目录
 POST /api/trade/order          下单 {productCode} -> {orderNo,payUrl}
 POST /api/pay/mock/notify      模拟支付回调 {orderNo,payToken}(HMAC 校验 + 幂等)

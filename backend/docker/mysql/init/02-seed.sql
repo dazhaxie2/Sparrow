@@ -140,3 +140,19 @@ UPDATE tech_node SET category = '医学生物'   WHERE code IN ('anatomy','vacci
 UPDATE tech_node SET category = '电气电子'   WHERE code IN ('electromagnetism','generator','electric_light','transistor','ic');
 UPDATE tech_node SET category = '航天航空'   WHERE code IN ('airplane','spaceflight');
 UPDATE tech_node SET importance = 100 WHERE id BETWEEN 1 AND 77;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 产业链专题元数据。节点和边由 sparrow-spider --chains 后续幂等回填；先写入
+-- 四条主记录，保证尚未采集时列表页仍可展示「数据采集中」状态。
+-- ─────────────────────────────────────────────────────────────────────────────
+USE sparrow_chain;
+
+INSERT INTO chain (slug, name, description, cover_color) VALUES
+('nvidia-ai', '英伟达 / AI 芯片链', '以英伟达 GPU 为核心的 AI 算力供应链：代工、HBM 内存、光刻、设计授权等。', '#76b900'),
+('apple-consumer', '苹果消费电子链', '以 iPhone/Mac 为核心的消费电子供应链：代工组装、显示、声学、玻璃、芯片。', '#555555'),
+('tesla-ev', '特斯拉电动车链', '以特斯拉为核心的电动车供应链：动力电池、电机、自动驾驶芯片、热管理等。', '#cc0000'),
+('spacex-aerospace', 'SpaceX 航天链', '以 SpaceX 为核心的航天供应链：火箭发动机、卫星、发射服务、结构件等。', '#0066cc')
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    description = VALUES(description),
+    cover_color = VALUES(cover_color);

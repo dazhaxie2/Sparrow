@@ -12,6 +12,7 @@ COPY backend/sparrow-user/pom.xml sparrow-user/pom.xml
 COPY backend/sparrow-graph/pom.xml sparrow-graph/pom.xml
 COPY backend/sparrow-trade/pom.xml sparrow-trade/pom.xml
 COPY backend/sparrow-ai/pom.xml sparrow-ai/pom.xml
+COPY backend/sparrow-chain/pom.xml sparrow-chain/pom.xml
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -e -ntp \
     -Daether.connector.basic.threads=1 \
@@ -26,6 +27,7 @@ COPY backend/sparrow-user/src sparrow-user/src
 COPY backend/sparrow-graph/src sparrow-graph/src
 COPY backend/sparrow-trade/src sparrow-trade/src
 COPY backend/sparrow-ai/src sparrow-ai/src
+COPY backend/sparrow-chain/src sparrow-chain/src
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -ntp \
     -Daether.connector.basic.threads=1 \
@@ -39,7 +41,7 @@ WORKDIR /build
 COPY frontend/ ./
 RUN npm ci && npm run build
 
-# ===== 5 个运行 stage =====
+# ===== 6 个运行 stage =====
 FROM eclipse-temurin:17-jre AS gateway-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-gateway/target/sparrow-gateway.jar app.jar
@@ -72,3 +74,9 @@ WORKDIR /app
 COPY --from=build /build/sparrow-trade/target/sparrow-trade.jar app.jar
 EXPOSE 8084
 ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
+
+FROM eclipse-temurin:17-jre AS chain-runtime
+WORKDIR /app
+COPY --from=build /build/sparrow-chain/target/sparrow-chain.jar app.jar
+EXPOSE 8085
+ENTRYPOINT ["java","-Xms256m","-Xmx512m","-jar","app.jar"]

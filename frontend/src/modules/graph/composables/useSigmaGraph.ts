@@ -26,6 +26,8 @@ export function useSigmaGraph(opts: {
   getTree: () => Tree | null
   getRenderState: () => RenderState
   onNodeClick: (id: number) => void
+  /** 可选的模块级节点配色；未提供时沿用科技图谱的类别色板。 */
+  getNodeColor?: (node: NodeBrief) => string | null | undefined
   onViewChange?: (view: { zoom: number; centerClusterId: number | null }) => void
   isBusy: () => boolean
 }) {
@@ -98,7 +100,7 @@ export function useSigmaGraph(opts: {
     const next = new Graph({ multi: false, type: 'undirected' })
     for (const node of tree.nodes) {
       const point = positions[node.id] ?? { x: 0, y: 0, degree: 0 }
-      const color = colorForCategory(node.category, legend)
+      const color = opts.getNodeColor?.(node) || colorForCategory(node.category, legend)
       const fullLabel = (node.clusterSize ?? 0) > 1
         ? `${node.name} · ${node.clusterSize} 节点`
         : node.name

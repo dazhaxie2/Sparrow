@@ -1,8 +1,8 @@
 ﻿name: sparrow
 
 # Phase 2 docker-compose:
-# - M2 默认拆四个业务库:sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai
-# - 8081-8084 不 publish,只在 sparrow_net 内互访;唯一入口 = gateway:8080
+# - 业务数据拆为 sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai / sparrow_chain
+# - 8081-8085 不 publish,只在 sparrow_net 内互访;唯一入口 = gateway:8080
 # - Nacos 2.x gRPC 走 9848(8848+1000),宿主机访问 dashboard 需同时映射
 
 services:
@@ -212,7 +212,7 @@ services:
       minio: { condition: service_healthy }
     networks: [sparrow_net]
 
-  # ===== 5 个业务服务 =====
+  # ===== 6 个业务服务 =====
   sparrow-gateway:
     build:
       context: .
@@ -322,6 +322,26 @@ services:
       kafka: { condition: service_healthy }
     networks: [sparrow_net]
 
+  sparrow-chain:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: chain-runtime
+    environment:
+      NACOS_ADDR: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_DB: sparrow_chain
+    expose: ["8085"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 768M
+    depends_on:
+      mysql: { condition: service_healthy }
+      nacos: { condition: service_healthy }
+    networks: [sparrow_net]
+
   sparrow-ai:
     profiles: ["ai"]          # 按需部署:16G 机器扛不住与核心栈同时常驻,默认不随 up -d 启动
     build:
@@ -382,6 +402,11 @@ services:
       SPARROW_RAG_DB_USER: sparrow
       SPARROW_RAG_DB_PASSWORD: sparrow123
       SPARROW_RAG_DB_NAME: sparrow
+      SPARROW_CHAIN_DB_HOST: mysql
+      SPARROW_CHAIN_DB_PORT: 3306
+      SPARROW_CHAIN_DB_USER: sparrow
+      SPARROW_CHAIN_DB_PASSWORD: sparrow123
+      SPARROW_CHAIN_DB_NAME: sparrow_chain
       SPARROW_REDIS_HOST: redis
       SPARROW_REDIS_PORT: 6379
       SPARROW_GRAPH_IMPORT_URL: http://sparrow-graph:8082/internal/graph/import

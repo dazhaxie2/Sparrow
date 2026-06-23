@@ -76,6 +76,8 @@ python main.py --init-seeds
 python main.py --crawl --limit 20
 python main.py --extract
 python main.py --sync-sparrow     # 直连内化:节点/边/增补/RAG 语料 + Redis 缓存失效
+python main.py --chains          # 四条产业链:维基抓取 + LLM 抽取 + 独立库同步
+python main.py --chains --chain-companies 美光科技,博世  # 只重跑失败公司后再全量同步
 python main.py --export           # (可选)导出 SQL/JSON 文件,用于离线传递
 python main.py --status
 ```

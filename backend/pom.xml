@@ -25,6 +25,7 @@
         <module>sparrow-graph</module>
         <module>sparrow-trade</module>
         <module>sparrow-ai</module>
+        <module>sparrow-chain</module>
     </modules>
 
     <properties>

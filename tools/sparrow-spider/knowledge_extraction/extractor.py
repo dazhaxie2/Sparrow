@@ -7,11 +7,14 @@
   降级产物仍可用于 RAG 语料与既有节点的内容增补。
 """
 import json
-import re
-
-import httpx
 
 import config
+from knowledge_extraction.llm import (
+    budget_exceeded,
+    chat as _chat,
+    parse_json as _parse_json,
+    tokens_used,
+)
 from storage import db
 from topic_discovery.seeds import DOMAINS, EXTENSION_TERMS, SPARROW_NODES
 
@@ -22,40 +25,8 @@ ERAS = [
 _ERA_RANK = dict(ERAS)
 _DOMAIN_SET = set(DOMAINS)
 
-# ── token 预算计量(全模块累计;触顶后 LLM 调用降级为规则路径)──
-_token_used = 0
-
-
-def tokens_used() -> int:
-    return _token_used
-
-
-def budget_exceeded() -> bool:
-    return config.TOKEN_BUDGET > 0 and _token_used >= config.TOKEN_BUDGET
-
-
 def _known_names():
     return list(SPARROW_NODES.keys()) + EXTENSION_TERMS
-
-
-def _chat(messages, temperature=0.2) -> str:
-    global _token_used
-    resp = httpx.post(
-        config.AI_BASE_URL.rstrip("/") + "/chat/completions",
-        headers={"Authorization": f"Bearer {config.AI_API_KEY}"},
-        json={"model": config.AI_CHAT_MODEL, "messages": messages, "temperature": temperature},
-        timeout=120,
-    )
-    resp.raise_for_status()
-    body = resp.json()
-    usage = body.get("usage") or {}
-    _token_used += int(usage.get("total_tokens", 0))
-    return body["choices"][0]["message"]["content"]
-
-
-def _parse_json(text: str):
-    m = re.search(r"\{.*\}|\[.*\]", text, re.S)
-    return json.loads(m.group(0)) if m else None
 
 
 def extract_one(canonical_name: str, page_text: str):
