@@ -71,6 +71,8 @@ export interface NodeDetail {
   locked: boolean
   prerequisites: NodeBrief[]
   unlocks: NodeBrief[]
+  /** 「应用与产业链」:材料/化合物类节点由 AI 按需判定后回填,普通节点恒为空。 */
+  applications: NodeBrief[]
   sources: SourceBrief[]
   category?: string | null
   importance?: number | null

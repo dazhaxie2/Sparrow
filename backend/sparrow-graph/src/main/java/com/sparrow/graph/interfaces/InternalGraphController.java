@@ -47,6 +47,11 @@ public class InternalGraphController {
         return ApiResponse.ok(graphService.prerequisiteChain(id));
     }
 
+    @GetMapping("/node/{id}/applications")
+    public ApiResponse<List<NodeBrief>> applications(@PathVariable Long id) {
+        return ApiResponse.ok(graphService.applicationsOf(id));
+    }
+
     @GetMapping("/indexable-nodes")
     public ApiResponse<List<IndexableNode>> indexableNodes() {
         return ApiResponse.ok(graphService.listIndexableNodes());

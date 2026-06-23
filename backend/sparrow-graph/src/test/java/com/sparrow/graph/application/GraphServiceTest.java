@@ -6,6 +6,7 @@ import com.sparrow.common.event.GraphChangedEvent;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.graph.domain.model.NeoTechNode;
 import com.sparrow.graph.domain.model.TechNode;
+import com.sparrow.graph.infrastructure.client.AiClient;
 import com.sparrow.graph.infrastructure.client.UserClient;
 import com.sparrow.graph.infrastructure.event.GraphEventPublisher;
 import com.sparrow.graph.infrastructure.neo4j.Neo4jMigrator;
@@ -13,6 +14,7 @@ import com.sparrow.graph.infrastructure.neo4j.NeoEdgeRecord;
 import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
 import com.sparrow.graph.infrastructure.persistence.KnowledgeMetaRepository;
 import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
+import com.sparrow.graph.infrastructure.persistence.NodeApplicationRepository;
 import com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
@@ -54,6 +56,8 @@ class GraphServiceTest {
     private Neo4jMigrator neo4jMigrator;
     private KnowledgeMetaRepository knowledgeMetaRepository;
     private NodeLayoutMapper nodeLayoutMapper;
+    private NodeApplicationRepository applicationRepository;
+    private AiClient aiClient;
     private GraphService service;
 
     @BeforeEach
@@ -68,9 +72,12 @@ class GraphServiceTest {
         neo4jMigrator = mock(Neo4jMigrator.class);
         knowledgeMetaRepository = mock(KnowledgeMetaRepository.class);
         nodeLayoutMapper = mock(NodeLayoutMapper.class);
+        applicationRepository = mock(NodeApplicationRepository.class);
+        aiClient = mock(AiClient.class);
         when(redis.opsForValue()).thenReturn(valueOps);
         service = new GraphService(neoRepo, mysqlReader, redis, new ObjectMapper(),
-                userClient, eventPublisher, neo4jMigrator, knowledgeMetaRepository, nodeLayoutMapper);
+                userClient, eventPublisher, neo4jMigrator, knowledgeMetaRepository, nodeLayoutMapper,
+                applicationRepository, aiClient);
     }
 
     @Test
@@ -317,6 +324,87 @@ class GraphServiceTest {
 
         assertThrows(BizException.class, () -> service.nodeDetail(999L, null));
         verify(mysqlReader).findNode(999L);
+    }
+
+    @Test
+    void applicationsReturnsCachedWithoutCallingAi() {
+        TechNode node = materialNode(31401L, "二氧化硅");
+        when(mysqlReader.findNode(31401L)).thenReturn(node);
+        when(applicationRepository.findAppIds(31401L)).thenReturn(List.of(1078L, 2051L));
+        when(mysqlReader.briefsForIds(List.of(1078L, 2051L))).thenReturn(List.of(
+                new NodeBrief(1078L, "glass", "玻璃", "古代", 1, "", "", false, "材料冶金", 90)));
+
+        List<NodeBrief> apps = service.applicationsOf(31401L);
+
+        assertEquals(1, apps.size());
+        assertEquals("玻璃", apps.get(0).name());
+        verify(aiClient, never()).classifyApplications(any());
+    }
+
+    @Test
+    void applicationsClassifiesViaAiAndCachesWhenCacheMisses() {
+        TechNode node = materialNode(31401L, "二氧化硅");
+        when(mysqlReader.findNode(31401L)).thenReturn(node);
+        when(applicationRepository.findAppIds(31401L)).thenReturn(List.of());
+        List<NodeBrief> neighbors = List.of(
+                new NodeBrief(1078L, "glass", "玻璃", "古代", 1, "", "二氧化硅为主要成分", false, "材料冶金", 90),
+                new NodeBrief(30099L, "insulator", "绝缘体", "现代", 5, "", "电学属性", false, "电气电子", 20));
+        when(mysqlReader.directPrerequisites(31401L)).thenReturn(List.of());
+        when(mysqlReader.directUnlocks(31401L)).thenReturn(neighbors);
+        when(aiClient.classifyApplications(any())).thenReturn(
+                ApiResponse.ok(List.of(1078L)));
+        when(mysqlReader.briefsForIds(List.of(1078L))).thenReturn(List.of(
+                new NodeBrief(1078L, "glass", "玻璃", "古代", 1, "", "二氧化硅为主要成分", false, "材料冶金", 90)));
+
+        List<NodeBrief> apps = service.applicationsOf(31401L);
+
+        assertEquals(1, apps.size());
+        assertEquals("玻璃", apps.get(0).name());
+        verify(applicationRepository).saveAll(31401L, List.of(1078L));
+    }
+
+    @Test
+    void applicationsSkipsNonMaterialCategory() {
+        TechNode node = categoryNode(36L, "透视法与解剖学", "医学生物");
+        when(mysqlReader.findNode(36L)).thenReturn(node);
+
+        List<NodeBrief> apps = service.applicationsOf(36L);
+
+        assertTrue(apps.isEmpty());
+        verify(applicationRepository, never()).findAppIds(any());
+        verify(aiClient, never()).classifyApplications(any());
+    }
+
+    @Test
+    void applicationsDegradesToEmptyWhenAiThrows() {
+        TechNode node = materialNode(31401L, "二氧化硅");
+        when(mysqlReader.findNode(31401L)).thenReturn(node);
+        when(applicationRepository.findAppIds(31401L)).thenReturn(List.of());
+        when(mysqlReader.directPrerequisites(31401L)).thenReturn(List.of());
+        when(mysqlReader.directUnlocks(31401L)).thenReturn(List.of(
+                new NodeBrief(1078L, "glass", "玻璃", "古代", 1, "", "", false, "材料冶金", 90)));
+        when(aiClient.classifyApplications(any())).thenThrow(new RuntimeException("ai unavailable"));
+        when(mysqlReader.briefsForIds(List.of())).thenReturn(List.of());
+
+        List<NodeBrief> apps = service.applicationsOf(31401L);
+
+        assertTrue(apps.isEmpty());
+        // AI 降级为空列表后仍会写入缓存(空结果也缓存,避免反复重试)。
+        verify(applicationRepository).saveAll(eq(31401L), eq(List.of()));
+    }
+
+    /** 构造一个已 stub 了 id/name/category 的 TechNode mock(在 when() 外独立 stub,避免嵌套)。 */
+    private TechNode materialNode(long id, String name) {
+        return categoryNode(id, name, "材料冶金");
+    }
+
+    private TechNode categoryNode(long id, String name, String category) {
+        // TechNode 无 setter,用 mock stub 其 getter;mock 必须在 when().thenReturn() 之外完成 stub。
+        TechNode n = mock(TechNode.class);
+        when(n.getId()).thenReturn(id);
+        when(n.getName()).thenReturn(name);
+        when(n.getCategory()).thenReturn(category);
+        return n;
     }
 
     private NeoTechNode neoNode(long id, String code, String name, boolean premium, String detail) {

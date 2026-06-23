@@ -119,6 +119,12 @@ public class GraphController {
         return ApiResponse.ok(graphService.prerequisiteChain(id));
     }
 
+    /** 节点「应用与产业链」(材料/化合物类节点;AI 按需判定 + 缓存)。 */
+    @GetMapping("/node/{id}/applications")
+    public ApiResponse<List<NodeBrief>> applications(@PathVariable Long id) {
+        return ApiResponse.ok(graphService.applicationsOf(id));
+    }
+
     @GetMapping("/knowledge/status")
     public ApiResponse<KnowledgeStatus> knowledgeStatus() {
         return ApiResponse.ok(graphService.knowledgeStatus());

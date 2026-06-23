@@ -7,12 +7,14 @@ import com.sparrow.common.event.GraphChangedEvent;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.graph.domain.model.NeoTechNode;
 import com.sparrow.graph.domain.model.TechNode;
+import com.sparrow.graph.infrastructure.client.AiClient;
 import com.sparrow.graph.infrastructure.client.UserClient;
 import com.sparrow.graph.infrastructure.event.GraphEventPublisher;
 import com.sparrow.graph.infrastructure.neo4j.Neo4jMigrator;
 import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
 import com.sparrow.graph.infrastructure.persistence.KnowledgeMetaRepository;
 import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
+import com.sparrow.graph.infrastructure.persistence.NodeApplicationRepository;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.ClusterNode;
 import com.sparrow.graph.interfaces.dto.GraphDtos.ClusterOverview;
@@ -62,6 +64,9 @@ public class GraphService {
     private static final List<String> CANONICAL_CATEGORIES = List.of(
             "能源动力", "材料冶金", "农业食品", "交通运输", "信息计算", "通信网络", "电气电子",
             "医学生物", "化学化工", "建筑工程", "军事技术", "航天航空", "数学与基础科学", "制造与机械");
+    /** 参与「应用与产业链」AI 判定的领域(材料/化合物类才有下游应用语义)。 */
+    private static final Set<String> APPLICATION_CATEGORIES =
+            Set.of("材料冶金", "化学化工");
     private static final int OVERVIEW_TOP_PER_CELL = 5;
 
     private final NeoTechNodeRepository neoRepo;
@@ -73,13 +78,16 @@ public class GraphService {
     private final Neo4jMigrator neo4jMigrator;
     private final KnowledgeMetaRepository knowledgeMetaRepository;
     private final com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper layoutMapper;
+    private final NodeApplicationRepository applicationRepository;
+    private final AiClient aiClient;
 
     public GraphService(NeoTechNodeRepository neoRepo, MysqlGraphReader mysqlReader,
                         StringRedisTemplate redis, ObjectMapper objectMapper,
                         UserClient userClient, GraphEventPublisher eventPublisher,
                         Neo4jMigrator neo4jMigrator,
                         KnowledgeMetaRepository knowledgeMetaRepository,
-                        com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper layoutMapper) {
+                        com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper layoutMapper,
+                        NodeApplicationRepository applicationRepository, AiClient aiClient) {
         this.neoRepo = neoRepo;
         this.mysqlReader = mysqlReader;
         this.redis = redis;
@@ -89,6 +97,8 @@ public class GraphService {
         this.neo4jMigrator = neo4jMigrator;
         this.knowledgeMetaRepository = knowledgeMetaRepository;
         this.layoutMapper = layoutMapper;
+        this.applicationRepository = applicationRepository;
+        this.aiClient = aiClient;
     }
 
     public Tree tree() {
@@ -380,6 +390,56 @@ public class GraphService {
                 });
     }
 
+    /**
+     * 节点「应用与产业链」:材料/化合物类节点的下游应用邻居。
+     *
+     * <p>按需懒计算 + 缓存:先查 {@code node_application} 表,命中则直接返回;
+     * 未命中时把该节点全部直接邻居交给 sparrow-ai 的 LLM 判定,结果回写缓存。
+     * 仅 {@link #APPLICATION_CATEGORIES} 内的领域参与判定,其余节点直接返回空列表(不调 AI)。
+     * AI 不可用/超时/未配置时降级为空列表,不阻断详情主流程。</p>
+     */
+    public List<NodeBrief> applicationsOf(Long id) {
+        TechNode node = mysqlReader.findNode(id);
+        if (node == null) {
+            throw new BizException(404, "技术节点不存在");
+        }
+        if (!APPLICATION_CATEGORIES.contains(node.getCategory())) {
+            return List.of();
+        }
+        // 缓存命中:直接返回已判定的应用邻居。
+        List<Long> cachedIds = applicationRepository.findAppIds(id);
+        if (!cachedIds.isEmpty()) {
+            return mysqlReader.briefsForIds(cachedIds);
+        }
+        // 缓存未命中:收集直接邻居(前置 + 后继),交给 AI 判定。
+        List<NodeBrief> neighbors = new ArrayList<>();
+        neighbors.addAll(mysqlReader.directPrerequisites(id));
+        neighbors.addAll(mysqlReader.directUnlocks(id));
+        if (neighbors.isEmpty()) {
+            return List.of();
+        }
+        List<Long> appIds = classifyWithAi(node, neighbors);
+        applicationRepository.saveAll(id, appIds);
+        return mysqlReader.briefsForIds(appIds);
+    }
+
+    /** 调用 sparrow-ai 判定;任何异常降级为空列表(详情主流程不受影响)。 */
+    private List<Long> classifyWithAi(TechNode node, List<NodeBrief> neighbors) {
+        try {
+            List<AiClient.NeighborBrief> nb = neighbors.stream()
+                    .map(n -> new AiClient.NeighborBrief(n.id(), n.name(), n.summary(), n.category()))
+                    .toList();
+            ApiResponse<List<Long>> resp = aiClient.classifyApplications(
+                    new AiClient.ApplicationClassifyRequest(
+                            node.getId(), node.getName(), node.getCategory(), nb));
+            List<Long> data = resp == null ? null : resp.data();
+            return data == null ? List.of() : data;
+        } catch (RuntimeException e) {
+            log.warn("AI 应用判定失败,降级为空列表 [nodeId={}]: {}", node.getId(), e.toString());
+            return List.of();
+        }
+    }
+
     public List<NodeBrief> prerequisiteChain(Long id) {
         return readWithFallback("prerequisiteChain",
                 () -> {
@@ -455,7 +515,7 @@ public class GraphService {
         boolean locked = premium && (userId == null || !isMember(userId));
         List<SourceBrief> sources = loadSources(code);
         return new NodeDetail(id, code, name, era, eraRank, yearLabel, summary,
-                locked ? null : detail, premium, locked, prerequisites, unlocks, sources,
+                locked ? null : detail, premium, locked, prerequisites, unlocks, List.of(), sources,
                 category, importance);
     }
 

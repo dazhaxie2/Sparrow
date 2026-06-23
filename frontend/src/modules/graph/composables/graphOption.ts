@@ -27,9 +27,6 @@ export type CategoryLegendItem = {
 export interface RenderContext {
   currentView: { zoom: number; center: [number, number] }
   highlight: { selectedId: number; chainIds: Set<number> } | null
-  learningActive: boolean
-  learningNodes: NodeBrief[]
-  learningCurrentId: number | null
   dialogActive: boolean
   dialogNodeIds: Set<number>
   showInlineEdgeLabels: boolean
@@ -177,8 +174,6 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
   const legend = createCategoryLegend(nodes, ctx.categoryOrder)
   const chain = ctx.highlight?.chainIds ?? null
   const selected = ctx.highlight?.selectedId ?? null
-  const learningNodeId = ctx.learningCurrentId
-  const learningIds = ctx.learningActive ? new Set(ctx.learningNodes.map(node => node.id)) : null
   const adjacentIds = new Set<number>()
   if (selected != null) {
     for (const edge of edges) {
@@ -192,11 +187,9 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
     const inChain = Boolean(chain && (chain.has(node.id) || node.id === selected))
     const adjacent = adjacentIds.has(node.id)
     const isSelected = node.id === selected
-    const inLearningPath = learningIds?.has(node.id) ?? false
-    const isLearningCurrent = node.id === learningNodeId
     const isDialogNode = ctx.dialogNodeIds.has(node.id)
     const importance = node.importance ?? 0
-    const labelAlways = isSelected || adjacent || inChain || inLearningPath || isDialogNode
+    const labelAlways = isSelected || adjacent || inChain || isDialogNode
     const labelVisible = labelAlways
       || nodes.length <= 90
       || (nodes.length <= 420 && (point.degree >= 3 || importance >= 55))
@@ -205,7 +198,7 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
     const densityScale = nodes.length > 600 ? 0.72 : nodes.length > 350 ? 0.86 : 1
     const maxNodeSize = nodes.length > 600 ? 11 : nodes.length > 350 ? 13 : 15
     const baseSize = clamp((5 + Math.sqrt(point.degree) * 1.25 + importance * 0.024) * densityScale, 5, maxNodeSize)
-    const symbolSize = baseSize + (isLearningCurrent ? 6 : isSelected ? 5 : adjacent ? 2 : 0)
+    const symbolSize = baseSize + (isSelected ? 5 : adjacent ? 2 : 0)
     const shortName = node.name.length > 12 ? `${node.name.slice(0, 12)}…` : node.name
 
     return {
@@ -219,16 +212,16 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
       itemStyle: {
         color,
         opacity: 0.96,
-        borderColor: isLearningCurrent || isSelected ? '#ff5722' : adjacent || inChain ? '#e21b5a' : '#ffffff',
-        borderWidth: isLearningCurrent || isSelected ? 2.4 : adjacent || inChain ? 1.8 : nodes.length > 600 ? 0.7 : 1,
-        shadowBlur: isLearningCurrent || isSelected ? 14 : adjacent || inChain || isDialogNode ? 8 : 0,
+        borderColor: isSelected ? '#ff5722' : adjacent || inChain ? '#e21b5a' : '#ffffff',
+        borderWidth: isSelected ? 2.4 : adjacent || inChain ? 1.8 : nodes.length > 600 ? 0.7 : 1,
+        shadowBlur: isSelected ? 14 : adjacent || inChain || isDialogNode ? 8 : 0,
         shadowColor: 'rgba(255, 87, 34, 0.28)',
       },
       label: {
         show: labelVisible,
         color: '#30343a',
         fontSize: labelAlways ? 10 : nodes.length > 420 ? 7 : 8,
-        fontWeight: isLearningCurrent || isSelected ? 800 : 600,
+        fontWeight: isSelected ? 800 : 600,
         formatter: `${node.premium ? 'PRO · ' : ''}${shortName}`,
         position: 'right',
         distance: 5,
@@ -255,8 +248,7 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
     pairIndexes.set(key, index + 1)
     const sourceActive = edge.from === selected || edge.to === selected
     const chainActive = Boolean(chain && (chain.has(edge.from) || edge.from === selected) && (chain.has(edge.to) || edge.to === selected))
-    const learningActiveEdge = Boolean(learningIds?.has(edge.from) && learningIds?.has(edge.to))
-    const active = sourceActive || chainActive || learningActiveEdge
+    const active = sourceActive || chainActive
     const edgeLabel = edge.label?.trim() || DEFAULT_EDGE_LABEL
     const sourceName = ctx.nodeById.get(edge.from)?.name ?? String(edge.from)
     const targetName = ctx.nodeById.get(edge.to)?.name ?? String(edge.to)
@@ -290,7 +282,6 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
     }
   })
 
-  const learningTotal = ctx.learningNodes.length
   return {
     backgroundColor: 'transparent',
     textStyle: { fontFamily: 'JetBrains Mono, Space Grotesk, Noto Sans SC, Microsoft YaHei, sans-serif' },
@@ -307,11 +298,7 @@ export function buildOption(tree: Tree, ctx: RenderContext) {
         }
         const node = ctx.nodeById.get(params.data?._nodeId)
         if (!node) return params.name
-        const guideIndex = ctx.learningNodes.findIndex(item => item.id === node.id)
-        const guideLine = ctx.learningActive && guideIndex >= 0
-          ? `<br/><em>路径第 ${guideIndex + 1} / ${learningTotal} 步${node.id === learningNodeId ? ' · 当前' : ''}</em>`
-          : ''
-        return `<strong>${node.name}</strong>${guideLine}<br/>${categoryName(node)}<br/>${node.summary || '暂无摘要'}`
+        return `<strong>${node.name}</strong><br/>${categoryName(node)}<br/>${node.summary || '暂无摘要'}`
       },
     },
     series: [{

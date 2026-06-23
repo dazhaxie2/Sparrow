@@ -261,4 +261,13 @@ public class MysqlGraphReader {
                 .map(NodeBrief::from)
                 .toList();
     }
+
+    /** 按任意 id 集合取节点 brief(应用/产业链等场景复用);按重要度降序、id 升序稳定排序。 */
+    public List<NodeBrief> briefsForIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return nodeMapper.selectBatchIds(new LinkedHashSet<>(ids)).stream()
+                .sorted(ORDER)
+                .map(NodeBrief::from)
+                .toList();
+    }
 }

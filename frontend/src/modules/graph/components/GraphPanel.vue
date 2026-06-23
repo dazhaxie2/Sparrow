@@ -45,10 +45,7 @@
             <span>{{ currentYear }}</span>
             <span v-if="currentPremium" class="premium-badge"><LockKeyhole :size="12" /> 深度内容</span>
           </div>
-          <h2 class="node-title">
-            <span v-if="learningActive" class="learning-title-prefix">路径第 {{ learningIndex + 1 }} 步 · </span>
-            {{ currentName }}
-          </h2>
+          <h2 class="node-title">{{ currentName }}</h2>
           <p class="node-summary">{{ currentSummary }}</p>
           <div class="node-actions">
             <button type="button" :class="{ active: progress === 'want' }" @click="$emit('setProgress', 'want')">
@@ -109,17 +106,6 @@
             <p>{{ detail.detail }}</p>
           </section>
 
-          <section v-if="recommendedNode" class="recommend-box">
-            <div>
-              <span>推荐下一步</span>
-              <strong>{{ recommendedNode.name }}</strong>
-              <small>{{ recommendedNode.era }} · {{ recommendedNode.yearLabel }}</small>
-            </div>
-            <button type="button" @click="$emit('select', recommendedNode.id)">
-              <ArrowRight :size="15" />
-            </button>
-          </section>
-
           <section v-if="sources.length" class="source-block">
             <div class="section-title">
               <ExternalLink :size="15" />
@@ -175,57 +161,31 @@
               </button>
             </div>
           </section>
-        </template>
 
-        <section v-if="pathNodes.length" class="path-block" :class="{ guiding: learningActive }">
-          <div class="section-title">
-            <Route :size="15" />
-            <span>学习路线</span>
-            <small>{{ learningActive ? `第 ${learningIndex + 1} / ${learningTotal} 步` : `${visiblePathCount} / ${pathNodes.length} 步` }}</small>
-          </div>
-          <p class="path-summary">{{ pathSummary }}</p>
-          <div class="path-list">
-            <button
-              v-for="(node, index) in visiblePathNodes"
-              :key="node.id"
-              type="button"
-              :class="{ current: node.id === currentId, 'guide-current': learningActive && actualPathIndex(index) === learningIndex }"
-              :aria-current="learningActive && actualPathIndex(index) === learningIndex ? 'step' : undefined"
-              @click="$emit('select', node.id)"
-            >
-              <span>{{ actualPathIndex(index) + 1 }}</span>
-              <strong>{{ node.name }}</strong>
-            </button>
-          </div>
-          <div v-if="hiddenPathCount" class="path-more">
-            <button type="button" @click="expandPathWindow">
-              继续向前展开 {{ nextPathPageCount }} 步
-            </button>
-            <span>前面还有 {{ hiddenPathCount }} 步未显示</span>
-          </div>
-          <button v-if="canCollapsePath" class="path-collapse" type="button" @click="collapsePathWindow">
-            收起到最后 {{ PATH_INITIAL_VISIBLE }} 步
-          </button>
-          <div v-if="learningActive" class="path-controls" aria-label="学习路线导览">
-            <button type="button" :disabled="!canGoPrev" @click="$emit('pathPrev')">
-              <ArrowLeft :size="14" />
-              <span>上一节点</span>
-            </button>
-            <strong>{{ learningIndex + 1 }} / {{ learningTotal }}</strong>
-            <button type="button" :disabled="!canGoNext" @click="$emit('pathNext')">
-              <span>下一节点</span>
-              <ArrowRight :size="14" />
-            </button>
-            <button class="ghost" type="button" @click="$emit('pathExit')">
-              <X :size="14" />
-              <span>退出</span>
-            </button>
-          </div>
-          <button v-else class="path-action" type="button" :disabled="loading" @click="$emit('startPath')">
-            <Play :size="14" />
-            {{ loading ? '正在整理路线' : '从第一步开始' }}
-          </button>
-        </section>
+          <section v-if="applications.length" class="relation-block application-block">
+            <div class="section-title">
+              <Boxes :size="15" />
+              <span>应用与产业链</span>
+              <small>{{ applications.length }}</small>
+            </div>
+            <div class="rel-chips">
+              <button
+                v-for="item in applications"
+                :key="item.id"
+                type="button"
+                @click="$emit('select', item.id)"
+              >
+                {{ item.name }}
+              </button>
+            </div>
+          </section>
+
+          <section v-if="applicationsLoading" class="loading-box application-loading">
+            <LoaderCircle class="spin" :size="16" />
+            <strong>正在分析应用与产业链</strong>
+            <div class="skeleton-line wide"></div>
+          </section>
+        </template>
       </template>
     </div>
   </aside>
@@ -235,9 +195,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import {
   AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
   BookOpen,
+  Boxes,
   FileText,
   GitPullRequestArrow,
   GitCompare,
@@ -250,39 +209,28 @@ import {
   ExternalLink,
   PanelRightClose,
   PanelRightOpen,
-  Play,
-  Route,
   Target,
   UnlockKeyhole,
-  X,
 } from '@lucide/vue'
 import type { NodeBrief, NodeDetail } from '../types'
 
 type ProgressState = 'want' | 'read' | 'mastered' | null
-const PATH_INITIAL_VISIBLE = 24
-const PATH_PAGE_SIZE = 24
 
 const props = defineProps<{
   detail: NodeDetail | null
   preview: NodeBrief | null
-  pathNodes: NodeBrief[]
   loading: boolean
   error: string
   progress: ProgressState
   accentColor: string
-  learningActive: boolean
-  learningIndex: number
-  learningTotal: number
+  applications: NodeBrief[]
+  applicationsLoading: boolean
   floating?: boolean
 }>()
 
 defineEmits<{
   select: [id: number]
-  startPath: []
   retry: []
-  pathPrev: []
-  pathNext: []
-  pathExit: []
   openMember: []
   setProgress: [state: Exclude<ProgressState, null>]
   addCompare: []
@@ -291,16 +239,13 @@ defineEmits<{
 const bodyRef = ref<HTMLElement | null>(null)
 const drawerCollapsed = ref(false)
 const sheetExpanded = ref(false)
-const pathVisibleLimit = ref(PATH_INITIAL_VISIBLE)
 const current = computed(() => props.detail ?? props.preview)
-const currentId = computed(() => current.value?.id)
 const currentName = computed(() => current.value?.name ?? '加载中')
 const currentEra = computed(() => current.value?.era ?? '未知时代')
 const currentYear = computed(() => current.value?.yearLabel ?? '未知年代')
 const currentSummary = computed(() => current.value?.summary ?? '正在整理该节点的摘要。')
 const currentCategory = computed(() => current.value?.category ?? '')
 const currentPremium = computed(() => Boolean(current.value?.premium))
-const recommendedNode = computed(() => props.detail?.unlocks?.[0] ?? null)
 const sources = computed(() => props.detail?.sources ?? [])
 
 const allSources = computed(() => {
@@ -316,55 +261,15 @@ const allSources = computed(() => {
   }))
   return [baikeSource, ...originalSources]
 })
-const canGoPrev = computed(() => props.learningActive && props.learningIndex > 0)
-const canGoNext = computed(() => props.learningActive && props.learningIndex < props.learningTotal - 1)
-const pathWindowStart = computed(() => Math.max(props.pathNodes.length - pathVisibleLimit.value, 0))
-const visiblePathNodes = computed(() => props.pathNodes.slice(pathWindowStart.value))
-const visiblePathCount = computed(() => visiblePathNodes.value.length)
-const hiddenPathCount = computed(() => pathWindowStart.value)
-const nextPathPageCount = computed(() => Math.min(PATH_PAGE_SIZE, hiddenPathCount.value))
-const canCollapsePath = computed(() => pathVisibleLimit.value > PATH_INITIAL_VISIBLE && props.pathNodes.length > PATH_INITIAL_VISIBLE)
-const pathSummary = computed(() => {
-  const nodes = props.pathNodes
-  if (nodes.length <= 12) return nodes.map(node => node.name).join(' -> ')
-  const head = nodes.slice(0, 5).map(node => node.name)
-  const tail = nodes.slice(-3).map(node => node.name)
-  return `${head.join(' -> ')} -> ... -> ${tail.join(' -> ')}`
-})
 const statusLabel = computed(() => {
   if (props.loading) return 'LOADING'
   if (props.error) return 'RETRY'
   return current.value ? 'SELECTED' : 'WAITING'
 })
 
-function expandPathWindow() {
-  pathVisibleLimit.value = Math.min(props.pathNodes.length, pathVisibleLimit.value + PATH_PAGE_SIZE)
-}
-
-function collapsePathWindow() {
-  pathVisibleLimit.value = PATH_INITIAL_VISIBLE
-}
-
-function actualPathIndex(visibleIndex: number) {
-  return pathWindowStart.value + visibleIndex
-}
-
 watch(() => current.value?.id, async () => {
-  pathVisibleLimit.value = PATH_INITIAL_VISIBLE
   await nextTick()
   bodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
-})
-
-watch(() => props.pathNodes.length, () => {
-  pathVisibleLimit.value = Math.min(pathVisibleLimit.value, Math.max(PATH_INITIAL_VISIBLE, props.pathNodes.length))
-})
-
-watch(() => props.learningIndex, index => {
-  if (!props.learningActive || index < 0) return
-  const distanceBeforeWindow = pathWindowStart.value - index
-  if (distanceBeforeWindow > 0 && distanceBeforeWindow <= PATH_PAGE_SIZE) {
-    pathVisibleLimit.value = Math.min(props.pathNodes.length, pathVisibleLimit.value + PATH_PAGE_SIZE)
-  }
 })
 
 watch(() => props.floating, value => {
@@ -496,13 +401,11 @@ watch(() => props.floating, value => {
 
 .empty-state,
 .node-section,
-.path-block,
 .relation-block,
 .detail-copy,
 .locked-box,
 .loading-box,
 .error-box,
-.recommend-box,
 .source-block {
   margin: 15px;
 }
@@ -520,12 +423,6 @@ watch(() => props.floating, value => {
   font-size: 20px;
   line-height: 1.2;
   letter-spacing: 0;
-}
-
-.learning-title-prefix {
-  color: var(--accent);
-  font-size: 15px;
-  font-weight: 900;
 }
 
 .empty-state p {
@@ -628,184 +525,6 @@ watch(() => props.floating, value => {
   color: var(--muted);
 }
 
-.path-block.guiding {
-  border: 1px solid rgba(255, 87, 34, 0.35);
-  background: rgba(255, 87, 34, 0.04);
-  padding: 14px;
-}
-
-.path-list {
-  display: grid;
-  gap: 7px;
-  padding-top: 12px;
-}
-
-.path-summary {
-  margin-top: 11px;
-  color: var(--ink-2);
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.path-list button {
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  align-items: center;
-  gap: 9px;
-  min-height: 34px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  padding: 0 9px;
-  color: var(--ink-2);
-  text-align: left;
-  cursor: pointer;
-  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
-}
-
-.path-list button:hover,
-.path-list button.current,
-.path-list button.guide-current {
-  transform: translateX(2px);
-  border-color: var(--accent);
-  background: rgba(255, 87, 34, 0.06);
-  color: var(--ink);
-}
-
-.path-list button.guide-current {
-  box-shadow: 0 0 0 2px rgba(255, 87, 34, 0.16);
-}
-
-.path-list button.guide-current span {
-  background: var(--accent);
-}
-
-.path-list span {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  background: var(--ink);
-  color: var(--bg);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.path-list strong {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.path-more,
-.path-collapse {
-  margin-top: 10px;
-}
-
-.path-more {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.path-more button,
-.path-collapse {
-  min-height: 30px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
-  color: var(--ink-2);
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
-}
-
-.path-more button:hover,
-.path-collapse:hover {
-  border-color: var(--accent);
-  background: rgba(255, 87, 34, 0.06);
-  color: var(--accent);
-}
-
-.path-more span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.path-action {
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin-top: 10px;
-  border: 1px solid var(--accent);
-  background: rgba(255, 87, 34, 0.08);
-  color: var(--accent);
-  padding: 0 11px;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.path-action:disabled {
-  border-color: var(--line-strong);
-  background: #e7e7e7;
-  color: var(--muted);
-  cursor: default;
-}
-
-.path-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.path-controls button {
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--ink);
-  background: var(--ink);
-  color: var(--bg);
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
-}
-
-.path-controls button:disabled {
-  border-color: var(--line-strong);
-  background: #e7e7e7;
-  color: var(--muted);
-  cursor: default;
-}
-
-.path-controls .ghost {
-  border-color: var(--line-strong);
-  background: var(--panel);
-  color: var(--ink-2);
-}
-
-.path-controls strong {
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid rgba(255, 87, 34, 0.28);
-  background: rgba(255, 87, 34, 0.08);
-  color: var(--accent);
-  padding: 0 10px;
-  font-size: 12px;
-}
-
 .loading-box,
 .error-box {
   border: 1px solid var(--line);
@@ -856,8 +575,7 @@ watch(() => props.floating, value => {
   font-size: 12px;
 }
 
-.error-box button,
-.recommend-box button {
+.error-box button {
   min-height: 32px;
   border: 1px solid var(--ink);
   background: var(--ink);
@@ -927,36 +645,6 @@ watch(() => props.floating, value => {
   font-weight: 800;
 }
 
-.recommend-box {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid rgba(255, 87, 34, 0.35);
-  background: rgba(255, 87, 34, 0.05);
-  padding: 12px;
-}
-
-.recommend-box div {
-  display: grid;
-  gap: 4px;
-}
-
-.recommend-box span {
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-}
-
-.recommend-box strong {
-  font-size: 15px;
-}
-
-.recommend-box small {
-  color: var(--muted);
-}
-
 .source-list {
   display: grid;
   gap: 8px;
@@ -1016,6 +704,16 @@ watch(() => props.floating, value => {
   background: rgba(255, 87, 34, 0.05);
 }
 
+.application-block {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, white);
+  background: color-mix(in srgb, var(--accent) 4%, var(--panel));
+  padding: 14px;
+}
+
+.application-loading {
+  grid-template-columns: auto 1fr;
+}
+
 .spin {
   animation: spin 0.9s linear infinite;
 }
@@ -1059,16 +757,6 @@ watch(() => props.floating, value => {
 
   .panel.sheet-collapsed .panel-body {
     display: none;
-  }
-
-  .path-controls {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .path-controls button,
-  .path-controls strong {
-    width: 100%;
   }
 }
 </style>

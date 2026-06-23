@@ -63,20 +63,14 @@
       v-if="graphMode === 'map' && (selectedDetail || selectedPreview || nodeLoading || nodeError)"
       :detail="selectedDetail"
       :preview="selectedPreview"
-      :path-nodes="pathNodes"
-      :learning-active="learningActive"
-      :learning-index="learningIndex"
-      :learning-total="learningTotal"
       :loading="nodeLoading"
       :error="nodeError"
       :progress="currentProgress"
       :accent-color="currentNodeColor"
+      :applications="currentApplications"
+      :applications-loading="applicationsLoading"
       :floating="true"
       @select="selectFromPanel"
-      @start-path="startLearningPath"
-      @path-prev="goLearningPrev"
-      @path-next="goLearningNext"
-      @path-exit="exitLearningPath"
       @retry="retrySelectedNode"
       @set-progress="setCurrentProgress"
       @add-compare="addCurrentToCompare"
@@ -132,7 +126,7 @@ import CompareDock from '../components/CompareDock.vue'
 import GraphModals from '../components/GraphModals.vue'
 import LoginModal from '../../user/components/LoginModal.vue'
 import MemberModal from '../../trade/components/MemberModal.vue'
-import { fetchClusterOverview, fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites } from '../api'
+import { fetchClusterOverview, fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites, fetchApplications } from '../api'
 import type { Tree, NodeBrief, NodeDetail, Overview, EdgeBrief, GraphTile, ClusterOverview, ClusterNode } from '../types'
 import { useUserStore } from '../../user/store'
 import { colorForCategory, createCategoryLegend } from '../composables/graphOption'
@@ -156,11 +150,11 @@ const selectedDetail = ref<NodeDetail | null>(null)
 const selectedPreview = ref<NodeBrief | null>(null)
 const selectedChain = ref<NodeBrief[]>([])
 const highlight = ref<{ selectedId: number; chainIds: Set<number> } | null>(null)
-const learningPath = ref<{ active: boolean; nodes: NodeBrief[]; index: number }>({
-  active: false,
-  nodes: [],
-  index: 0,
-})
+// 「应用与产业链」:材料/化合物类节点按需懒计算(AI 判定 + 缓存),非材料节点恒为空。
+const applications = ref<NodeBrief[]>([])
+const applicationsLoading = ref(false)
+// 记录已计算过应用的节点 id,避免同一节点并发重复请求;null 表示当前无 in-flight。
+let applicationsRequestId = 0
 const overview = ref<Overview | null>(null)
 const clusterOverview = ref<ClusterOverview | null>(null)
 const drilledCluster = ref<{ id: number; name: string; size: number } | null>(null)
@@ -221,13 +215,6 @@ const totalEdges = computed(() => overview.value?.totalEdges ?? edgeCount.value)
 const categories = computed(() => overview.value?.categories ?? [])
 const premiumCount = computed(() => treeData.value?.nodes.filter(node => node.premium).length ?? 0)
 const nodeById = computed(() => new Map((treeData.value?.nodes ?? []).map(node => [node.id, node])))
-const learningActive = computed(() => learningPath.value.active && learningPath.value.nodes.length > 0)
-const learningIndex = computed(() => learningActive.value ? learningPath.value.index : -1)
-const learningTotal = computed(() => learningActive.value ? learningPath.value.nodes.length : 0)
-const learningCurrentNode = computed(() => {
-  if (!learningActive.value) return null
-  return learningPath.value.nodes[learningPath.value.index] ?? null
-})
 const currentProgress = computed(() => {
   const id = selectedDetail.value?.id ?? selectedPreview.value?.id
   return id ? progressMap.value[id] ?? null : null
@@ -239,19 +226,12 @@ const currentNodeColor = computed(() => {
   return colorForCategory(category, categoryLegend.value)
 })
 
-const pathNodes = computed(() => {
-  if (learningActive.value) return learningPath.value.nodes
-  const nodes: NodeBrief[] = []
-  const seen = new Set<number>()
-  for (const node of selectedChain.value) {
-    if (!seen.has(node.id)) {
-      nodes.push(node)
-      seen.add(node.id)
-    }
-  }
-  const current = selectedDetail.value ? detailToBrief(selectedDetail.value) : selectedPreview.value
-  if (current && !seen.has(current.id)) nodes.push(current)
-  return nodes.sort((a, b) => a.eraRank - b.eraRank || a.id - b.id)
+// 仅当详情/预览属于材料类时,把当前 applications 透传给面板;否则恒为空(不显示区块)。
+const MATERIAL_CATEGORIES = new Set(['材料冶金', '化学化工'])
+const currentApplications = computed<NodeBrief[]>(() => {
+  const category = selectedDetail.value?.category ?? selectedPreview.value?.category
+  if (!category || !MATERIAL_CATEGORIES.has(category)) return []
+  return applications.value
 })
 
 const canvasRef = ref<{ getChartEl: () => HTMLElement | null } | null>(null)
@@ -264,9 +244,6 @@ const graphChart = useGraphChart({
   getTree: () => treeData.value,
   getRenderState: () => ({
     highlight: highlight.value,
-    learningActive: learningActive.value,
-    learningNodes: learningPath.value.nodes,
-    learningCurrentId: learningCurrentNode.value?.id ?? null,
     dialogActive: dialogApi?.dialogActive.value ?? false,
     dialogNodeIds: dialogApi?.dialogNodeIds.value ?? new Set<number>(),
     showInlineEdgeLabels: showEdgeLabels.value && hasInformativeEdgeLabels.value,
@@ -306,9 +283,6 @@ const selectedStatusText = computed(() => {
     return `临时图谱 · ${dialogResult.value.nodes.length} 节点`
   }
   if (graphMode.value === 'dialog') return '输入问题提取相关节点'
-  if (learningActive.value && learningCurrentNode.value) {
-    return `路径第 ${learningIndex.value + 1} 步 · ${learningCurrentNode.value.name}`
-  }
   if (selectedDetail.value) return selectedDetail.value.name
   if (selectedPreview.value) return selectedPreview.value.name
   return '等待选择节点'
@@ -407,16 +381,11 @@ function clustersForTarget(data: ClusterOverview, target: number, category: stri
 }
 
 function highlightIdsFor(chain: NodeBrief[]) {
-  const nodes = learningActive.value ? learningPath.value.nodes : chain
-  return new Set(nodes.map(node => node.id))
+  return new Set(chain.map(node => node.id))
 }
 
 function nodeHighlight(selectedId: number, chain: NodeBrief[]) {
   return { selectedId, chainIds: highlightIdsFor(chain) }
-}
-
-function clearLearningPath() {
-  learningPath.value = { active: false, nodes: [], index: 0 }
 }
 
 function setCurrentProgress(state: ProgressState) {
@@ -521,7 +490,7 @@ async function loadTree() {
       selectedDetail.value = null
       selectedPreview.value = null
       selectedChain.value = []
-      clearLearningPath()
+      applications.value = []
     }
     treeData.value = nextTree
     expandedTileClusters.clear()
@@ -564,11 +533,10 @@ async function refreshGraph() {
     return
   }
   const selectedId = selectedDetail.value?.id ?? selectedPreview.value?.id
-  const keepLearning = learningActive.value
   if (displayMode.value !== 'raw') clusterOverview.value = null
   await loadTree()
   if (selectedId && nodeById.value.has(selectedId)) {
-    await showNode(selectedId, { focus: false, fromLearning: keepLearning })
+    await showNode(selectedId, { focus: false })
   }
 }
 
@@ -583,20 +551,18 @@ function clearSelection() {
   selectedDetail.value = null
   selectedPreview.value = null
   selectedChain.value = []
-  if (learningActive.value) clearLearningPath()
+  applications.value = []
   renderTree()
 }
 
-async function showNode(id: number, options: { focus?: boolean; fromLearning?: boolean } = {}) {
+async function showNode(id: number, options: { focus?: boolean } = {}) {
   if (!treeData.value) return
-  if (learningActive.value && !options.fromLearning) {
-    clearLearningPath()
-  }
   const requestId = ++latestNodeRequest
   const preview = nodeById.value.get(id) ?? null
   selectedPreview.value = preview
   selectedDetail.value = null
   selectedChain.value = []
+  applications.value = []
   nodeLoading.value = true
   nodeError.value = ''
   if (options.focus) centerNode(id)
@@ -622,6 +588,8 @@ async function showNode(id: number, options: { focus?: boolean; fromLearning?: b
     renderTree()
     // 合并详情邻域会触发重新布局，使用最终坐标再次定位；邻域接口失败时也能兜底聚焦。
     if (options.focus) requestAnimationFrame(() => centerNode(id))
+    // 材料类节点按需懒计算「应用与产业链」(AI 判定 + 服务端缓存)。
+    void loadApplications(id)
   } catch (error: any) {
     if (requestId !== latestNodeRequest) return
     nodeError.value = error.message || '节点详情加载失败'
@@ -630,6 +598,25 @@ async function showNode(id: number, options: { focus?: boolean; fromLearning?: b
     if (options.focus) requestAnimationFrame(() => centerNode(id))
   } finally {
     if (requestId === latestNodeRequest) nodeLoading.value = false
+  }
+}
+
+/** 按需加载节点「应用与产业链」:仅材料类节点触发,服务端命中缓存秒出,未命中时 AI 判定。 */
+async function loadApplications(id: number) {
+  const detail = selectedDetail.value
+  const category = detail?.category
+  if (!category || !MATERIAL_CATEGORIES.has(category)) return
+  const requestId = ++applicationsRequestId
+  applicationsLoading.value = true
+  try {
+    const list = await fetchApplications(id)
+    if (requestId !== applicationsRequestId) return
+    applications.value = list
+  } catch {
+    if (requestId !== applicationsRequestId) return
+    applications.value = []
+  } finally {
+    if (requestId === applicationsRequestId) applicationsLoading.value = false
   }
 }
 
@@ -661,9 +648,8 @@ async function handleNodeClick(id: number) {
     clearSelection()
   } else {
     const node = nodeById.value.get(id)
-    const clusterId = node?.clusterId
-    if ((node?.clusterSize ?? 0) > 1 && clusterId != null) {
-      await openClusterDrilldown(node, clusterId)
+    if (node && (node.clusterSize ?? 0) > 1 && node.clusterId != null) {
+      await openClusterDrilldown(node, node.clusterId)
       return
     }
     await showNode(id, { focus: false })
@@ -679,7 +665,7 @@ async function openClusterDrilldown(node: NodeBrief, clusterId: number) {
     selectedDetail.value = null
     selectedPreview.value = null
     selectedChain.value = []
-    clearLearningPath()
+    applications.value = []
     treeData.value = cluster
     drilledCluster.value = {
       id: clusterId,
@@ -704,50 +690,10 @@ async function exitClusterDrilldown() {
 
 function retrySelectedNode() {
   const id = selectedPreview.value?.id ?? selectedDetail.value?.id
-  if (id) void showNode(id, { focus: false, fromLearning: learningActive.value })
-}
-
-function startLearningPath() {
-  if (nodeLoading.value) return
-  const nodes = [...pathNodes.value]
-  if (!nodes.length) return
-  learningPath.value = { active: true, nodes, index: 0 }
-  void goLearningTo(0)
-}
-
-async function goLearningTo(index: number) {
-  if (!learningActive.value) return
-  const nextIndex = Math.min(Math.max(index, 0), learningPath.value.nodes.length - 1)
-  const node = learningPath.value.nodes[nextIndex]
-  if (!node) return
-  learningPath.value = { ...learningPath.value, index: nextIndex }
-  await showNode(node.id, { focus: true, fromLearning: true })
-}
-
-function goLearningPrev() {
-  void goLearningTo(learningPath.value.index - 1)
-}
-
-function goLearningNext() {
-  void goLearningTo(learningPath.value.index + 1)
-}
-
-function exitLearningPath() {
-  if (!learningActive.value) return
-  clearLearningPath()
-  const id = selectedDetail.value?.id ?? selectedPreview.value?.id
-  highlight.value = id ? nodeHighlight(id, selectedChain.value) : null
-  renderTree()
+  if (id) void showNode(id, { focus: false })
 }
 
 function selectFromPanel(id: number) {
-  if (learningActive.value) {
-    const stepIndex = learningPath.value.nodes.findIndex(node => node.id === id)
-    if (stepIndex >= 0) {
-      void goLearningTo(stepIndex)
-      return
-    }
-  }
   void showNode(id, { focus: true })
 }
 
@@ -764,26 +710,6 @@ function handleFocus() {
   user.loadProfile()
 }
 
-function isTypingTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName.toLowerCase()
-  return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable
-}
-
-function handleKeydown(event: KeyboardEvent) {
-  if (!learningActive.value || isTypingTarget(event.target)) return
-  if (event.key === 'ArrowLeft') {
-    event.preventDefault()
-    goLearningPrev()
-  } else if (event.key === 'ArrowRight') {
-    event.preventDefault()
-    goLearningNext()
-  } else if (event.key === 'Escape') {
-    event.preventDefault()
-    exitLearningPath()
-  }
-}
-
 watch(showEdgeLabels, () => renderTree())
 
 onMounted(async () => {
@@ -792,7 +718,6 @@ onMounted(async () => {
   if (el) graphChart.init(el)
   window.addEventListener('resize', handleResize)
   window.addEventListener('focus', handleFocus)
-  window.addEventListener('keydown', handleKeydown)
   await user.loadProfile()
   await Promise.all([loadOverview(), loadTree()])
 })
@@ -800,7 +725,6 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('focus', handleFocus)
-  window.removeEventListener('keydown', handleKeydown)
   graphChart.dispose()
 })
 </script>

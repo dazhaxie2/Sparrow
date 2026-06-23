@@ -143,14 +143,11 @@ export function useSigmaGraph(opts: {
     sigma.refresh()
   }
 
-  /** 根据 ctx(highlight/learning/dialog)挂 nodeReducer/edgeReducer 实现高亮。 */
+  /** 根据 ctx(highlight/dialog)挂 nodeReducer/edgeReducer 实现高亮。 */
   function applyReducers(ctx: RenderState) {
     if (!sigma) return
     const chain = ctx.highlight?.chainIds ?? null
     const selected = ctx.highlight?.selectedId ?? null
-    const learningActive = ctx.learningActive
-    const learningIds = learningActive ? new Set(ctx.learningNodes.map(n => n.id)) : null
-    const learningCurrentId = ctx.learningCurrentId
     const dialogIds = ctx.dialogNodeIds
 
     const adjacentIds = new Set<number>()
@@ -167,18 +164,16 @@ export function useSigmaGraph(opts: {
       const isSelected = id === selected
       const inChain = Boolean(chain && (chain.has(id) || id === selected))
       const adjacent = adjacentIds.has(id)
-      const inLearning = Boolean(learningIds?.has(id))
-      const isLearningCurrent = id === learningCurrentId
       const isDialog = dialogIds.has(id)
       const isHovered = id === hoveredNodeId
-      const persistentlyEmphasized = isSelected || adjacent || inChain || inLearning || isDialog
+      const persistentlyEmphasized = isSelected || adjacent || inChain || isDialog
       const dimmed = selected != null && !persistentlyEmphasized && !isHovered
 
-      const sizeBoost = isLearningCurrent ? 6 : isSelected ? 5 : adjacent ? 2 : 0
+      const sizeBoost = isSelected ? 5 : adjacent ? 2 : 0
       return {
         ...data,
         size: ((data.size as number) + sizeBoost) * (dimmed ? 0.78 : 1),
-        color: isLearningCurrent || isSelected
+        color: isSelected
           ? COLORS.selected
           : adjacent || inChain
             ? COLORS.adjacent
@@ -200,8 +195,7 @@ export function useSigmaGraph(opts: {
       const chainEdge = Boolean(chain
         && (chain.has(sourceId) || sourceId === selected)
         && (chain.has(targetId) || targetId === selected))
-      const learningEdge = Boolean(learningIds?.has(sourceId) && learningIds?.has(targetId))
-      const persistentEdge = selectedEdge || chainEdge || learningEdge
+      const persistentEdge = selectedEdge || chainEdge
       const hoveredEdge = hoveredNodeId != null
         && (sourceId === hoveredNodeId || targetId === hoveredNodeId)
       const dimmed = selected != null && !persistentEdge && !hoveredEdge

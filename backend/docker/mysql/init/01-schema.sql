@@ -138,6 +138,16 @@ CREATE TABLE IF NOT EXISTS node_layout (
     KEY idx_cluster_level (cluster_id, level)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
+-- 「应用与产业链」AI 判定结果缓存(按需懒计算):材料/化合物节点的下游应用邻居。
+-- 由 sparrow-ai 的 LLM 判定后回写,首次请求触发计算,之后命中缓存秒出。
+-- 复合主键保证幂等,saveAll 时先 delete by node_id 再批量插入以支持重算。
+CREATE TABLE IF NOT EXISTS node_application (
+    node_id     BIGINT NOT NULL COMMENT '材料/化合物节点(被应用的主体)',
+    app_node_id BIGINT NOT NULL COMMENT '被判定为下游应用的邻居节点',
+    PRIMARY KEY (node_id, app_node_id),
+    KEY idx_node (node_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '节点应用/产业链判定缓存';
+
 CREATE TABLE IF NOT EXISTS undo_log (
     branch_id     BIGINT       NOT NULL COMMENT 'branch transaction id',
     xid           VARCHAR(128) NOT NULL COMMENT 'global transaction id',

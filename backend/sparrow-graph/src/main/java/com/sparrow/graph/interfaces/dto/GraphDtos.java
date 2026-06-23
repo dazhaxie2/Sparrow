@@ -68,7 +68,8 @@ public final class GraphDtos {
     public record NodeDetail(Long id, String code, String name, String era, Integer eraRank,
                              String yearLabel, String summary, String detail, boolean premium,
                              boolean locked, List<NodeBrief> prerequisites, List<NodeBrief> unlocks,
-                             List<SourceBrief> sources, String category, Integer importance) {
+                             List<NodeBrief> applications, List<SourceBrief> sources,
+                             String category, Integer importance) {
     }
 
     /** 总览端点:领域×时代格子的聚合计数 + 该格代表节点(按重要度取 top)。 */

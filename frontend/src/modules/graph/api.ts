@@ -51,6 +51,11 @@ export function fetchPrerequisites(id: number) {
   return get<NodeBrief[]>(`/api/graph/node/${id}/prerequisites`)
 }
 
+/** 节点「应用与产业链」:服务端命中缓存秒出,未命中时 AI 判定后缓存。 */
+export function fetchApplications(id: number) {
+  return get<NodeBrief[]>(`/api/graph/node/${id}/applications`)
+}
+
 export function fetchKnowledgeStatus() {
   return get<KnowledgeStatus>('/api/graph/knowledge/status')
 }
