@@ -11,10 +11,8 @@ import com.sparrow.graph.interfaces.dto.GraphDtos.NodePage;
 import com.sparrow.graph.interfaces.dto.GraphDtos.Tree;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -31,6 +29,9 @@ import java.util.stream.Collectors;
  */
 @Component
 public class MysqlGraphReader {
+
+    private static final int MAX_PREREQUISITE_PATH_NODES = 200;
+    private static final int MAX_PREREQUISITE_DEPTH = 8;
 
     private static final Comparator<TechNode> ORDER =
             Comparator.comparing(TechNode::getEraRank, Comparator.nullsLast(Comparator.naturalOrder()))
@@ -53,7 +54,7 @@ public class MysqlGraphReader {
 
     public List<EdgeBrief> allEdges() {
         return edgeMapper.selectList(null).stream()
-                .map(e -> new EdgeBrief(e.getFromId(), e.getToId()))
+                .map(EdgeBrief::from)
                 .toList();
     }
 
@@ -97,21 +98,19 @@ public class MysqlGraphReader {
         return new NodePage(rows, total, p, s);
     }
 
-    /** 名称/摘要前缀检索,按重要度排序,默认上限 20。 */
+    /** 名称/摘要检索：名称完全匹配 > 名称前缀 > 名称包含 > 摘要包含，同级按重要度排序。 */
     public List<NodeBrief> searchNodes(String q, int limit) {
         if (q == null || q.isBlank()) {
             return List.of();
         }
         int lim = Math.min(Math.max(limit, 1), 50);
-        QueryWrapper<TechNode> filter = baseFilter(null, null, q, null);
-        filter.orderByDesc("importance").orderByAsc("id").last("LIMIT " + lim);
-        return nodeMapper.selectList(filter).stream().map(NodeBrief::from).toList();
+        return nodeMapper.searchRelevant(q.trim(), lim).stream().map(NodeBrief::from).toList();
     }
 
     /** 过滤后构造有界子图:保留核心高重要度节点,同时补入可连接核心的邻居以提升可见关系密度。 */
     public Tree subgraph(String category, Integer eraRank, String q,
                          Integer minImportance, int limit) {
-        int lim = Math.min(Math.max(limit, 1), 800);
+        int lim = Math.min(Math.max(limit, 1), 1000);
         int candidateLimit = Math.min(Math.max(lim * 3, lim), 2000);
         QueryWrapper<TechNode> filter = baseFilter(category, eraRank, q, minImportance);
         filter.orderByDesc("importance").orderByAsc("id").last("LIMIT " + candidateLimit);
@@ -176,7 +175,7 @@ public class MysqlGraphReader {
         Set<Long> visibleIds = nodes.stream().map(NodeBrief::id).collect(Collectors.toSet());
         List<EdgeBrief> edges = candidateEdges.stream()
                 .filter(e -> visibleIds.contains(e.getFromId()) && visibleIds.contains(e.getToId()))
-                .map(e -> new EdgeBrief(e.getFromId(), e.getToId()))
+                .map(EdgeBrief::from)
                 .toList();
         return new Tree(nodes, edges);
     }
@@ -210,59 +209,56 @@ public class MysqlGraphReader {
 
     /** 直接前置:edges 中 to_id=id 的 from_id 节点。 */
     public List<NodeBrief> directPrerequisites(Long id) {
-        Map<Long, TechNode> byId = nodesById();
-        return edgeMapper.selectList(null).stream()
-                .filter(e -> id.equals(e.getToId()))
-                .map(e -> byId.get(e.getFromId()))
-                .filter(Objects::nonNull)
-                .sorted(ORDER)
-                .map(NodeBrief::from)
-                .toList();
+        QueryWrapper<TechEdge> query = new QueryWrapper<>();
+        query.eq("to_id", id);
+        Set<Long> ids = edgeMapper.selectList(query).stream()
+                .map(TechEdge::getFromId)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return nodesForIds(ids);
     }
 
     /** 直接解锁:edges 中 from_id=id 的 to_id 节点(它们以 id 为前置)。 */
     public List<NodeBrief> directUnlocks(Long id) {
-        Map<Long, TechNode> byId = nodesById();
-        return edgeMapper.selectList(null).stream()
-                .filter(e -> id.equals(e.getFromId()))
-                .map(e -> byId.get(e.getToId()))
-                .filter(Objects::nonNull)
-                .sorted(ORDER)
-                .map(NodeBrief::from)
-                .toList();
+        QueryWrapper<TechEdge> query = new QueryWrapper<>();
+        query.eq("from_id", id);
+        Set<Long> ids = edgeMapper.selectList(query).stream()
+                .map(TechEdge::getToId)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return nodesForIds(ids);
     }
 
     /** 完整前置链:反向 BFS 多跳,等价于 Neo4j 的 {@code [:REQUIRES*]}。 */
     public List<NodeBrief> allPrerequisites(Long id) {
-        Map<Long, TechNode> byId = nodesById();
-        if (!byId.containsKey(id)) {
+        if (!exists(id)) {
             throw new BizException(404, "技术节点不存在");
         }
-        Map<Long, List<Long>> prereqOf = new HashMap<>();
-        for (TechEdge e : edgeMapper.selectList(null)) {
-            prereqOf.computeIfAbsent(e.getToId(), k -> new ArrayList<>()).add(e.getFromId());
-        }
         Set<Long> visited = new LinkedHashSet<>();
-        Deque<Long> queue = new ArrayDeque<>();
-        queue.add(id);
-        while (!queue.isEmpty()) {
-            Long cur = queue.poll();
-            for (Long pre : prereqOf.getOrDefault(cur, List.of())) {
-                if (visited.add(pre)) {
-                    queue.add(pre);
+        Set<Long> frontier = new LinkedHashSet<>(List.of(id));
+        int depth = 0;
+        while (!frontier.isEmpty()
+                && visited.size() < MAX_PREREQUISITE_PATH_NODES
+                && depth++ < MAX_PREREQUISITE_DEPTH) {
+            QueryWrapper<TechEdge> query = new QueryWrapper<>();
+            query.in("to_id", frontier);
+            query.last("LIMIT " + Math.max(1, (MAX_PREREQUISITE_PATH_NODES - visited.size()) * 4));
+            Set<Long> next = new LinkedHashSet<>();
+            for (TechEdge edge : edgeMapper.selectList(query)) {
+                Long prerequisiteId = edge.getFromId();
+                if (!id.equals(prerequisiteId) && visited.add(prerequisiteId)) {
+                    next.add(prerequisiteId);
+                    if (visited.size() >= MAX_PREREQUISITE_PATH_NODES) break;
                 }
             }
+            frontier = next;
         }
-        return visited.stream()
-                .map(byId::get)
-                .filter(Objects::nonNull)
+        return nodesForIds(visited);
+    }
+
+    private List<NodeBrief> nodesForIds(Set<Long> ids) {
+        if (ids.isEmpty()) return List.of();
+        return nodeMapper.selectBatchIds(ids).stream()
                 .sorted(ORDER)
                 .map(NodeBrief::from)
                 .toList();
-    }
-
-    private Map<Long, TechNode> nodesById() {
-        return nodeMapper.selectList(null).stream()
-                .collect(Collectors.toMap(TechNode::getId, Function.identity(), (a, b) -> a));
     }
 }

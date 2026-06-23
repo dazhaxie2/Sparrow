@@ -1,6 +1,6 @@
 import { get } from '../../shared/api/request'
 import type {
-  Tree, NodeDetail, NodeBrief, KnowledgeStatus, Overview, Neighborhood, SubgraphFilters, GraphTile,
+  Tree, NodeDetail, NodeBrief, KnowledgeStatus, Overview, Neighborhood, SubgraphFilters, GraphTile, ClusterOverview,
 } from './types'
 
 export function fetchTree() {
@@ -26,6 +26,11 @@ export function fetchSubgraph(filters: SubgraphFilters = {}) {
 /** 服务端预计算坐标的 LOD 瓦片：L0 为全景代表点，L1-L3 为指定簇。 */
 export function fetchTile(level: number, clusterId = 0) {
   return get<GraphTile>(`/api/graph/tiles/${level}/${clusterId}`)
+}
+
+/** 社区簇总览，包含簇成员数与代表节点。 */
+export function fetchClusterOverview() {
+  return get<ClusterOverview>('/api/graph/clusters')
 }
 
 /** 节点邻域子图(展开式浏览)。 */

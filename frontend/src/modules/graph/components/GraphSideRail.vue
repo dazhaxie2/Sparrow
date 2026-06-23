@@ -37,15 +37,29 @@
       </section>
 
       <section class="rail-section density-section">
-        <div class="rail-label"><span>显示密度</span></div>
+        <div class="rail-label"><span>节点数量</span></div>
         <div class="rail-density">
           <button
             v-for="opt in limitOptions"
             :key="opt"
             type="button"
             :class="{ active: graphLimit === opt }"
-            @click="$emit('setLimit', opt)"
+            @click="selectLimit(opt)"
           >{{ opt }}</button>
+          <input
+            v-model="customLimit"
+            class="rail-custom-limit"
+            :class="{ active: !limitOptions.includes(graphLimit) }"
+            type="number"
+            inputmode="numeric"
+            :min="1"
+            step="1"
+            placeholder="自定义"
+            aria-label="自定义节点数量，停止输入后自动加载"
+            @input="scheduleCustomLimit"
+            @keydown.enter.prevent="applyCustomLimit"
+            @blur="applyCustomLimit"
+          />
         </div>
       </section>
     </div>
@@ -53,10 +67,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import { Layers, SlidersHorizontal, X } from '@lucide/vue'
 
-defineProps<{
+const props = defineProps<{
   totalNodes: number
   totalEdges: number
   masteredCount: number
@@ -67,12 +81,63 @@ defineProps<{
   graphLimit: number
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   setCategory: [cat: string | null]
   setLimit: [limit: number]
 }>()
 
 const railOpen = ref(false)
+const customLimit = ref<number | string>(props.graphLimit)
+const CUSTOM_LIMIT_DEBOUNCE_MS = 600
+let pendingCustomTimer: ReturnType<typeof setTimeout> | null = null
+let lastRequestedLimit = props.graphLimit
+
+watch(() => props.graphLimit, value => {
+  customLimit.value = value
+  lastRequestedLimit = value
+})
+
+function clearCustomTimer() {
+  if (pendingCustomTimer == null) return
+  clearTimeout(pendingCustomTimer)
+  pendingCustomTimer = null
+}
+
+function normalizedCustomLimit() {
+  if (String(customLimit.value).trim() === '') return null
+  const parsed = Number(customLimit.value)
+  if (!Number.isFinite(parsed)) return null
+  return Math.min(Number.MAX_SAFE_INTEGER, Math.max(1, Math.round(parsed)))
+}
+
+function selectLimit(limit: number) {
+  clearCustomTimer()
+  customLimit.value = limit
+  if (limit === lastRequestedLimit) return
+  lastRequestedLimit = limit
+  emit('setLimit', limit)
+}
+
+function applyCustomLimit() {
+  clearCustomTimer()
+  const normalized = normalizedCustomLimit()
+  if (normalized == null) {
+    customLimit.value = props.graphLimit
+    return
+  }
+  customLimit.value = normalized
+  if (normalized === lastRequestedLimit) return
+  lastRequestedLimit = normalized
+  emit('setLimit', normalized)
+}
+
+function scheduleCustomLimit() {
+  clearCustomTimer()
+  if (normalizedCustomLimit() == null) return
+  pendingCustomTimer = setTimeout(applyCustomLimit, CUSTOM_LIMIT_DEBOUNCE_MS)
+}
+
+onUnmounted(clearCustomTimer)
 </script>
 
 <style scoped>
@@ -257,7 +322,7 @@ const railOpen = ref(false)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
 }
 
 .density-section .rail-label {
@@ -266,7 +331,40 @@ const railOpen = ref(false)
 
 .rail-density {
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+}
+
+.rail-custom-limit {
+  width: 76px;
+  height: 27px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+  outline: none;
+}
+
+.rail-custom-limit:focus,
+.rail-custom-limit.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(255, 87, 34, 0.1);
+}
+
+.rail-custom-limit::-webkit-inner-spin-button,
+.rail-custom-limit::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.rail-custom-limit {
+  appearance: textfield;
 }
 
 @media (max-width: 720px) {

@@ -43,6 +43,8 @@ LARGE_CLUSTER = 2500
 MIN_MAIN_CLUSTER = 10
 LEVEL1_FRAC = 0.05
 LEVEL2_FRAC = 0.25
+DEFAULT_TARGET_CLUSTER_SIZE = 300
+GOLDEN_ANGLE = math.pi * (3.0 - math.sqrt(5.0))
 
 
 def connect():
@@ -182,16 +184,214 @@ def build_rows(mains, cluster_of, pos3, cluster_pos, importance):
     return rows
 
 
+def _scope_where(scope):
+    if scope == "real":
+        return "WHERE code NOT LIKE 'syn\\_%'"
+    if scope == "syn":
+        return "WHERE code LIKE 'syn\\_%'"
+    return ""
+
+
+def count_scope_nodes(conn, scope):
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM tech_node " + _scope_where(scope))
+        return int(cur.fetchone()[0])
+
+
+def prepare_staging_table(conn):
+    with conn.cursor() as cur:
+        # staging 是离线工作表;线上 node_layout 始终保持可读。
+        cur.execute("DROP TABLE IF EXISTS node_layout_stage")
+        cur.execute("CREATE TABLE node_layout_stage LIKE node_layout")
+    conn.commit()
+
+
+def swap_staged_layout(conn, expected_total=None, expected_l3=None, expected_l0=None):
+    with conn.cursor() as cur:
+        cur.execute("SELECT level, COUNT(*) FROM node_layout_stage GROUP BY level")
+        per_level = {int(level): int(count) for level, count in cur.fetchall()}
+        staged = sum(per_level.values())
+        if expected_total is not None and staged != expected_total:
+            raise RuntimeError(
+                "staging 行数校验失败: expected=%d actual=%d;线上 node_layout 未改动"
+                % (expected_total, staged)
+            )
+        if expected_l3 is not None and per_level.get(3, 0) != expected_l3:
+            raise RuntimeError(
+                "staging L3 覆盖校验失败: expected=%d actual=%d;线上 node_layout 未改动"
+                % (expected_l3, per_level.get(3, 0))
+            )
+        if expected_l0 is not None and per_level.get(0, 0) != expected_l0:
+            raise RuntimeError(
+                "staging L0 簇数校验失败: expected=%d actual=%d;线上 node_layout 未改动"
+                % (expected_l0, per_level.get(0, 0))
+            )
+
+        # RENAME TABLE 是 MySQL 原子 DDL:读请求只会看到完整旧版或完整新版。
+        # 上一版保留在 node_layout_previous,需要时可人工原子回滚。
+        cur.execute("DROP TABLE IF EXISTS node_layout_previous")
+        cur.execute(
+            "RENAME TABLE node_layout TO node_layout_previous, "
+            "node_layout_stage TO node_layout"
+        )
+    return per_level
+
+
 def write_layout(conn, rows, rebuild):
-    sql = ("INSERT INTO node_layout (node_id, cluster_id, level, x, y) "
+    target = "node_layout_stage" if rebuild else "node_layout"
+    sql = (f"INSERT INTO {target} (node_id, cluster_id, level, x, y) "
            "VALUES (%s, %s, %s, %s, %s) "
            "ON DUPLICATE KEY UPDATE cluster_id=VALUES(cluster_id), x=VALUES(x), y=VALUES(y)")
     with conn.cursor() as cur:
         if rebuild:
-            cur.execute("TRUNCATE TABLE node_layout")
+            prepare_staging_table(conn)
         for i in range(0, len(rows), 2000):
             cur.executemany(sql, rows[i:i + 2000])
     conn.commit()
+
+    if not rebuild:
+        return
+
+    swap_staged_layout(conn, expected_total=len(rows))
+
+
+def _category_plan(conn, scope, target_cluster_size):
+    where = _scope_where(scope)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COALESCE(category, '未分类') AS category_key, COUNT(*) "
+            "FROM tech_node %s GROUP BY category_key ORDER BY category_key" % where
+        )
+        counts = [(str(category), int(count)) for category, count in cur.fetchall()]
+
+    plan = {}
+    cluster_offset = 0
+    for category_index, (category, count) in enumerate(counts):
+        cluster_count = max(1, math.ceil(count / target_cluster_size))
+        plan[category] = {
+            "category_index": category_index,
+            "count": count,
+            "cluster_count": cluster_count,
+            "cluster_offset": cluster_offset,
+        }
+        cluster_offset += cluster_count
+    return plan, cluster_offset
+
+
+def _cluster_center(category_index, category_total, cluster_index, cluster_count):
+    # 领域沿大圆分区,领域内的小簇按网格排布;簇间距远大于簇内半径。
+    category_radius = 180000.0 if category_total > 1 else 0.0
+    category_angle = 2.0 * math.pi * category_index / max(category_total, 1)
+    base_x = category_radius * math.cos(category_angle)
+    base_y = category_radius * math.sin(category_angle)
+    columns = max(1, math.ceil(math.sqrt(cluster_count)))
+    rows = max(1, math.ceil(cluster_count / columns))
+    column = cluster_index % columns
+    row = cluster_index // columns
+    spacing = 2600.0
+    return (
+        base_x + (column - (columns - 1) / 2.0) * spacing,
+        base_y + (row - (rows - 1) / 2.0) * spacing,
+    )
+
+
+def write_scalable_layout(conn, scope, max_nodes, target_cluster_size, rebuild):
+    """百万级流式布局:内存 O(簇数),不加载全量边,不构建 NetworkX 全图。"""
+    node_total = count_scope_nodes(conn, scope)
+    if max_nodes and node_total > max_nodes:
+        sys.exit("节点数 %d 超过 --max-nodes %d;请显式调高上限。" % (node_total, max_nodes))
+    plan, cluster_total = _category_plan(conn, scope, target_cluster_size)
+    if not plan:
+        raise RuntimeError("当前 scope 没有可布局节点")
+
+    target = "node_layout_stage" if rebuild else "node_layout"
+    if rebuild:
+        prepare_staging_table(conn)
+    insert_sql = (
+        f"INSERT INTO {target} (node_id, cluster_id, level, x, y) "
+        "VALUES (%s, %s, %s, %s, %s) "
+        "ON DUPLICATE KEY UPDATE cluster_id=VALUES(cluster_id), x=VALUES(x), y=VALUES(y)"
+    )
+
+    category_seen = defaultdict(int)
+    representatives = {}
+    batch = []
+    processed = 0
+    read_conn = connect()
+    try:
+        with read_conn.cursor(pymysql.cursors.SSCursor) as reader, conn.cursor() as writer:
+            reader.execute(
+                "SELECT id, importance, COALESCE(category, '未分类') AS category_key "
+                "FROM tech_node %s ORDER BY category_key, id" % _scope_where(scope)
+            )
+            for node_id, importance, category in reader:
+                node_id = int(node_id)
+                importance = int(importance or 0)
+                category = str(category)
+                meta = plan[category]
+                category_local_index = category_seen[category]
+                category_seen[category] += 1
+                cluster_index = category_local_index // target_cluster_size
+                local_index = category_local_index % target_cluster_size
+                cluster_id = meta["cluster_offset"] + cluster_index
+                center_x, center_y = _cluster_center(
+                    meta["category_index"], len(plan), cluster_index, meta["cluster_count"]
+                )
+                local_radius = 44.0 * math.sqrt(local_index)
+                local_angle = GOLDEN_ANGLE * local_index
+                x = center_x + local_radius * math.cos(local_angle)
+                y = center_y + local_radius * math.sin(local_angle)
+
+                batch.append((node_id, cluster_id, 3, x, y))
+                # 稳定抽稀 + 高重要度兜底,L1 始终是 L2 子集。
+                if local_index % 4 == 0 or importance >= 75:
+                    batch.append((node_id, cluster_id, 2, x, y))
+                if local_index % 20 == 0 or importance >= 95:
+                    batch.append((node_id, cluster_id, 1, x, y))
+
+                current = representatives.get(cluster_id)
+                candidate = (importance, -node_id, node_id, center_x, center_y)
+                if current is None or candidate[:2] > current[:2]:
+                    representatives[cluster_id] = candidate
+
+                processed += 1
+                if len(batch) >= 10000:
+                    writer.executemany(insert_sql, batch)
+                    conn.commit()
+                    batch.clear()
+                if processed % 100000 == 0:
+                    print("      layout progress %d / %d" % (processed, node_total), flush=True)
+
+            if batch:
+                writer.executemany(insert_sql, batch)
+                conn.commit()
+
+            level0_rows = [
+                (node_id, cluster_id, 0, center_x, center_y)
+                for cluster_id, (_importance, _negative_id, node_id, center_x, center_y)
+                in representatives.items()
+            ]
+            for i in range(0, len(level0_rows), 2000):
+                writer.executemany(insert_sql, level0_rows[i:i + 2000])
+            conn.commit()
+    finally:
+        read_conn.close()
+
+    if processed != node_total:
+        raise RuntimeError("读取节点数不一致: expected=%d actual=%d" % (node_total, processed))
+    if len(representatives) != cluster_total:
+        raise RuntimeError(
+            "生成簇数不一致: expected=%d actual=%d" % (cluster_total, len(representatives))
+        )
+    if rebuild:
+        per_level = swap_staged_layout(
+            conn, expected_l3=node_total, expected_l0=cluster_total
+        )
+    else:
+        with conn.cursor() as cur:
+            cur.execute("SELECT level, COUNT(*) FROM node_layout GROUP BY level")
+            per_level = {int(level): int(count) for level, count in cur.fetchall()}
+    return node_total, cluster_total, per_level
 
 
 def main():
@@ -199,11 +399,31 @@ def main():
     ap.add_argument("--scope", choices=["real", "all", "syn"], default="real")
     ap.add_argument("--rebuild", action="store_true")
     ap.add_argument("--max-nodes", type=int, default=300000)
+    ap.add_argument("--strategy", choices=["auto", "louvain", "scalable"], default="auto")
+    ap.add_argument("--target-cluster-size", type=int, default=DEFAULT_TARGET_CLUSTER_SIZE)
     args = ap.parse_args()
 
     t0 = time.time()
     conn = connect()
     try:
+        node_total = count_scope_nodes(conn, args.scope)
+        strategy = args.strategy
+        if strategy == "auto":
+            strategy = "scalable" if node_total > 100000 else "louvain"
+        print("strategy=%s scope=%s nodes=%d" % (strategy, args.scope, node_total), flush=True)
+
+        if strategy == "scalable":
+            nodes, clusters, per_level = write_scalable_layout(
+                conn, args.scope, args.max_nodes, args.target_cluster_size, args.rebuild
+            )
+            print("      nodes=%d clusters=%d %s" % (
+                nodes,
+                clusters,
+                " ".join("L%d=%d" % (level, count) for level, count in sorted(per_level.items())),
+            ), flush=True)
+            print("done in %.1fs" % (time.time() - t0), flush=True)
+            return
+
         print("[1/5] load graph scope=%s" % args.scope, flush=True)
         g, importance = load_graph(conn, args.scope, args.max_nodes)
         print("      nodes %d edges %d" % (g.number_of_nodes(), g.number_of_edges()), flush=True)

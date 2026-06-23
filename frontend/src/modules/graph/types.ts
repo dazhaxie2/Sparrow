@@ -15,11 +15,15 @@ export interface NodeBrief {
   /** LOD 瓦片元数据，用于从远景代表点下钻。 */
   clusterId?: number
   lodLevel?: number
+  /** 聚簇代表点覆盖的真实节点数；普通节点为空。 */
+  clusterSize?: number
 }
 
 export interface EdgeBrief {
   from: number
   to: number
+  /** 关系类型:0=依赖/前置(默认),1=结构/分类归属。 */
+  relation?: number
   label?: string | null
 }
 
@@ -43,6 +47,15 @@ export interface GraphTile {
   clusterId: number
   nodes: TileNode[]
   edges: EdgeBrief[]
+}
+
+export interface ClusterNode extends TileNode {
+  nodeCount: number
+}
+
+export interface ClusterOverview {
+  representedNodes: number
+  clusters: ClusterNode[]
 }
 
 export interface NodeDetail {

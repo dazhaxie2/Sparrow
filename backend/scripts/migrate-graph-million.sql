@@ -44,3 +44,14 @@ CREATE TABLE IF NOT EXISTS node_layout (
     PRIMARY KEY (node_id, level),
     KEY idx_cluster_level (cluster_id, level)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- 5. tech_edge 加 relation 列(关系类型:0=依赖/前置,1=结构/分类归属)
+-- 存量边一律回填 0,语义不变;爬虫后续按类型写入结构边。
+SET @col_exists := (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'sparrow_graph' AND TABLE_NAME = 'tech_edge' AND COLUMN_NAME = 'relation'
+);
+SET @sql := IF(@col_exists = 0,
+    'ALTER TABLE tech_edge ADD COLUMN relation TINYINT NOT NULL DEFAULT 0 AFTER to_id',
+    'SELECT "relation 已存在,跳过" AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

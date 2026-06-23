@@ -41,7 +41,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class GraphServiceTest {
@@ -136,13 +135,17 @@ class GraphServiceTest {
     @Test
     void nodeDetailThrowsWhenMissing() {
         when(neoRepo.findByNodeId(999L)).thenReturn(Optional.empty());
+        when(mysqlReader.findNode(999L)).thenReturn(null);
         assertThrows(BizException.class, () -> service.nodeDetail(999L, null));
+        verify(mysqlReader).findNode(999L);
     }
 
     @Test
     void prerequisiteChainThrowsWhenMissing() {
         when(neoRepo.existsByNodeId(999L)).thenReturn(false);
+        when(mysqlReader.findNode(999L)).thenReturn(null);
         assertThrows(BizException.class, () -> service.prerequisiteChain(999L));
+        verify(mysqlReader).findNode(999L);
     }
 
     @Test
@@ -193,6 +196,41 @@ class GraphServiceTest {
     }
 
     @Test
+    void clusterOverviewIncludesMemberCounts() throws Exception {
+        when(nodeLayoutMapper.clusterSummaries()).thenReturn(List.of(Map.of(
+                "id", 41L,
+                "clusterId", 7L,
+                "x", 12.5,
+                "y", -3.25,
+                "name", "Steam engine",
+                "category", "Energy",
+                "importance", 96,
+                "nodeCount", 320L)));
+
+        byte[] body = service.clusterOverviewBytes();
+        var json = new ObjectMapper().readTree(body);
+        var data = json.path("data");
+
+        assertEquals(320L, data.path("representedNodes").asLong());
+        assertEquals(320L, data.path("clusters").get(0).path("nodeCount").asLong());
+        assertEquals(7L, data.path("clusters").get(0).path("clusterId").asLong());
+    }
+
+    @Test
+    void overviewUsesMysqlAsAuthoritativeMillionScaleCount() throws Exception {
+        when(neoRepo.findAllOrdered()).thenReturn(List.of(
+                neoNode(1L, "fire", "Fire", false, "detail")));
+        when(mysqlReader.count()).thenReturn(860_935);
+        when(mysqlReader.countEdges()).thenReturn(10_097_645L);
+
+        byte[] body = service.overviewBytes();
+        var json = new ObjectMapper().readTree(body);
+
+        assertEquals(860_935L, json.path("data").path("totalNodes").asLong());
+        assertEquals(10_097_645L, json.path("data").path("totalEdges").asLong());
+    }
+
+    @Test
     void clusterTileReturnsNodesAndInternalEdges() throws Exception {
         when(nodeLayoutMapper.tileNodes(3, 7L)).thenReturn(List.of(Map.of(
                 "id", 41L,
@@ -204,14 +242,19 @@ class GraphServiceTest {
                 "importance", 96)));
         when(nodeLayoutMapper.tileEdges(3, 7L)).thenReturn(List.of(Map.of(
                 "from", 40L,
-                "to", 41L)));
+                "to", 41L,
+                "relation", 1)));
 
         byte[] body = service.tileBytes(3, 7L);
         var json = new ObjectMapper().readTree(body);
 
         assertEquals(7L, json.path("data").path("clusterId").asLong());
         assertEquals(1, json.path("data").path("nodes").size());
-        assertEquals(41L, json.path("data").path("edges").get(0).path("to").asLong());
+        var edge = json.path("data").path("edges").get(0);
+        assertEquals(41L, edge.path("to").asLong());
+        // relation 透传 + label 由类型推导(1=结构/分类归属)
+        assertEquals(1, edge.path("relation").asInt());
+        assertEquals("结构", edge.path("label").asText());
     }
 
     @Test
@@ -233,6 +276,7 @@ class GraphServiceTest {
     @Test
     void prerequisiteChainFallsBackToMysqlWhenNeo4jDown() {
         when(neoRepo.existsByNodeId(41L)).thenThrow(new RuntimeException("neo4j unavailable"));
+        when(mysqlReader.findNode(41L)).thenReturn(mock(TechNode.class));
         when(mysqlReader.allPrerequisites(41L)).thenReturn(List.of(
                 new NodeBrief(1L, "fire", "火", "石器时代", 1, "约公元前50万年", "摘要", false, "能源动力", 100)));
 
@@ -267,11 +311,12 @@ class GraphServiceTest {
     }
 
     @Test
-    void businessNotFoundDoesNotTriggerFallback() {
+    void missingNeoNodeChecksAuthoritativeMysqlBeforeReturningNotFound() {
         when(neoRepo.findByNodeId(999L)).thenReturn(Optional.empty());
+        when(mysqlReader.findNode(999L)).thenReturn(null);
 
         assertThrows(BizException.class, () -> service.nodeDetail(999L, null));
-        verifyNoInteractions(mysqlReader);
+        verify(mysqlReader).findNode(999L);
     }
 
     private NeoTechNode neoNode(long id, String code, String name, boolean premium, String detail) {

@@ -11,6 +11,8 @@ docker compose up -d --build
 
 全部就绪后访问 **http://localhost:8080**。
 
+线上预览地址: **https://dazhaxie75.top/**
+
 ## 功能
 
 | 功能 | 入口 | 说明 |

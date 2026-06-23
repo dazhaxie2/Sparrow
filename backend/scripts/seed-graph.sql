@@ -28,19 +28,16 @@ CREATE PROCEDURE seed_graph_nodes(
     IN p_batch INT
 )
 BEGIN
-    DECLARE v_done INT DEFAULT 0;
-    DECLARE v_i INT;
-    DECLARE v_cat_idx INT;
-    DECLARE v_era_idx INT;
-    DECLARE v_imp INT;
-    DECLARE v_year VARCHAR(32);
-    DECLARE v_name VARCHAR(128);
-    DECLARE v_summary VARCHAR(512);
+    DECLARE v_before INT DEFAULT 0;
+    DECLARE v_after INT DEFAULT 0;
 
     -- 14 个领域(与 01-schema 注释、seed 回填一致)
     -- 用临时表承载,供 RAND() 取模索引
     DROP TEMPORARY TABLE IF EXISTS tmp_cat;
-    CREATE TEMPORARY TABLE tmp_cat (idx INT PRIMARY KEY, name VARCHAR(32));
+    -- 与 tech_node 列对齐排序规则(8.0 charset=utf8mb4 默认 0900_ai_ci),否则自愈 UPDATE
+    -- 的 n.category <> c.name 会报 "Illegal mix of collations"。
+    CREATE TEMPORARY TABLE tmp_cat (idx INT PRIMARY KEY, name VARCHAR(32))
+        COLLATE utf8mb4_0900_ai_ci;
     INSERT INTO tmp_cat VALUES
         (0,'能源动力'),(1,'材料冶金'),(2,'农业食品'),(3,'交通运输'),
         (4,'信息计算'),(5,'通信网络'),(6,'电气电子'),(7,'医学生物'),
@@ -49,7 +46,8 @@ BEGIN
 
     -- 10 个时代(era_rank 1-10)
     DROP TEMPORARY TABLE IF EXISTS tmp_era;
-    CREATE TEMPORARY TABLE tmp_era (era_rank INT PRIMARY KEY, era VARCHAR(32), year_min INT, year_max INT);
+    CREATE TEMPORARY TABLE tmp_era (era_rank INT PRIMARY KEY, era VARCHAR(32), year_min INT, year_max INT)
+        COLLATE utf8mb4_0900_ai_ci;
     INSERT INTO tmp_era VALUES
         (1,'石器时代',-500000,-10000),
         (2,'农业时代',-10000,-3000),
@@ -62,71 +60,91 @@ BEGIN
         (9,'信息时代',1940,2000),
         (10,'智能时代',2000,2100);
 
-    -- 幂等:已生成过则跳过
-    IF (SELECT COUNT(*) FROM tech_node WHERE code LIKE 'syn_%') >= p_total THEN
+    -- 幂等且可断点续跑:按目标 ID 区间查缺补漏,不能用 MAX(id) 推断完成度。
+    SET v_before = (SELECT COUNT(*) FROM tech_node WHERE code LIKE 'syn\\_%');
+    IF v_before >= p_total THEN
         SELECT CONCAT('已存在 ', p_total, ' 条合成节点,跳过') AS msg;
     ELSE
-        SET v_done = (SELECT COALESCE(MAX(id), 9999999) FROM tech_node WHERE code LIKE 'syn_%');
+        DROP TEMPORARY TABLE IF EXISTS tmp_digit;
+        CREATE TEMPORARY TABLE tmp_digit (d TINYINT PRIMARY KEY);
+        INSERT INTO tmp_digit VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9);
+        CREATE TEMPORARY TABLE tmp_digit1 LIKE tmp_digit;
+        CREATE TEMPORARY TABLE tmp_digit2 LIKE tmp_digit;
+        CREATE TEMPORARY TABLE tmp_digit3 LIKE tmp_digit;
+        CREATE TEMPORARY TABLE tmp_digit4 LIKE tmp_digit;
+        CREATE TEMPORARY TABLE tmp_digit5 LIKE tmp_digit;
+        INSERT INTO tmp_digit1 SELECT * FROM tmp_digit;
+        INSERT INTO tmp_digit2 SELECT * FROM tmp_digit;
+        INSERT INTO tmp_digit3 SELECT * FROM tmp_digit;
+        INSERT INTO tmp_digit4 SELECT * FROM tmp_digit;
+        INSERT INTO tmp_digit5 SELECT * FROM tmp_digit;
 
-        WHILE v_done < 10000000 + p_total - 1 DO
-            SET v_i = 0;
-            SET @sql = 'INSERT IGNORE INTO tech_node (id, code, name, era, era_rank, year_label, summary, detail, premium, category, importance, source_url) VALUES ';
-            SET @vals = '';
+        INSERT IGNORE INTO tech_node
+            (id, code, name, era, era_rank, year_label, summary, detail,
+             premium, category, importance, source_url)
+        SELECT ids.id,
+               CONCAT('syn_', ids.id),
+               CONCAT(c.name, '·技术节点', ids.id),
+               e.era,
+               e.era_rank,
+               CASE WHEN e.year_min < 0
+                    THEN CONCAT('约公元前', ABS(e.year_min + MOD(ids.id, e.year_max - e.year_min)), '年')
+                    ELSE CONCAT(e.year_min + MOD(ids.id, e.year_max - e.year_min), '年') END,
+               CONCAT(c.name, '领域的合成技术节点,用于百万级图谱架构验证。'),
+               NULL,
+               0,
+               c.name,
+               FLOOR(POW(
+                   MOD((ids.id - 10000000) * 1103515245 + 12345, 1000000) / 1000000.0,
+                   3
+               ) * 100) + 1,
+               CONCAT('https://example.com/node/', ids.id)
+        FROM (
+            SELECT 10000000
+                   + d0.d + d1.d * 10 + d2.d * 100
+                   + d3.d * 1000 + d4.d * 10000 + d5.d * 100000 AS id
+            FROM tmp_digit d0
+            CROSS JOIN tmp_digit1 d1
+            CROSS JOIN tmp_digit2 d2
+            CROSS JOIN tmp_digit3 d3
+            CROSS JOIN tmp_digit4 d4
+            CROSS JOIN tmp_digit5 d5
+        ) ids
+        JOIN tmp_cat c ON c.idx = MOD(ids.id - 10000000, 14)
+        JOIN tmp_era e ON e.era_rank = 1 + MOD(FLOOR((ids.id - 10000000) / 14), 10)
+        LEFT JOIN tech_node existing ON existing.id = ids.id
+        WHERE ids.id < 10000000 + p_total
+          AND existing.id IS NULL;
+        COMMIT;
 
-            batch_loop: WHILE v_i < p_batch AND v_done < 10000000 + p_total - 1 DO
-                SET v_done = v_done + 1;
-
-                -- 领域 + 时代(均匀分布;真实数据各领域占比不均,但合成数据求可控)
-                SET v_cat_idx = FLOOR(RAND() * 14);
-                SET v_era_idx = 1 + FLOOR(RAND() * 10);
-
-                -- 重要度:幂律分布 —— 多数低重要度,少数高重要度(LOD 取舍用)
-                -- RAND()^3 让分布右偏:中位数 ~12.5,前 1% ~97+
-                SET v_imp = LEAST(100, FLOOR(POW(RAND(), 3) * 100) + 1);
-
-                -- 年份标签(从时代年份区间随机取,智能时代用整数年)
-                SELECT
-                    CASE
-                        WHEN year_min < 0 THEN CONCAT('约公元前', FLOOR(ABS(year_min) + RAND() * (year_max - year_min)), '年')
-                        ELSE CONCAT(FLOOR(year_min + RAND() * (year_max - year_min)), '年')
-                    END
-                INTO v_year FROM tmp_era WHERE era_rank = v_era_idx;
-
-                -- 名称:领域 + 编号(可读 + 唯一);摘要:简短占位
-                SET v_name = CONCAT((SELECT name FROM tmp_cat WHERE idx = v_cat_idx), '·技术节点', v_done);
-                SET v_summary = CONCAT((SELECT name FROM tmp_cat WHERE idx = v_cat_idx), '领域的合成技术节点,用于百万级图谱架构验证。');
-
-                SET @vals = CONCAT(@vals,
-                    IF(v_i > 0, ',', ''),
-                    '(', v_done,
-                    ',''', CONCAT('syn_', v_done), '''',
-                    ',', QUOTE(v_name),
-                    ',', QUOTE((SELECT era FROM tmp_era WHERE era_rank = v_era_idx)),
-                    ',', v_era_idx,
-                    ',', QUOTE(v_year),
-                    ',', QUOTE(v_summary),
-                    ',NULL,0',
-                    ',', QUOTE((SELECT name FROM tmp_cat WHERE idx = v_cat_idx)),
-                    ',', v_imp,
-                    ',''', CONCAT('https://example.com/node/', v_done), '''',
-                    ')');
-
-                SET v_i = v_i + 1;
-            END WHILE batch_loop;
-
-            SET @sql = CONCAT(@sql, @vals);
-            PREPARE stmt FROM @sql;
-            EXECUTE stmt;
-            DEALLOCATE PREPARE stmt;
-            COMMIT;
-
-            IF v_done % 100000 < p_batch THEN
-                SELECT CONCAT('节点进度: ', v_done - 9999999, ' / ', p_total, ' (', ROUND((v_done - 9999999) * 100.0 / p_total, 1), '%)') AS progress;
-            END IF;
-        END WHILE;
-
-        SELECT CONCAT('完成: 共生成 ', v_done - 9999999, ' 条合成节点') AS msg;
+        SET v_after = (SELECT COUNT(*) FROM tech_node WHERE code LIKE 'syn\\_%');
+        SELECT CONCAT('完成: 补齐 ', v_after - v_before, ' 条,合成节点总数 ', v_after) AS msg;
+        DROP TEMPORARY TABLE IF EXISTS tmp_digit;
+        DROP TEMPORARY TABLE IF EXISTS tmp_digit1;
+        DROP TEMPORARY TABLE IF EXISTS tmp_digit2;
+        DROP TEMPORARY TABLE IF EXISTS tmp_digit3;
+        DROP TEMPORARY TABLE IF EXISTS tmp_digit4;
+        DROP TEMPORARY TABLE IF EXISTS tmp_digit5;
     END IF;
+
+    -- 修复历史批次通过错误终端编码写入的 mojibake。合成节点文本全部可由 ID 稳定重建。
+    UPDATE tech_node n
+    JOIN tmp_cat c ON c.idx = MOD(n.id - 10000000, 14)
+    JOIN tmp_era e ON e.era_rank = 1 + MOD(FLOOR((n.id - 10000000) / 14), 10)
+    SET n.name = CONCAT(c.name, '·技术节点', n.id),
+        n.era = e.era,
+        n.era_rank = e.era_rank,
+        n.year_label = CASE WHEN e.year_min < 0
+                            THEN CONCAT('约公元前', ABS(e.year_min + MOD(n.id, e.year_max - e.year_min)), '年')
+                            ELSE CONCAT(e.year_min + MOD(n.id, e.year_max - e.year_min), '年') END,
+        n.summary = CONCAT(c.name, '领域的合成技术节点,用于百万级图谱架构验证。'),
+        n.category = c.name,
+        n.source_url = CONCAT('https://example.com/node/', n.id)
+    WHERE n.id >= 10000000
+      AND n.id < 10000000 + p_total
+      AND n.code LIKE 'syn\\_%'
+      AND (n.category <> c.name OR n.name <> CONCAT(c.name, '·技术节点', n.id));
+    COMMIT;
 
     DROP TEMPORARY TABLE IF EXISTS tmp_cat;
     DROP TEMPORARY TABLE IF EXISTS tmp_era;
@@ -143,96 +161,52 @@ CREATE PROCEDURE seed_graph_edges(
     IN p_batch INT
 )
 proc_label: BEGIN
-    DECLARE v_target_edges INT;
-    DECLARE v_done INT DEFAULT 0;
-    DECLARE v_i INT;
-    DECLARE v_from BIGINT;
-    DECLARE v_to BIGINT;
-    DECLARE v_attempts INT;
-    DECLARE v_hub_count INT;
-    DECLARE v_hub_min BIGINT;
-    DECLARE v_hub_max BIGINT;
+    DECLARE v_seq INT DEFAULT 0;
+    DECLARE v_missing INT DEFAULT 0;
 
-    SET v_target_edges = p_node_total * p_edge_per_node;
+    -- 旧实现只看“合成边总数”,中断续跑时总数可能已达标,但新补节点仍完全无边。
+    -- 新实现只为没有任何出边的合成节点补齐 p_edge_per_node 条确定性边,可安全重复执行。
+    DROP TEMPORARY TABLE IF EXISTS tmp_missing_from;
+    CREATE TEMPORARY TABLE tmp_missing_from (id BIGINT PRIMARY KEY) ENGINE=InnoDB;
+    INSERT INTO tmp_missing_from (id)
+    SELECT n.id
+    FROM tech_node n
+    WHERE n.code LIKE 'syn\\_%'
+      AND NOT EXISTS (SELECT 1 FROM tech_edge e WHERE e.from_id = n.id);
+    SET v_missing = (SELECT COUNT(*) FROM tmp_missing_from);
 
-    -- 幂等:已生成过则跳过
-    IF (SELECT COUNT(*) FROM tech_edge WHERE from_id >= 10000000 OR to_id >= 10000000) >= v_target_edges THEN
-        SELECT CONCAT('已存在 ', v_target_edges, ' 条合成边,跳过') AS msg;
+    IF v_missing = 0 THEN
+        SELECT '所有合成节点都已有出边,跳过' AS msg;
         LEAVE proc_label;
     END IF;
 
-    -- 边权重采样表:高重要度节点作为枢纽(被连概率高),模拟真实图的幂律结构。
-    -- 幂律分布下 importance>=70 约占 3%,百万级即 ~3 万个,天然有界,无需 LIMIT。
-    -- idx_importance_id 覆盖该 ORDER BY 查询。
-    DROP TEMPORARY TABLE IF EXISTS tmp_hub;
-    CREATE TEMPORARY TABLE tmp_hub (id BIGINT PRIMARY KEY);
-    INSERT IGNORE INTO tmp_hub
-    SELECT id FROM tech_node
-    WHERE code LIKE 'syn_%' AND importance >= 70;
-    SET v_hub_count = (SELECT COUNT(*) FROM tmp_hub);
-    SET v_hub_min = (SELECT MIN(id) FROM tmp_hub);
-    SET v_hub_max = (SELECT MAX(id) FROM tmp_hub);
-
-    WHILE v_done < v_target_edges DO
-        SET v_i = 0;
-        SET @sql = 'INSERT IGNORE INTO tech_edge (from_id, to_id) VALUES ';
-        SET @vals = '';
-
-        batch_loop: WHILE v_i < p_batch AND v_done < v_target_edges DO
-            SET v_attempts = 0;
-
-            -- 重试直到找到合法边(不重复、非自环)
-            retry_loop: WHILE v_attempts < 5 DO
-                -- from 节点:均匀随机
-                SET v_from = 10000000 + FLOOR(RAND() * p_node_total);
-
-                -- to 节点:30% 从枢纽池取(模拟枢纽被大量依赖),70% 均匀随机。
-                -- 枢纽取样用 PK 范围采样(O(log n))而非 ORDER BY RAND()(O(n) filesort)。
-                -- 注:MySQL 临时表不能在同查询引用两次,故分两步取最近 hub id。
-                IF RAND() < 0.3 AND v_hub_count > 0 THEN
-                    SET @hub_rand = v_hub_min + FLOOR(RAND() * (v_hub_max - v_hub_min + 1));
-                    SELECT id INTO v_to FROM tmp_hub WHERE id >= @hub_rand ORDER BY id LIMIT 1;
-                    IF v_to IS NULL THEN
-                        SELECT id INTO v_to FROM tmp_hub ORDER BY id DESC LIMIT 1;
-                    END IF;
-                ELSE
-                    SET v_to = 10000000 + FLOOR(RAND() * p_node_total);
-                END IF;
-
-                IF v_from <> v_to THEN
-                    SET @vals = CONCAT(@vals,
-                        IF(v_i > 0, ',', ''),
-                        '(', v_from, ',', v_to, ')');
-                    SET v_i = v_i + 1;
-                    SET v_done = v_done + 1;
-                    LEAVE retry_loop;
-                END IF;
-
-                SET v_attempts = v_attempts + 1;
-            END WHILE retry_loop;
-
-            -- 若 5 次重试都失败(自环),跳过这条
-            IF v_attempts >= 5 THEN
-                SET v_done = v_done + 1;
-            END IF;
-        END WHILE batch_loop;
-
-        IF v_i > 0 THEN
-            SET @sql = CONCAT(@sql, @vals);
-            PREPARE stmt FROM @sql;
-            EXECUTE stmt;
-            DEALLOCATE PREPARE stmt;
-            COMMIT;
-        END IF;
-
-        IF v_done % 500000 < p_batch THEN
-            SELECT CONCAT('边进度: ', v_done, ' / ', v_target_edges, ' (', ROUND(v_done * 100.0 / v_target_edges, 1), '%)') AS progress;
-        END IF;
+    DROP TEMPORARY TABLE IF EXISTS tmp_edge_seq;
+    CREATE TEMPORARY TABLE tmp_edge_seq (n INT PRIMARY KEY);
+    WHILE v_seq < p_edge_per_node DO
+        INSERT INTO tmp_edge_seq VALUES (v_seq);
+        SET v_seq = v_seq + 1;
     END WHILE;
 
-    SELECT CONCAT('完成: 共生成合成边') AS msg;
+    -- 合成边均为依赖边:不写 relation,由列 DEFAULT 0 兜底(0=依赖/前置)。
+    INSERT IGNORE INTO tech_edge (from_id, to_id)
+    SELECT seeded.from_id,
+           CASE WHEN seeded.to_id = seeded.from_id
+                THEN 10000000 + MOD(seeded.to_id - 10000000 + 1, p_node_total)
+                ELSE seeded.to_id END
+    FROM (
+        SELECT m.id AS from_id,
+               10000000 + MOD(
+                   (m.id - 10000000) * 1103515245 + s.n * 2654435761,
+                   p_node_total
+               ) AS to_id
+        FROM tmp_missing_from m
+        CROSS JOIN tmp_edge_seq s
+    ) seeded;
+    COMMIT;
 
-    DROP TEMPORARY TABLE IF EXISTS tmp_hub;
+    SELECT CONCAT('完成: 为 ', v_missing, ' 个无出边节点补边') AS msg;
+    DROP TEMPORARY TABLE IF EXISTS tmp_missing_from;
+    DROP TEMPORARY TABLE IF EXISTS tmp_edge_seq;
 END$$
 DELIMITER ;
 

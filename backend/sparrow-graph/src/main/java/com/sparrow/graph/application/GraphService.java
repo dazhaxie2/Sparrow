@@ -14,6 +14,8 @@ import com.sparrow.graph.infrastructure.neo4j.NeoTechNodeRepository;
 import com.sparrow.graph.infrastructure.persistence.KnowledgeMetaRepository;
 import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
+import com.sparrow.graph.interfaces.dto.GraphDtos.ClusterNode;
+import com.sparrow.graph.interfaces.dto.GraphDtos.ClusterOverview;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EraBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.IndexableNode;
 import com.sparrow.graph.interfaces.dto.GraphDtos.KnowledgeStatus;
@@ -53,6 +55,7 @@ public class GraphService {
     private static final String OVERVIEW_CACHE_KEY = "sparrow:graph:overview";
     private static final String SUBGRAPH_CACHE_PREFIX = "sparrow:graph:subgraph:";
     private static final String TILE_CACHE_PREFIX = "sparrow:graph:tile:";
+    private static final String CLUSTER_CACHE_KEY = "sparrow:graph:clusters";
     private static final Duration TREE_CACHE_TTL = Duration.ofHours(1);
 
     /** 领域轴的稳定列顺序(与种子回填、前端筛选一致);数据中出现的其它领域追加在后。 */
@@ -124,15 +127,17 @@ public class GraphService {
         List<NodeBrief> nodes = readWithFallback("overviewNodes",
                 () -> neoRepo.findAllOrdered().stream().map(NodeBrief::from).toList(),
                 mysqlReader::allOrdered);
-        long totalEdges = readWithFallback("overviewEdges",
-                neoRepo::countEdges, mysqlReader::countEdges);
-        Overview overview = aggregateOverview(nodes, totalEdges);
+        // 百万级数据以 MySQL 为权威全集;Neo4j/RAG 可以仍只索引真实知识节点。
+        // 否则总览会把 86 万 MySQL 节点错误显示成 Neo4j 中的 1.09 万。
+        long totalNodes = mysqlReader.count();
+        long totalEdges = mysqlReader.countEdges();
+        Overview overview = aggregateOverview(nodes, totalNodes, totalEdges);
         String body = toBodyJson(ApiResponse.ok(overview));
         redis.opsForValue().set(OVERVIEW_CACHE_KEY, body, TREE_CACHE_TTL);
         return body.getBytes(StandardCharsets.UTF_8);
     }
 
-    private Overview aggregateOverview(List<NodeBrief> nodes, long totalEdges) {
+    private Overview aggregateOverview(List<NodeBrief> nodes, long totalNodes, long totalEdges) {
         // 时代:rank -> era 名称(稳定按 rank 升序)
         Map<Integer, String> eraNames = new TreeMap<>();
         // 领域分桶:category -> (eraRank -> 该格节点列表)
@@ -177,7 +182,7 @@ public class GraphService {
                 cells.add(new OverviewCell(cat, era.eraRank(), era.era(), cell.size(), top));
             }
         }
-        return new Overview(categories, eras, cells, nodes.size(), totalEdges);
+        return new Overview(categories, eras, cells, totalNodes, totalEdges);
     }
 
     /** 过滤 + 分页节点列表(MySQL 为权威源,关系型过滤/分页天然合适)。 */
@@ -232,6 +237,29 @@ public class GraphService {
         return body.getBytes(StandardCharsets.UTF_8);
     }
 
+    /** 社区聚簇总览：一次返回全部簇，前端按目标节点规模选择前 N 簇。 */
+    public byte[] clusterOverviewBytes() {
+        String cached = redis.opsForValue().get(CLUSTER_CACHE_KEY);
+        if (cached != null) {
+            return cached.getBytes(StandardCharsets.UTF_8);
+        }
+        List<ClusterNode> clusters = layoutMapper.clusterSummaries().stream()
+                .map(row -> new ClusterNode(
+                        ((Number) row.get("id")).longValue(),
+                        ((Number) row.get("clusterId")).longValue(),
+                        ((Number) row.get("x")).doubleValue(),
+                        ((Number) row.get("y")).doubleValue(),
+                        (String) row.get("name"),
+                        (String) row.get("category"),
+                        row.get("importance") == null ? null : ((Number) row.get("importance")).intValue(),
+                        ((Number) row.get("nodeCount")).longValue()))
+                .toList();
+        long representedNodes = clusters.stream().mapToLong(ClusterNode::nodeCount).sum();
+        String body = toBodyJson(ApiResponse.ok(new ClusterOverview(representedNodes, clusters)));
+        redis.opsForValue().set(CLUSTER_CACHE_KEY, body, TREE_CACHE_TTL);
+        return body.getBytes(StandardCharsets.UTF_8);
+    }
+
     /** 顶层全景:所有簇代表点(level 0),远观视图 —— 几十个簇心点,无边。 */
     private Tile buildTopLevelTile() {
         List<TileNode> nodes = layoutMapper.topLevelNodes().stream()
@@ -262,7 +290,10 @@ public class GraphService {
         List<EdgeBrief> edges = layoutMapper.tileEdges(level, clusterId).stream()
                 .map(row -> new EdgeBrief(
                         ((Number) row.get("from")).longValue(),
-                        ((Number) row.get("to")).longValue()))
+                        ((Number) row.get("to")).longValue(),
+                        row.get("relation") == null
+                                ? EdgeBrief.REL_DEPENDENCY
+                                : ((Number) row.get("relation")).intValue()))
                 .toList();
         return new Tile(level, clusterId, nodes, edges);
     }
@@ -289,7 +320,7 @@ public class GraphService {
         return readWithFallback("neighborhood",
                 () -> {
                     NeoTechNode node = neoRepo.findByNodeId(id)
-                            .orElseThrow(() -> new BizException(404, "技术节点不存在"));
+                            .orElseThrow(() -> new IllegalStateException("节点尚未同步到 Neo4j"));
                     NodeBrief center = NodeBrief.from(node);
                     List<NodeBrief> prereqs = neoRepo.findDirectPrerequisites(id).stream()
                             .map(NodeBrief::from).toList();
@@ -327,7 +358,7 @@ public class GraphService {
         return readWithFallback("nodeDetail",
                 () -> {
                     NeoTechNode node = neoRepo.findByNodeId(id)
-                            .orElseThrow(() -> new BizException(404, "技术节点不存在"));
+                            .orElseThrow(() -> new IllegalStateException("节点尚未同步到 Neo4j"));
                     List<NodeBrief> prerequisites = neoRepo.findDirectPrerequisites(id).stream()
                             .map(NodeBrief::from).toList();
                     List<NodeBrief> unlocks = neoRepo.findDirectUnlocks(id).stream()
@@ -353,11 +384,16 @@ public class GraphService {
         return readWithFallback("prerequisiteChain",
                 () -> {
                     if (!neoRepo.existsByNodeId(id)) {
-                        throw new BizException(404, "技术节点不存在");
+                        throw new IllegalStateException("节点尚未同步到 Neo4j");
                     }
                     return neoRepo.findAllPrerequisites(id).stream().map(NodeBrief::from).toList();
                 },
-                () -> mysqlReader.allPrerequisites(id));
+                () -> {
+                    if (mysqlReader.findNode(id) == null) {
+                        throw new BizException(404, "技术节点不存在");
+                    }
+                    return mysqlReader.allPrerequisites(id);
+                });
     }
 
     public List<IndexableNode> listIndexableNodes() {
@@ -371,7 +407,7 @@ public class GraphService {
     }
 
     public GraphChangedEvent requestReindex() {
-        redis.delete(List.of(TREE_CACHE_KEY, OVERVIEW_CACHE_KEY));
+        redis.delete(List.of(TREE_CACHE_KEY, OVERVIEW_CACHE_KEY, CLUSTER_CACHE_KEY));
         Set<String> subgraphKeys = redis.keys(SUBGRAPH_CACHE_PREFIX + "*");
         if (subgraphKeys != null && !subgraphKeys.isEmpty()) {
             redis.delete(subgraphKeys);

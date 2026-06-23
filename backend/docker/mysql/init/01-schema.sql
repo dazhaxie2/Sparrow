@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS tech_edge (
     id      BIGINT NOT NULL AUTO_INCREMENT,
     from_id BIGINT NOT NULL,
     to_id   BIGINT NOT NULL,
+    -- 关系类型:0=依赖/前置(默认,现有边全部如此),1=结构/分类归属,预留 2=衍生/应用…
+    -- 爬虫"结构边"与人工"依赖边"混表后,靠此列区分布局聚类口径与前端筛选。
+    relation TINYINT NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     UNIQUE KEY uk_edge (from_id, to_id),
     KEY idx_to (to_id),

@@ -74,7 +74,7 @@ public class GraphController {
         return ApiResponse.ok(graphService.search(q, limit));
     }
 
-    /** 有界子图:过滤后取前 limit 重要节点 + 其间的边(默认/领域/时代视图渲染,流式字节回写)。 */
+    /** 原始节点层:过滤后最多返回 1000 个重要节点 + 其间的边。 */
     @GetMapping("/subgraph")
     public ResponseEntity<StreamingResponseBody> subgraph(
             @RequestParam(required = false) String category,
@@ -95,6 +95,12 @@ public class GraphController {
             @PathVariable int level,
             @PathVariable long clusterId) {
         return streamJson(graphService.tileBytes(level, clusterId));
+    }
+
+    /** 社区聚簇总览：供 1001–10000 节点模式和 LOD 顶层使用。 */
+    @GetMapping("/clusters")
+    public ResponseEntity<StreamingResponseBody> clusters() {
+        return streamJson(graphService.clusterOverviewBytes());
     }
 
     /** 节点邻域子图(展开式浏览)。 */

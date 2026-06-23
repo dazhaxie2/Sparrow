@@ -40,12 +40,27 @@ public interface NodeLayoutMapper {
             """)
     List<Map<String, Object>> topLevelNodes();
 
+    /** 所有社区簇及成员数；level 0 提供代表点，level 3 提供完整成员计数。 */
+    @Select("""
+            SELECT l0.node_id AS id, l0.cluster_id AS clusterId, l0.x, l0.y,
+                   n.name, n.category, n.importance, COUNT(l3.node_id) AS nodeCount
+            FROM node_layout l0
+            JOIN tech_node n ON n.id = l0.node_id
+            JOIN node_layout l3
+              ON l3.cluster_id = l0.cluster_id AND l3.level = 3
+            WHERE l0.level = 0
+            GROUP BY l0.node_id, l0.cluster_id, l0.x, l0.y,
+                     n.name, n.category, n.importance
+            ORDER BY nodeCount DESC, l0.cluster_id ASC
+            """)
+    List<Map<String, Object>> clusterSummaries();
+
     /**
      * 簇内边:两端节点都属于指定簇(同 cluster_id)的边。
      * 用于 level 3 叶节点瓦片的边渲染。
      */
     @Select("""
-            SELECT e.from_id AS `from`, e.to_id AS `to`
+            SELECT e.from_id AS `from`, e.to_id AS `to`, e.relation AS relation
             FROM tech_edge e
             JOIN node_layout l1 ON l1.node_id = e.from_id
             JOIN node_layout l2 ON l2.node_id = e.to_id

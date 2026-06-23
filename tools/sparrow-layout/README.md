@@ -27,6 +27,9 @@ python layout.py --scope real --rebuild
 python layout.py --scope all --rebuild --max-nodes 1200000
 ```
 
+`--rebuild` 使用 staging 表完整写入并校验后，再通过 MySQL `RENAME TABLE` 原子切换；
+运行失败不会清空线上 `node_layout`，上一版保留在 `node_layout_previous` 供回滚。
+
 DB 连接复用 spider 的环境变量 `SPARROW_GRAPH_DB_*`(默认 `127.0.0.1:3307 / root / root123 / sparrow_graph`)。
 
 ## 验证

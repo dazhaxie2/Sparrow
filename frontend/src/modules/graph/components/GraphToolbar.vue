@@ -2,7 +2,11 @@
   <div class="graph-toolbar">
     <div class="toolbar-title">
       <strong>{{ dialogActive ? '对话临时图谱' : 'Graph Relationship Visualization' }}</strong>
-      <span>{{ dialogActive ? `提取 ${nodeCount} 个相关节点` : `${nodeCount} nodes · ${totalNodes} total` }}</span>
+      <span v-if="dialogActive">提取 {{ formatNumber(nodeCount) }} 个相关节点</span>
+      <span v-else-if="clusterDrilldown">{{ drilldownLabel }}社区 · {{ formatNumber(nodeCount) }} 个节点</span>
+      <span v-else-if="displayMode === 'community'">{{ formatNumber(nodeCount) }} 个社区簇 · 覆盖 {{ formatNumber(representedNodeCount) }} 节点</span>
+      <span v-else-if="displayMode === 'lod'">LOD 总览 · {{ formatNumber(nodeCount) }} 个簇 · {{ formatNumber(totalNodes) }} 总节点</span>
+      <span v-else>{{ formatNumber(nodeCount) }} nodes · {{ formatNumber(totalNodes) }} total</span>
     </div>
 
     <div
@@ -46,6 +50,10 @@
 
     <div class="toolbar-actions" aria-label="图谱控制">
       <span class="selected-status">{{ selectedStatusText }}</span>
+      <button v-if="clusterDrilldown" class="tool-btn text-btn" type="button" title="返回聚簇总览" @click="$emit('exitCluster')">
+        <ArrowLeft :size="14" />
+        <span>返回聚簇</span>
+      </button>
       <button class="tool-btn text-btn" type="button" title="刷新图谱" :disabled="treeLoading" @click="$emit('refresh')">
         <RefreshCcw :size="14" />
         <span>Refresh</span>
@@ -65,7 +73,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { BrainCircuit, Maximize2, Minimize2, RefreshCcw, Search, X } from '@lucide/vue'
+import { ArrowLeft, BrainCircuit, Maximize2, Minimize2, RefreshCcw, Search, X } from '@lucide/vue'
 import { searchNodes } from '../api'
 import type { NodeBrief } from '../types'
 
@@ -74,14 +82,23 @@ defineProps<{
   dialogActive: boolean
   nodeCount: number
   totalNodes: number
+  displayMode: 'raw' | 'community' | 'lod'
+  representedNodeCount: number
+  clusterDrilldown: boolean
+  drilldownLabel: string
   dialogQuery: string
   treeLoading: boolean
   graphFullScreen: boolean
   selectedStatusText: string
 }>()
 
+function formatNumber(value: number) {
+  return value.toLocaleString('zh-CN')
+}
+
 const emit = defineEmits<{
   refresh: []
+  exitCluster: []
   toggleFullScreen: []
   select: [node: NodeBrief]
 }>()
@@ -92,6 +109,27 @@ const activeSearchIndex = ref(0)
 const searchResults = ref<NodeBrief[]>([])
 let searchSeq = 0
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+const SEARCH_RESULT_LIMIT = 12
+const SEARCH_CANDIDATE_LIMIT = 50
+
+function matchRank(node: NodeBrief, query: string) {
+  const keyword = query.toLocaleLowerCase()
+  const name = node.name.toLocaleLowerCase()
+  const summary = node.summary?.toLocaleLowerCase() ?? ''
+  if (name === keyword) return 0
+  if (name.startsWith(keyword)) return 1
+  if (name.includes(keyword)) return 2
+  if (summary.includes(keyword)) return 3
+  return 4
+}
+
+function rankSearchResults(nodes: NodeBrief[], query: string) {
+  return [...nodes]
+    .sort((a, b) => matchRank(a, query) - matchRank(b, query)
+      || (b.importance ?? 0) - (a.importance ?? 0)
+      || a.name.localeCompare(b.name, 'zh-CN'))
+    .slice(0, SEARCH_RESULT_LIMIT)
+}
 
 watch(searchQuery, (value) => {
   activeSearchIndex.value = 0
@@ -104,8 +142,8 @@ watch(searchQuery, (value) => {
   searchTimer = setTimeout(async () => {
     const seq = ++searchSeq
     try {
-      const results = await searchNodes(query)
-      if (seq === searchSeq) searchResults.value = results
+      const results = await searchNodes(query, SEARCH_CANDIDATE_LIMIT)
+      if (seq === searchSeq) searchResults.value = rankSearchResults(results, query)
     } catch {
       if (seq === searchSeq) searchResults.value = []
     }
@@ -229,11 +267,29 @@ function clearSearch() {
   left: 0;
   right: 0;
   z-index: 40;
+  max-height: min(420px, calc(100vh - 150px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #c6cbd0 transparent;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
   box-shadow: var(--shadow-md);
   padding: 4px;
+}
+
+.search-results::-webkit-scrollbar {
+  width: 6px;
+}
+
+.search-results::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #c6cbd0;
+}
+
+.search-results::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .search-results button {

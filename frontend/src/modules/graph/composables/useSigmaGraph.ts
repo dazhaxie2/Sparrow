@@ -26,16 +26,22 @@ export function useSigmaGraph(opts: {
   getTree: () => Tree | null
   getRenderState: () => RenderState
   onNodeClick: (id: number) => void
+  onViewChange?: (view: { zoom: number; centerClusterId: number | null }) => void
   isBusy: () => boolean
 }) {
   let sigma: Sigma | null = null
   let graph: Graph = null as unknown as Graph
+  let hoveredNodeId: number | null = null
+  let viewChangeTimer: ReturnType<typeof setTimeout> | null = null
   const currentView = ref({ ...DEFAULT_VIEW })
 
   // 视觉常量(与原 graphOption buildOption 对齐)
   const COLORS = {
     selected: '#ff5722',
     adjacent: '#e21b5a',
+    dimmedNode: '#d9dee2',
+    dimmedEdge: '#e4e8eb',
+    hoveredEdge: '#98a4ae',
   }
 
   // ── 坐标系转换:layoutNodes 用像素坐标,sigma camera 用归一化 viewport 坐标 ──
@@ -46,6 +52,9 @@ export function useSigmaGraph(opts: {
 
   /** 节点大小(对齐 buildOption 的 baseSize 公式)。 */
   function nodeSize(node: NodeBrief, degree: number): number {
+    if ((node.clusterSize ?? 0) > 1) {
+      return clamp(9 + Math.sqrt(node.clusterSize ?? 1) * 0.65, 12, 36)
+    }
     const n = opts.getTree()?.nodes.length ?? 0
     const densityScale = n > 600 ? 0.72 : n > 350 ? 0.86 : 1
     const maxNodeSize = n > 600 ? 11 : n > 350 ? 13 : 15
@@ -90,17 +99,28 @@ export function useSigmaGraph(opts: {
     for (const node of tree.nodes) {
       const point = positions[node.id] ?? { x: 0, y: 0, degree: 0 }
       const color = colorForCategory(node.category, legend)
+      const fullLabel = (node.clusterSize ?? 0) > 1
+        ? `${node.name} · ${node.clusterSize} 节点`
+        : node.name
+      const showBaseLabel = (node.clusterSize ?? 0) > 1
+        || tree.nodes.length <= 120
+        || point.degree >= 3
+        || (node.importance ?? 0) >= 85
       next.addNode(String(node.id), {
         x: point.x,
         y: point.y,
         size: nodeSize(node, point.degree),
         color,
-        label: node.name,
+        label: showBaseLabel ? fullLabel : null,
         _nodeId: node.id,
         _category: node.category?.trim() || '未分类',
         _degree: point.degree,
         _importance: node.importance ?? 0,
         _premium: node.premium,
+        _clusterId: node.clusterId ?? null,
+        _lodLevel: node.lodLevel ?? null,
+        _clusterSize: node.clusterSize ?? 0,
+        _fullLabel: fullLabel,
       } as Attributes)
     }
     for (const edge of tree.edges) {
@@ -117,6 +137,7 @@ export function useSigmaGraph(opts: {
     }
 
     graph = next
+    if (hoveredNodeId != null && !graph.hasNode(String(hoveredNodeId))) hoveredNodeId = null
     sigma.setGraph(graph)
     applyReducers(ctx)
     sigma.refresh()
@@ -149,37 +170,87 @@ export function useSigmaGraph(opts: {
       const inLearning = Boolean(learningIds?.has(id))
       const isLearningCurrent = id === learningCurrentId
       const isDialog = dialogIds.has(id)
+      const isHovered = id === hoveredNodeId
+      const persistentlyEmphasized = isSelected || adjacent || inChain || inLearning || isDialog
+      const dimmed = selected != null && !persistentlyEmphasized && !isHovered
 
       const sizeBoost = isLearningCurrent ? 6 : isSelected ? 5 : adjacent ? 2 : 0
       return {
         ...data,
-        size: (data.size as number) + sizeBoost,
+        size: ((data.size as number) + sizeBoost) * (dimmed ? 0.78 : 1),
         color: isLearningCurrent || isSelected
           ? COLORS.selected
           : adjacent || inChain
             ? COLORS.adjacent
-            : data.color as string,
+            : dimmed
+              ? COLORS.dimmedNode
+              : data.color as string,
         hidden: false,
-        // 高亮:边框色 + 强制 label;暗化:降透明度(label 通过 forceLabel=false)
-        forceLabel: isSelected || adjacent || inChain || inLearning || isDialog,
+        // highlighted 让持久强调节点继续绘制在 hover 图层，悬浮其他节点时不会被覆盖。
+        highlighted: persistentlyEmphasized,
+        forceLabel: persistentlyEmphasized || isHovered,
+        label: persistentlyEmphasized || isHovered ? data._fullLabel : data.label,
       } as Attributes
     })
 
-    sigma.setSetting('edgeReducer', (_edgeId, data) => {
-      return data
+    sigma.setSetting('edgeReducer', (edgeId, data) => {
+      const sourceId = Number(graph.source(edgeId))
+      const targetId = Number(graph.target(edgeId))
+      const selectedEdge = selected != null && (sourceId === selected || targetId === selected)
+      const chainEdge = Boolean(chain
+        && (chain.has(sourceId) || sourceId === selected)
+        && (chain.has(targetId) || targetId === selected))
+      const learningEdge = Boolean(learningIds?.has(sourceId) && learningIds?.has(targetId))
+      const persistentEdge = selectedEdge || chainEdge || learningEdge
+      const hoveredEdge = hoveredNodeId != null
+        && (sourceId === hoveredNodeId || targetId === hoveredNodeId)
+      const dimmed = selected != null && !persistentEdge && !hoveredEdge
+
+      return {
+        ...data,
+        color: persistentEdge
+          ? COLORS.selected
+          : hoveredEdge
+            ? COLORS.hoveredEdge
+            : dimmed
+              ? COLORS.dimmedEdge
+              : data.color,
+        size: persistentEdge ? 1.7 : hoveredEdge ? 1.15 : dimmed ? 0.45 : data.size,
+      }
     })
   }
 
   // ── camera 同步 ──
-  // sigma camera.animate 接受 viewport 归一化坐标;layoutNodes 输出像素坐标。
-  // 过渡期用 sigma 自带的 viewportFromGraph / graphFromViewport 做转换不直接可用,
-  // 改用 camera 的 animate 配合节点坐标做居中:中心点用节点平均坐标。
+  // sigma camera 使用归一化后的 framed-graph 坐标，而 graphology 保存原始布局坐标。
+  // 聚焦时必须读取 Sigma 处理后的 display data，不能直接把原始 x/y 写入相机。
   function syncCurrentViewFromCamera() {
     if (!sigma) return
     const cam = sigma.getCamera()
     // ratio 越小越放大;zoom 用 1/ratio 近似
     const zoom = 1 / cam.ratio
     currentView.value = { zoom, center: [cam.x, cam.y] }
+  }
+
+  function scheduleViewChange() {
+    if (!sigma || !opts.onViewChange) return
+    if (viewChangeTimer) clearTimeout(viewChangeTimer)
+    viewChangeTimer = setTimeout(() => {
+      if (!sigma) return
+      const camera = sigma.getCamera().getState()
+      let centerClusterId: number | null = null
+      let nearestDistance = Number.POSITIVE_INFINITY
+      graph.forEachNode((key, data) => {
+        if (Number(data._clusterSize ?? 0) <= 1 || data._clusterId == null) return
+        const point = sigma?.getNodeDisplayData(key)
+        if (!point) return
+        const distance = (point.x - camera.x) ** 2 + (point.y - camera.y) ** 2
+        if (distance < nearestDistance) {
+          nearestDistance = distance
+          centerClusterId = Number(data._clusterId)
+        }
+      })
+      opts.onViewChange?.({ zoom: 1 / camera.ratio, centerClusterId })
+    }, 180)
   }
 
   function fitView() {
@@ -197,7 +268,7 @@ export function useSigmaGraph(opts: {
     const points = tree.nodes
       .filter(n => (n.category?.trim() || '未分类') === category)
       .filter(n => graph.hasNode(String(n.id)))
-      .map(n => graph.getNodeAttributes(String(n.id)))
+      .map(n => sigma?.getNodeDisplayData(String(n.id)))
       .filter((p): p is NonNullable<typeof p> => Boolean(p))
     if (!points.length) return
     const cx = (Math.min(...points.map(p => p.x)) + Math.max(...points.map(p => p.x))) / 2
@@ -211,7 +282,8 @@ export function useSigmaGraph(opts: {
     if (!sigma) return
     const key = String(id)
     if (!graph.hasNode(key)) return
-    const point = graph.getNodeAttributes(key)
+    const point = sigma.getNodeDisplayData(key)
+    if (!point) return
     sigma.getCamera().animate({ x: point.x, y: point.y, ratio: 1 / zoom }, { duration: 400 })
     requestAnimationFrame(() => syncCurrentViewFromCamera())
   }
@@ -244,6 +316,15 @@ export function useSigmaGraph(opts: {
       const data = graph.getNodeAttributes(node)
       if (data?._nodeId != null) opts.onNodeClick(data._nodeId as number)
     })
+    sigma.on('enterNode', ({ node }) => {
+      hoveredNodeId = graph.getNodeAttribute(node, '_nodeId') as number
+      sigma?.refresh()
+    })
+    sigma.on('leaveNode', ({ node }) => {
+      const leavingId = graph.getNodeAttribute(node, '_nodeId') as number
+      if (hoveredNodeId === leavingId) hoveredNodeId = null
+      sigma?.refresh()
+    })
     // 点击空白处取消选中交回 HomeView 处理(保持 ECharts 行为一致:不做隐式取消)
     sigma.on('clickStage', ({ event }) => {
       // sigma v3: 点击 stage 但未命中节点时 event.target 为空
@@ -251,12 +332,18 @@ export function useSigmaGraph(opts: {
         // 不在此取消,HomeView 的 clearSelection 由二次点击同节点触发
       }
     })
-    sigma.getCamera().on('updated', syncCurrentViewFromCamera)
+    sigma.getCamera().on('updated', () => {
+      syncCurrentViewFromCamera()
+      scheduleViewChange()
+    })
   }
 
   function dispose() {
     sigma?.kill()
     sigma = null
+    hoveredNodeId = null
+    if (viewChangeTimer) clearTimeout(viewChangeTimer)
+    viewChangeTimer = null
     graph = null as unknown as Graph
   }
 

@@ -17,6 +17,9 @@ public class TechEdge {
     @TableField("to_id")
     private Long toId;
 
+    /** 关系类型:0=依赖/前置(默认),1=结构/分类归属。见 tech_edge.relation。 */
+    private Integer relation;
+
     public Long getId() {
         return id;
     }
@@ -27,5 +30,9 @@ public class TechEdge {
 
     public Long getToId() {
         return toId;
+    }
+
+    public Integer getRelation() {
+        return relation;
     }
 }

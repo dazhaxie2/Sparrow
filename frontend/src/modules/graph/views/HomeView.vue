@@ -31,11 +31,16 @@
           :dialog-active="dialogActive"
           :node-count="nodeCount"
           :total-nodes="totalNodes"
+          :display-mode="displayMode"
+          :represented-node-count="representedNodeCount"
+          :cluster-drilldown="Boolean(drilledCluster)"
+          :drilldown-label="drilledCluster?.name ?? ''"
           :dialog-query="dialogResult?.query ?? ''"
           :tree-loading="treeLoading"
           :graph-full-screen="graphFullScreen"
           :selected-status-text="selectedStatusText"
           @refresh="refreshGraph"
+          @exit-cluster="exitClusterDrilldown"
           @toggle-full-screen="toggleGraphFullScreen"
           @select="onSearchSelect"
         />
@@ -127,8 +132,8 @@ import CompareDock from '../components/CompareDock.vue'
 import GraphModals from '../components/GraphModals.vue'
 import LoginModal from '../../user/components/LoginModal.vue'
 import MemberModal from '../../trade/components/MemberModal.vue'
-import { fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites } from '../api'
-import type { Tree, NodeBrief, NodeDetail, Overview, EdgeBrief, GraphTile } from '../types'
+import { fetchClusterOverview, fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites } from '../api'
+import type { Tree, NodeBrief, NodeDetail, Overview, EdgeBrief, GraphTile, ClusterOverview, ClusterNode } from '../types'
 import { useUserStore } from '../../user/store'
 import { colorForCategory, createCategoryLegend } from '../composables/graphOption'
 import { useSigmaGraph as useGraphChart } from '../composables/useSigmaGraph'
@@ -137,8 +142,11 @@ import { useLearningProgress, type ProgressState } from '../composables/useLearn
 import { useCompare } from '../composables/useCompare'
 
 type GraphMode = 'map' | 'dialog'
+type DisplayMode = 'raw' | 'community' | 'lod'
 
 const LIMIT_OPTIONS = [200, 400, 800]
+const RAW_NODE_LIMIT = 1000
+const COMMUNITY_NODE_LIMIT = 10000
 
 const user = useUserStore()
 
@@ -154,6 +162,8 @@ const learningPath = ref<{ active: boolean; nodes: NodeBrief[]; index: number }>
   index: 0,
 })
 const overview = ref<Overview | null>(null)
+const clusterOverview = ref<ClusterOverview | null>(null)
+const drilledCluster = ref<{ id: number; name: string; size: number } | null>(null)
 const activeCategory = ref<string | null>(null)
 const graphLimit = ref(800)
 const graphMode = ref<GraphMode>('map')
@@ -170,7 +180,10 @@ const showLearning = ref(false)
 const showSettings = ref(false)
 
 let latestNodeRequest = 0
+let latestTreeRequest = 0
 const expandedTileClusters = new Set<number>()
+const loadedLodLevels = new Map<number, number>()
+let clusterOverviewPromise: Promise<ClusterOverview> | null = null
 
 // ── 逻辑 composable ──
 const { progressMap, loadProgress, setProgress, removeProgress, clearAllProgress, progressCounts, learningGroups } = useLearningProgress()
@@ -178,6 +191,22 @@ const { compareNodes, addToCompare, refreshCompareEntry, removeCompare, clearCom
 
 // ── 派生状态(图表/对话之前定义,供其依赖) ──
 const nodeCount = computed(() => treeData.value?.nodes.length ?? 0)
+const displayMode = computed<DisplayMode>(() => graphLimit.value <= RAW_NODE_LIMIT
+  ? 'raw'
+  : graphLimit.value <= COMMUNITY_NODE_LIMIT
+    ? 'community'
+    : 'lod')
+const representedNodeCount = computed(() => {
+  const nodes = treeData.value?.nodes ?? []
+  const representedClusters = new Set(nodes
+    .filter(node => (node.clusterSize ?? 0) > 1 && node.clusterId != null)
+    .map(node => node.clusterId as number))
+  return nodes.reduce((sum, node) => {
+    if ((node.clusterSize ?? 0) > 1) return sum + (node.clusterSize ?? 1)
+    if (node.clusterId != null && representedClusters.has(node.clusterId)) return sum
+    return sum + 1
+  }, 0)
+})
 const edgeCount = computed(() => treeData.value?.edges.length ?? 0)
 const hasInformativeEdgeLabels = computed(() => {
   const labels = new Set(
@@ -245,6 +274,7 @@ const graphChart = useGraphChart({
     categoryOrder: categories.value,
   }),
   onNodeClick: handleNodeClick,
+  onViewChange: handleGraphViewChange,
   isBusy: () => treeLoading.value || Boolean(treeError.value),
 })
 
@@ -320,6 +350,60 @@ function tileToTree(tile: GraphTile): Tree {
     })),
     edges: tile.edges,
   }
+}
+
+function clusterNodesToTree(clusters: ClusterNode[]): Tree {
+  return {
+    nodes: clusters.map(cluster => ({
+      id: cluster.id,
+      code: `cluster-${cluster.clusterId}`,
+      name: cluster.name || `社区 ${cluster.clusterId}`,
+      era: '',
+      eraRank: 0,
+      yearLabel: '',
+      summary: `该社区包含 ${cluster.nodeCount} 个节点，点击可展开。`,
+      premium: false,
+      category: cluster.category,
+      importance: cluster.importance,
+      x: cluster.x,
+      y: cluster.y,
+      clusterId: cluster.clusterId,
+      lodLevel: 0,
+      clusterSize: cluster.nodeCount,
+    })),
+    edges: [],
+  }
+}
+
+async function getClusterOverview() {
+  if (clusterOverview.value) return clusterOverview.value
+  if (!clusterOverviewPromise) {
+    clusterOverviewPromise = fetchClusterOverview()
+      .then(data => {
+        clusterOverview.value = data
+        return data
+      })
+      .finally(() => {
+        clusterOverviewPromise = null
+      })
+  }
+  return clusterOverviewPromise
+}
+
+function clustersForTarget(data: ClusterOverview, target: number, category: string | null) {
+  const candidates = category
+    ? data.clusters.filter(cluster => cluster.category === category)
+    : data.clusters
+  if (displayMode.value === 'lod') return candidates
+
+  const selected: ClusterNode[] = []
+  let represented = 0
+  for (const cluster of candidates) {
+    selected.push(cluster)
+    represented += cluster.nodeCount
+    if (represented >= target) break
+  }
+  return selected
 }
 
 function highlightIdsFor(chain: NodeBrief[]) {
@@ -411,25 +495,44 @@ async function expandNode(id: number) {
 }
 
 async function loadTree() {
+  const requestId = ++latestTreeRequest
   treeLoading.value = true
   treeError.value = ''
   try {
-    // 维基级:不再拉全树,只拉「过滤后按重要度取前 N + 其间的边」的有界子图
-    if (activeCategory.value) {
-      treeData.value = await fetchSubgraph({
+    drilledCluster.value = null
+    let nextTree: Tree
+    if (displayMode.value === 'raw') {
+      nextTree = await fetchSubgraph({
         category: activeCategory.value,
         limit: graphLimit.value,
       })
     } else {
-      treeData.value = tileToTree(await fetchTile(0, 0))
+      const clusters = await getClusterOverview()
+      nextTree = clusterNodesToTree(clustersForTarget(
+        clusters,
+        graphLimit.value,
+        activeCategory.value,
+      ))
     }
+    if (requestId !== latestTreeRequest) return
+    const selectedId = selectedDetail.value?.id ?? selectedPreview.value?.id
+    if (selectedId != null && !nextTree.nodes.some(node => node.id === selectedId)) {
+      highlight.value = null
+      selectedDetail.value = null
+      selectedPreview.value = null
+      selectedChain.value = []
+      clearLearningPath()
+    }
+    treeData.value = nextTree
     expandedTileClusters.clear()
+    loadedLodLevels.clear()
     renderTree()
     requestAnimationFrame(() => fitView())
   } catch (error: any) {
+    if (requestId !== latestTreeRequest) return
     treeError.value = error.message || '无法连接图谱服务'
   } finally {
-    treeLoading.value = false
+    if (requestId === latestTreeRequest) treeLoading.value = false
   }
 }
 
@@ -462,6 +565,7 @@ async function refreshGraph() {
   }
   const selectedId = selectedDetail.value?.id ?? selectedPreview.value?.id
   const keepLearning = learningActive.value
+  if (displayMode.value !== 'raw') clusterOverview.value = null
   await loadTree()
   if (selectedId && nodeById.value.has(selectedId)) {
     await showNode(selectedId, { focus: false, fromLearning: keepLearning })
@@ -498,7 +602,9 @@ async function showNode(id: number, options: { focus?: boolean; fromLearning?: b
   if (options.focus) centerNode(id)
 
   try {
-    const [detail, chain] = await Promise.all([fetchNode(id), fetchPrerequisites(id)])
+    // 百万级节点可能走 MySQL 降级路径，顺序读取可避免同一节点详情/路径并发争抢连接。
+    const detail = await fetchNode(id)
+    const chain = await fetchPrerequisites(id)
     if (requestId !== latestNodeRequest) return
     highlight.value = nodeHighlight(detail.id, chain)
     selectedDetail.value = detail
@@ -514,13 +620,37 @@ async function showNode(id: number, options: { focus?: boolean; fromLearning?: b
     )
     refreshCompareEntry(detail, chain)
     renderTree()
+    // 合并详情邻域会触发重新布局，使用最终坐标再次定位；邻域接口失败时也能兜底聚焦。
+    if (options.focus) requestAnimationFrame(() => centerNode(id))
   } catch (error: any) {
     if (requestId !== latestNodeRequest) return
     nodeError.value = error.message || '节点详情加载失败'
     highlight.value = nodeHighlight(id, [])
     renderTree()
+    if (options.focus) requestAnimationFrame(() => centerNode(id))
   } finally {
     if (requestId === latestNodeRequest) nodeLoading.value = false
+  }
+}
+
+async function handleGraphViewChange(view: { zoom: number; centerClusterId: number | null }) {
+  if (displayMode.value !== 'lod' || view.centerClusterId == null || treeLoading.value) return
+  const level = view.zoom >= 4 ? 3 : view.zoom >= 2.4 ? 2 : view.zoom >= 1.45 ? 1 : 0
+  if (level === 0) return
+
+  const clusterId = view.centerClusterId
+  const loadedLevel = loadedLodLevels.get(clusterId) ?? 0
+  if (loadedLevel >= level) return
+  loadedLodLevels.set(clusterId, level)
+  const treeRequestId = latestTreeRequest
+
+  try {
+    const tile = tileToTree(await fetchTile(level, clusterId))
+    if (displayMode.value !== 'lod' || treeRequestId !== latestTreeRequest) return
+    mergeSubgraph(tile.nodes, tile.edges)
+    renderTree()
+  } catch {
+    if (loadedLodLevels.get(clusterId) === level) loadedLodLevels.set(clusterId, loadedLevel)
   }
 }
 
@@ -532,18 +662,44 @@ async function handleNodeClick(id: number) {
   } else {
     const node = nodeById.value.get(id)
     const clusterId = node?.clusterId
-    if (node?.lodLevel === 0 && clusterId != null && !expandedTileClusters.has(clusterId)) {
-      expandedTileClusters.add(clusterId)
-      try {
-        const cluster = tileToTree(await fetchTile(3, clusterId))
-        mergeSubgraph(cluster.nodes, cluster.edges)
-        renderTree()
-      } catch {
-        expandedTileClusters.delete(clusterId)
-      }
+    if ((node?.clusterSize ?? 0) > 1 && clusterId != null) {
+      await openClusterDrilldown(node, clusterId)
+      return
     }
     await showNode(id, { focus: false })
   }
+}
+
+async function openClusterDrilldown(node: NodeBrief, clusterId: number) {
+  treeLoading.value = true
+  treeError.value = ''
+  try {
+    const cluster = tileToTree(await fetchTile(3, clusterId))
+    highlight.value = null
+    selectedDetail.value = null
+    selectedPreview.value = null
+    selectedChain.value = []
+    clearLearningPath()
+    treeData.value = cluster
+    drilledCluster.value = {
+      id: clusterId,
+      name: node.category || node.name,
+      size: cluster.nodes.length,
+    }
+    expandedTileClusters.add(clusterId)
+    loadedLodLevels.set(clusterId, 3)
+    renderTree()
+    requestAnimationFrame(() => fitView())
+  } catch (error: any) {
+    treeError.value = error.message || '社区节点加载失败'
+  } finally {
+    treeLoading.value = false
+  }
+}
+
+async function exitClusterDrilldown() {
+  if (!drilledCluster.value) return
+  await loadTree()
 }
 
 function retrySelectedNode() {

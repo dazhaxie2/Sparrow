@@ -1,6 +1,7 @@
 package com.sparrow.graph.interfaces.dto;
 
 import com.sparrow.graph.domain.model.NeoTechNode;
+import com.sparrow.graph.domain.model.TechEdge;
 import com.sparrow.graph.domain.model.TechNode;
 
 import java.util.List;
@@ -27,9 +28,37 @@ public final class GraphDtos {
         }
     }
 
-    public record EdgeBrief(Long from, Long to, String label) {
+    /**
+     * 边:relation 是机器可读的关系类型,label 由其推导供前端显示。
+     * 0=依赖/前置, 1=结构/分类归属, 2=衍生/应用。现有边全部为依赖边(relation=0);
+     * 爬虫显式"分类归属边/衍生应用边"上线后据 relation 区分。
+     */
+    public record EdgeBrief(Long from, Long to, int relation, String label) {
+
+        public static final int REL_DEPENDENCY = 0;
+        public static final int REL_STRUCTURAL = 1;
+        public static final int REL_DERIVED = 2;
+
+        /** 默认依赖边(relation=0)。 */
         public EdgeBrief(Long from, Long to) {
-            this(from, to, "前置");
+            this(from, to, REL_DEPENDENCY);
+        }
+
+        public EdgeBrief(Long from, Long to, int relation) {
+            this(from, to, relation, labelFor(relation));
+        }
+
+        public static EdgeBrief from(TechEdge e) {
+            return new EdgeBrief(e.getFromId(), e.getToId(),
+                    e.getRelation() == null ? REL_DEPENDENCY : e.getRelation());
+        }
+
+        private static String labelFor(int relation) {
+            return switch (relation) {
+                case REL_STRUCTURAL -> "结构";
+                case REL_DERIVED -> "衍生";
+                default -> "前置";
+            };
         }
     }
 
@@ -83,5 +112,13 @@ public final class GraphDtos {
 
     /** 单个 LOD 瓦片:某层级某簇下的节点坐标 + 簇内边。 */
     public record Tile(int level, Long clusterId, List<TileNode> nodes, List<EdgeBrief> edges) {
+    }
+
+    /** 社区聚簇总览：簇大小用于前端气泡尺寸，代表节点用于点击下钻。 */
+    public record ClusterNode(Long id, Long clusterId, double x, double y, String name,
+                              String category, Integer importance, long nodeCount) {
+    }
+
+    public record ClusterOverview(long representedNodes, List<ClusterNode> clusters) {
     }
 }
