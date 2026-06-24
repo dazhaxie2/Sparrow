@@ -68,20 +68,23 @@ def baidu_company(client: httpx.Client, name: str) -> tuple[str, int, str]:
     return title, page_id, "\n".join(filter(None, parts))
 
 
-def bing_evidence(client: httpx.Client, company: str) -> str:
+def bing_evidence(client: httpx.Client, company: str, candidates: list[str]) -> str:
     queries = [
-        f'"{company}" 供应商 代工 供货 材料 授权',
-        f'"{company}" 供应链 上游',
+        (candidate, f'"{company}" "{candidate}" 供应 OR 代工 OR 供货 OR 材料 OR 授权')
+        for candidate in candidates
     ]
     evidence = []
     seen = set()
-    for query in queries:
+    relation_words = ("供应", "代工", "供货", "材料", "授权", "芯片", "电池", "组装")
+    for candidate, query in queries:
         response = client.get(
             BING_SEARCH,
             params={"format": "rss", "q": query, "setlang": "zh-cn", "cc": "cn"},
         )
         response.raise_for_status()
         root = ET.fromstring(response.text)
+        fallback = None
+        selected = None
         for item in root.findall(".//item")[:10]:
             title = clean(item.findtext("title"))
             description = clean(item.findtext("description"))
@@ -90,7 +93,19 @@ def bing_evidence(client: httpx.Client, company: str) -> str:
             if not description or signature in seen:
                 continue
             seen.add(signature)
-            evidence.append(f"检索结果：{title}\n摘要：{description}\n链接：{link}")
+            record = (title, description, link)
+            fallback = fallback or record
+            haystack = f"{title} {description}"
+            if any(word in haystack for word in relation_words):
+                selected = record
+                break
+        chosen = selected or fallback
+        if chosen:
+            title, description, link = chosen
+            evidence.append(
+                f"定向检索：{candidate} → {company}\n"
+                f"标题：{title[:120]}\n摘要：{description[:420]}\n链接：{link[:220]}"
+            )
         time.sleep(max(config.REQUEST_INTERVAL_SECONDS, 1.0))
     return "\n\n".join(evidence)
 
@@ -140,8 +155,10 @@ def run() -> None:
                     time.sleep(max(config.REQUEST_INTERVAL_SECONDS, 1.0))
 
                 try:
-                    search_text = bing_evidence(client, primary)
-                    combined = (primary_text + "\n\n" + search_text).strip()
+                    search_text = bing_evidence(client, primary, chain["seeds"][1:])
+                    # The extractor truncates at 5,000 characters. Put the directed
+                    # evidence first so a long Baidu profile cannot hide it.
+                    combined = (search_text + "\n\n" + primary_text).strip()
                     extracted = extract_chain_relations(primary, combined)
                     relations += db.replace_supply_chain_relations(source, slug, primary, extracted)
                     print(f"  = {primary}: 抽取 {len(extracted)} 条上游关系")
