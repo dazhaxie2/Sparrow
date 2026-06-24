@@ -13,7 +13,7 @@ import hashlib
 import html
 import re
 import time
-import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
 
 import httpx
 
@@ -25,9 +25,30 @@ from topic_discovery.chain_seeds import CHAINS
 
 
 BAIDU_API = "https://baike.baidu.com/api/openapi/BaikeLemmaCardApi"
-BING_SEARCH = "https://cn.bing.com/search"
+SOGOU_SEARCH = "https://m.sogou.com/web/searchList.jsp"
 TAG_RE = re.compile(r"<[^>]+>")
 SPACE_RE = re.compile(r"\s+")
+
+
+class VisibleTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.skip_depth = 0
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style", "noscript"}:
+            self.skip_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style", "noscript"} and self.skip_depth:
+            self.skip_depth -= 1
+
+    def handle_data(self, data):
+        if not self.skip_depth:
+            value = SPACE_RE.sub(" ", data).strip()
+            if value:
+                self.parts.append(value)
 
 
 def clean(value) -> str:
@@ -68,44 +89,41 @@ def baidu_company(client: httpx.Client, name: str) -> tuple[str, int, str]:
     return title, page_id, "\n".join(filter(None, parts))
 
 
-def bing_evidence(client: httpx.Client, company: str, candidates: list[str]) -> str:
-    queries = [
-        (candidate, f'"{company}" "{candidate}" 供应 OR 代工 OR 供货 OR 材料 OR 授权')
-        for candidate in candidates
-    ]
+def _best_relation_window(text: str, company: str, candidate: str) -> str:
+    relation_words = ("供应", "代工", "供货", "材料", "授权", "芯片", "电池", "组装", "依赖")
+    candidates = []
+    for word in relation_words:
+        for match in re.finditer(word, text):
+            window = text[max(0, match.start() - 230):match.start() + 330]
+            if company not in window or candidate not in window:
+                continue
+            score = 4 * window.count(company) + 4 * window.count(candidate)
+            score += sum(2 * window.count(item) for item in relation_words)
+            score -= 4 * sum(window.count(item) for item in ("吗", "是否", "哪个", "为什么"))
+            candidates.append((score, clean(window)))
+    if candidates:
+        return max(candidates, key=lambda item: item[0])[1][:520]
+    first = text.find(candidate)
+    return clean(text[max(0, first - 120):first + 400])[:520] if first >= 0 else ""
+
+
+def sogou_evidence(client: httpx.Client, company: str, upstream_candidates: list[str]) -> str:
     evidence = []
-    seen = set()
-    relation_words = ("供应", "代工", "供货", "材料", "授权", "芯片", "电池", "组装")
-    for candidate, query in queries:
+    mobile_headers = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36"}
+    for candidate in upstream_candidates:
         response = client.get(
-            BING_SEARCH,
-            params={"format": "rss", "q": query, "setlang": "zh-cn", "cc": "cn"},
+            SOGOU_SEARCH,
+            params={"keyword": f"{company} {candidate} 供应 代工 供货"},
+            headers=mobile_headers,
         )
         response.raise_for_status()
-        root = ET.fromstring(response.text)
-        fallback = None
-        selected = None
-        for item in root.findall(".//item")[:10]:
-            title = clean(item.findtext("title"))
-            description = clean(item.findtext("description"))
-            link = clean(item.findtext("link"))
-            signature = (title, description)
-            if not description or signature in seen:
-                continue
-            seen.add(signature)
-            record = (title, description, link)
-            fallback = fallback or record
-            haystack = f"{title} {description}"
-            if any(word in haystack for word in relation_words):
-                selected = record
-                break
-        chosen = selected or fallback
-        if chosen:
-            title, description, link = chosen
-            evidence.append(
-                f"定向检索：{candidate} → {company}\n"
-                f"标题：{title[:120]}\n摘要：{description[:420]}\n链接：{link[:220]}"
-            )
+        response.encoding = "utf-8"
+        parser = VisibleTextParser()
+        parser.feed(response.text)
+        visible_text = "\n".join(parser.parts)
+        window = _best_relation_window(visible_text, company, candidate)
+        if window:
+            evidence.append(f"搜狗定向检索（{candidate} / {company}）：{window}")
         time.sleep(max(config.REQUEST_INTERVAL_SECONDS, 1.0))
     return "\n\n".join(evidence)
 
@@ -155,7 +173,7 @@ def run() -> None:
                     time.sleep(max(config.REQUEST_INTERVAL_SECONDS, 1.0))
 
                 try:
-                    search_text = bing_evidence(client, primary, chain["seeds"][1:])
+                    search_text = sogou_evidence(client, primary, chain["seeds"][1:])
                     # The extractor truncates at 5,000 characters. Put the directed
                     # evidence first so a long Baidu profile cannot hide it.
                     combined = (search_text + "\n\n" + primary_text).strip()
