@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -19,7 +21,7 @@ class ChainResearchOrchestratorTest {
     void buildsTraceableGraphAndRepairsInvalidReportReferences() {
         ChatModel model = mock(ChatModel.class);
         WebSearchClient search = mock(WebSearchClient.class);
-        when(search.search(anyString(), anyString())).thenReturn(List.of(
+        when(search.search(anyString(), anyString(), anyList(), anyInt())).thenReturn(List.of(
                 new SearchSource("S1", "权威来源", "https://example.com/source", "example.com", "已核验事实")));
         when(model.chat(anyString())).thenReturn(
                 "调研计划",

@@ -25,7 +25,7 @@
       <div v-if="loading" class="page-state"><LoaderCircle class="spin" :size="20" />正在加载工作台</div>
       <div v-else-if="error && !detail" class="page-state error">
         <AlertTriangle :size="20" />{{ error }}
-        <button type="button" @click="load">重试</button>
+        <button type="button" @click="load()">重试</button>
       </div>
       <section v-else-if="detail" class="workbench-layout">
         <DialogWorkbench
@@ -56,6 +56,10 @@
               <BookOpenCheck :size="15" />来源
               <span>{{ detail.sources.length }}</span>
             </button>
+            <button :class="{ active: tab === 'attachments' }" type="button" @click="tab = 'attachments'">
+              <Upload :size="15" />资料
+              <span>{{ detail.attachments?.length || 0 }}</span>
+            </button>
           </nav>
 
           <div v-if="researching" class="run-progress"><i :style="{ width: `${progress}%` }"></i></div>
@@ -72,6 +76,52 @@
             </a>
             <div v-if="!detail.sources.length" class="result-empty"><BookOpenCheck :size="30" /><strong>暂无来源</strong><span>Agent 联网搜索并核验后，来源会集中列在这里。</span></div>
           </div>
+
+          <div v-if="tab === 'attachments'" class="attachment-panel">
+            <div class="attachment-upload">
+              <div class="upload-area" @click="triggerFileInput" @dragover.prevent @drop.prevent="handleDrop">
+                <Upload v-if="!uploading" :size="24" />
+                <LoaderCircle v-else class="spin" :size="24" />
+                <span>{{ uploading ? '上传中...' : '点击或拖拽上传 PDF 文件' }}</span>
+                <small>支持 .pdf 格式，单个文件不超过 20MB</small>
+              </div>
+              <input ref="fileInput" type="file" accept="application/pdf" class="file-input" @change="handleFileSelect" />
+            </div>
+
+            <div v-if="newAttachmentTitle" class="attachment-form">
+              <h4>添加结构化来源</h4>
+              <div class="form-row">
+                <input v-model="newAttachmentTitle" type="text" placeholder="标题" />
+                <input v-model="newAttachmentUrl" type="text" placeholder="URL" />
+              </div>
+              <div class="form-row">
+                <input v-model="newAttachmentPublisher" type="text" placeholder="发布者（可选）" />
+                <input v-model="newAttachmentSnippet" type="text" placeholder="摘要（可选）" />
+              </div>
+              <div class="form-actions">
+                <button type="button" @click="addStructuredSource">添加来源</button>
+                <button type="button" class="secondary" @click="clearNewAttachment">取消</button>
+              </div>
+            </div>
+
+            <div v-else class="add-source-btn">
+              <button type="button" @click="showStructuredForm = true">
+                <Plus :size="14" />添加结构化来源
+              </button>
+            </div>
+
+            <div class="attachment-list">
+              <h4>已上传资料</h4>
+              <div v-if="detail.attachments?.length" class="source-list">
+                <a v-for="source in detail.attachments" :key="source.id" :href="source.url" target="_blank" rel="noreferrer" class="source-card">
+                  <span>{{ source.sourceRef }}</span>
+                  <div><strong>{{ source.title }}</strong><small>{{ source.publisher || source.url }}</small><p>{{ source.snippet }}</p></div>
+                  <ExternalLink :size="14" />
+                </a>
+              </div>
+              <div v-else class="result-empty"><Upload :size="30" /><strong>暂无资料</strong><span>上传论文 PDF 或添加结构化来源，帮助 Agent 深入调研。</span></div>
+            </div>
+          </div>
         </section>
       </section>
     </main>
@@ -80,7 +130,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { AlertTriangle, ArrowLeft, BookOpenCheck, ExternalLink, FileText, LoaderCircle, Network, SearchCheck } from '@lucide/vue'
+import { AlertTriangle, ArrowLeft, BookOpenCheck, ExternalLink, FileText, LoaderCircle, Network, Plus, SearchCheck, Upload } from '@lucide/vue'
 import AppHeader from '../../../app/components/AppHeader.vue'
 import DialogWorkbench from '../../graph/components/DialogWorkbench.vue'
 import { renderMarkdown } from '../../ai/utils/markdown'
@@ -91,6 +141,8 @@ import {
   sendResearchMessage,
   startResearchRun,
   streamResearchEvents,
+  updateResearchCard,
+  uploadResearchAttachment,
 } from '../researchApi'
 import type { ResearchCardDetail } from '../researchTypes'
 
@@ -100,9 +152,17 @@ const loading = ref(true)
 const sending = ref(false)
 const starting = ref(false)
 const error = ref('')
-const tab = ref<'graph' | 'report' | 'sources'>('graph')
+const tab = ref<'graph' | 'report' | 'sources' | 'attachments'>('graph')
 let streamController: AbortController | null = null
 let pollTimer: number | null = null
+
+const fileInput = ref<HTMLInputElement | null>(null)
+const uploading = ref(false)
+const showStructuredForm = ref(false)
+const newAttachmentTitle = ref('')
+const newAttachmentUrl = ref('')
+const newAttachmentPublisher = ref('')
+const newAttachmentSnippet = ref('')
 
 const dialogMessages = computed(() => (detail.value?.messages ?? []).map(message => ({
   id: message.id,
@@ -131,6 +191,72 @@ async function load(silent = false) {
   } finally {
     loading.value = false
   }
+}
+
+function triggerFileInput() {
+  fileInput.value?.click()
+}
+
+function handleDrop(e: DragEvent) {
+  const files = e.dataTransfer?.files
+  if (files?.length && files[0].type === 'application/pdf') {
+    handleFile(files[0])
+  }
+}
+
+function handleFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (input.files?.length) {
+    handleFile(input.files[0])
+  }
+}
+
+async function handleFile(file: File) {
+  if (file.type !== 'application/pdf') {
+    error.value = '请上传 PDF 格式文件'
+    return
+  }
+  uploading.value = true
+  error.value = ''
+  try {
+    await uploadResearchAttachment(props.id, file)
+    await load(true)
+  } catch (e: any) {
+    error.value = e.message || '文件上传失败'
+  } finally {
+    uploading.value = false
+    if (fileInput.value) fileInput.value.value = ''
+  }
+}
+
+async function addStructuredSource() {
+  if (!newAttachmentTitle.value || !newAttachmentUrl.value) {
+    error.value = '请填写标题和 URL'
+    return
+  }
+  error.value = ''
+  try {
+    const existing = detail.value?.attachments ?? []
+    const newSources = [...existing.map(a => ({ title: a.title, url: a.url, publisher: a.publisher, snippet: a.snippet })), {
+      title: newAttachmentTitle.value,
+      url: newAttachmentUrl.value,
+      publisher: newAttachmentPublisher.value || null,
+      snippet: newAttachmentSnippet.value || null,
+    }]
+    await updateResearchCard(props.id, detail.value!.card.title, detail.value!.card.brief || '', newSources)
+    await load(true)
+    clearNewAttachment()
+  } catch (e: any) {
+    error.value = e.message || '添加来源失败'
+  }
+}
+
+function clearNewAttachment() {
+  showStructuredForm.value = false
+  newAttachmentTitle.value = ''
+  newAttachmentUrl.value = ''
+  newAttachmentPublisher.value = ''
+  newAttachmentSnippet.value = ''
 }
 
 async function sendMessage(content: string) {
@@ -266,6 +392,26 @@ onUnmounted(stopEvents)
 .page-state.error { color: var(--danger); }
 .spin { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.attachment-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; }
+.attachment-upload { margin-bottom: 20px; }
+.upload-area { display: grid; place-content: center; justify-items: center; gap: 8px; min-height: 100px; border: 2px dashed var(--line); border-radius: 8px; cursor: pointer; color: var(--muted); }
+.upload-area:hover { border-color: var(--accent); color: var(--ink); }
+.upload-area span { font-size: 13px; }
+.upload-area small { font-size: 11px; }
+.file-input { display: none; }
+.attachment-form { margin-bottom: 20px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; }
+.attachment-form h4 { margin: 0 0 12px; font-size: 13px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.form-row input { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.form-actions { display: flex; gap: 10px; margin-top: 12px; }
+.form-actions button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; cursor: pointer; }
+.form-actions .secondary { background: #fff; color: var(--ink); }
+.add-source-btn { margin-bottom: 20px; }
+.add-source-btn button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font-size: 12px; cursor: pointer; }
+.add-source-btn button:hover { border-color: var(--accent); color: var(--accent); }
+.attachment-list h4 { margin: 0 0 12px; font-size: 13px; }
+
 @media (max-width: 920px) {
   .research-page { height: calc(100vh - 48px); overflow-y: auto; }
   .research-header { align-items: flex-start; flex-direction: column; }

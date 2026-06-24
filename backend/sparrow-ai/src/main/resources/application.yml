@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: sparrow-ai
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 50MB
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:

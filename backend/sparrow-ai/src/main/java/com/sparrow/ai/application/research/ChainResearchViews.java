@@ -26,7 +26,8 @@ public final class ChainResearchViews {
     }
 
     public record CardDetail(CardSummary card, List<MessageView> messages, RunView activeRun,
-                             JsonNode graph, String reportMarkdown, List<SourceView> sources) {
+                             JsonNode graph, String reportMarkdown, List<SourceView> sources,
+                             List<SourceView> attachments) {
     }
 
     public record MessageReply(MessageView userMessage, MessageView assistantMessage) {

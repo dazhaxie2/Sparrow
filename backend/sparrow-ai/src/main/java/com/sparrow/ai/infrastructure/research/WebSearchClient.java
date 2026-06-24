@@ -31,12 +31,29 @@ public class WebSearchClient {
     }
 
     public List<SearchSource> search(String title, String brief) {
-        List<String> queries = List.of(
+        return search(title, brief, List.of(), 0);
+    }
+
+    /**
+     * 联网检索并富化来源。
+     *
+     * @param startRefIndex 起始编号偏移：已存在 N 条来源（如用户附件）时，
+     *                     本方法的搜索结果从 S(N+1) 开始编号，避免与附件冲突。
+     * @param extraQueries 规划 Agent 产出的补充查询词；为空时仅用默认中文产业链模板。
+     */
+    public List<SearchSource> search(String title, String brief, List<String> extraQueries, int startRefIndex) {
+        List<String> queries = new ArrayList<>(List.of(
                 title + " 产业链 上游 供应商 原材料",
                 title + " 产业链 中游 制造 代工 核心企业",
                 title + " 下游 客户 应用 市场",
                 title + " 竞争格局 市场份额 行业报告",
-                title + " 供应链 风险 政策 技术趋势 " + compact(brief, 80));
+                title + " 供应链 风险 政策 技术趋势 " + compact(brief, 80)));
+        if (extraQueries != null) {
+            for (String query : extraQueries) {
+                String trimmed = query == null ? "" : query.trim();
+                if (!trimmed.isBlank() && !queries.contains(trimmed)) queries.add(trimmed);
+            }
+        }
 
         Map<String, Candidate> deduplicated = new LinkedHashMap<>();
         for (String query : queries) {
@@ -48,7 +65,7 @@ public class WebSearchClient {
         }
 
         List<SearchSource> sources = new ArrayList<>();
-        int index = 1;
+        int index = startRefIndex + 1;
         for (Candidate candidate : deduplicated.values()) {
             Candidate enriched = enrich(candidate);
             sources.add(new SearchSource("S" + index++, compact(enriched.title(), 300),

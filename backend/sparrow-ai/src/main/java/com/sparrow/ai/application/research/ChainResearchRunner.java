@@ -2,12 +2,15 @@ package com.sparrow.ai.application.research;
 
 import com.sparrow.ai.infrastructure.research.ChainResearchEventHub;
 import com.sparrow.ai.infrastructure.research.ChainResearchRepository;
+import com.sparrow.ai.infrastructure.research.ChainResearchRepository.AttachmentRow;
 import com.sparrow.ai.infrastructure.research.ChainResearchRepository.SourceInput;
+import com.sparrow.ai.infrastructure.research.WebSearchClient.SearchSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.concurrent.CancellationException;
 
 @Component
@@ -31,7 +34,10 @@ public class ChainResearchRunner {
         try {
             var card = repository.findCard(userId, cardId)
                     .orElseThrow(() -> new IllegalStateException("调研卡片不存在"));
+            List<SearchSource> userSources = repository.attachments(userId, cardId).stream()
+                    .map(this::toSearchSource).toList();
             var result = orchestrator.research(card.title(), card.brief(), repository.messages(userId, cardId),
+                    userSources,
                     (stage, progress, message) -> {
                         if (!repository.isRunRunning(userId, runId)) throw new CancellationException("任务已取消");
                         repository.updateProgress(userId, cardId, runId, stage, progress);
@@ -54,5 +60,10 @@ public class ChainResearchRunner {
             repository.fail(userId, cardId, runId, message);
             events.failed(cardId, runId, message);
         }
+    }
+
+    private SearchSource toSearchSource(AttachmentRow attachment) {
+        return new SearchSource(attachment.sourceRef(), attachment.title(), attachment.url(),
+                attachment.publisher(), attachment.snippet());
     }
 }

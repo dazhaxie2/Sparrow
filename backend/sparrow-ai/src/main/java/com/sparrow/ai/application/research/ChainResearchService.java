@@ -7,9 +7,11 @@ import com.sparrow.ai.infrastructure.client.UserClient;
 import com.sparrow.ai.infrastructure.config.AiProperties;
 import com.sparrow.ai.infrastructure.research.ChainResearchEventHub;
 import com.sparrow.ai.infrastructure.research.ChainResearchRepository;
+import com.sparrow.ai.infrastructure.research.ChainResearchRepository.AttachmentRow;
 import com.sparrow.ai.infrastructure.research.ChainResearchRepository.CardRow;
 import com.sparrow.ai.infrastructure.research.ChainResearchRepository.MessageRow;
 import com.sparrow.ai.infrastructure.research.ChainResearchRepository.RunRow;
+import com.sparrow.ai.infrastructure.research.ChainResearchRepository.SourceInput;
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
 import org.slf4j.Logger;
@@ -74,21 +76,56 @@ public class ChainResearchService {
                 .map(this::messageView).toList(), run, graph, card.reportMd(),
                 repository.sources(userId, cardId).stream()
                         .map(source -> new SourceView(source.id(), source.sourceRef(), source.title(), source.url(),
-                                source.publisher(), source.snippet())).toList());
+                                source.publisher(), source.snippet())).toList(),
+                repository.attachments(userId, cardId).stream()
+                        .map(attachment -> new SourceView(attachment.id(), attachment.sourceRef(),
+                                attachment.title(), attachment.url(), attachment.publisher(), attachment.snippet()))
+                        .toList());
     }
 
-    public CardDetail create(long userId, String title, String brief) {
+    public CardDetail create(long userId, String title, String brief, List<SourceInput> attachments) {
         long cardId = repository.createCard(userId, title.trim(), blankToNull(brief));
+        saveAttachments(userId, cardId, attachments);
         repository.addMessage(userId, cardId, "assistant", "planner",
                 "告诉我你最关心的产品、地区、时间范围或企业。我会先帮你收窄问题，确认后再启动联网深度调研。");
         return get(userId, cardId);
     }
 
-    public CardDetail update(long userId, long cardId, String title, String brief) {
+    public CardDetail update(long userId, long cardId, String title, String brief, List<SourceInput> attachments) {
         owned(userId, cardId);
         if (repository.activeRun(userId, cardId).isPresent()) throw new BizException(409, "调研运行中，暂不能编辑卡片");
         repository.updateCard(userId, cardId, title.trim(), blankToNull(brief));
+        saveAttachments(userId, cardId, attachments);
         return get(userId, cardId);
+    }
+
+    /** PDF 上传后追加单个附件，返回更新后的卡片详情。 */
+    public CardDetail addAttachment(long userId, long cardId, SourceInput attachment) {
+        owned(userId, cardId);
+        if (repository.activeRun(userId, cardId).isPresent()) throw new BizException(409, "调研运行中，暂不能添加资料");
+        repository.addAttachment(userId, cardId, attachment);
+        return get(userId, cardId);
+    }
+
+    /** 卡片已有附件数量，用于 PDF 上传时分配下一个来源编号。 */
+    public int attachmentCount(long userId, long cardId) {
+        owned(userId, cardId);
+        return repository.attachmentCount(userId, cardId);
+    }
+
+    /** 保存附件列表：分配连续编号 S1..Sk 后覆盖式写入。 */
+    private void saveAttachments(long userId, long cardId, List<SourceInput> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            repository.replaceAttachments(userId, cardId, List.of());
+            return;
+        }
+        List<SourceInput> numbered = new java.util.ArrayList<>();
+        int index = 1;
+        for (SourceInput attachment : attachments) {
+            numbered.add(new SourceInput("S" + index++, attachment.title(), attachment.url(),
+                    attachment.publisher(), attachment.snippet()));
+        }
+        repository.replaceAttachments(userId, cardId, numbered);
     }
 
     public void delete(long userId, long cardId) {

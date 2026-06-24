@@ -1,9 +1,11 @@
 import { get, post, request } from '../../shared/api/request'
 import type {
+  AttachmentRequest,
   ResearchCardDetail,
   ResearchCardSummary,
   ResearchMessageReply,
   ResearchRun,
+  ResearchSource,
   ResearchStartResult,
 } from './researchTypes'
 
@@ -13,18 +15,18 @@ export function fetchResearchCards() {
   return get<ResearchCardSummary[]>(ROOT)
 }
 
-export function createResearchCard(title: string, brief: string) {
-  return post<ResearchCardDetail>(ROOT, { title, brief })
+export function createResearchCard(title: string, brief: string, sources?: AttachmentRequest[]) {
+  return post<ResearchCardDetail>(ROOT, { title, brief, sources })
 }
 
 export function fetchResearchCard(id: number) {
   return get<ResearchCardDetail>(`${ROOT}/${id}`)
 }
 
-export function updateResearchCard(id: number, title: string, brief: string) {
+export function updateResearchCard(id: number, title: string, brief: string, sources?: AttachmentRequest[]) {
   return request<ResearchCardDetail>(`${ROOT}/${id}`, {
     method: 'PUT',
-    body: JSON.stringify({ title, brief }),
+    body: JSON.stringify({ title, brief, sources }),
   })
 }
 
@@ -46,6 +48,33 @@ export function fetchResearchRun(cardId: number, runId: number) {
 
 export function cancelResearchRun(cardId: number, runId: number) {
   return post<void>(`${ROOT}/${cardId}/runs/${runId}/cancel`, {})
+}
+
+export async function uploadResearchAttachment(cardId: number, file: File): Promise<ResearchSource> {
+  const API_BASE = import.meta.env.VITE_API_BASE || ''
+  const token = localStorage.getItem('sparrow_token')
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const res = await fetch(`${API_BASE}${ROOT}/${cardId}/attachments/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  })
+
+  if (!res.ok) {
+    const err = new Error(`上传失败（HTTP ${res.status}）`) as Error & { code: number }
+    err.code = res.status || 500
+    throw err
+  }
+
+  const body = await res.json()
+  if (body.code !== 0) {
+    const err = new Error(body.message || '上传失败') as Error & { code: number }
+    err.code = body.code
+    throw err
+  }
+  return body.data
 }
 
 export async function streamResearchEvents(

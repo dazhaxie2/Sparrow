@@ -39,6 +39,13 @@ export interface ResearchSource {
   snippet: string | null
 }
 
+export interface AttachmentRequest {
+  title: string
+  url: string
+  publisher: string | null
+  snippet: string | null
+}
+
 export interface ResearchGraphNode {
   id: string
   name: string
@@ -67,6 +74,7 @@ export interface ResearchCardDetail {
   graph: ResearchGraph | null
   reportMarkdown: string | null
   sources: ResearchSource[]
+  attachments: ResearchSource[]
 }
 
 export interface ResearchMessageReply {

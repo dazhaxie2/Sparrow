@@ -37,6 +37,8 @@
              低版本(1.0.1)流式时会丢弃 reasoning_content。 -->
         <langchain4j.version>1.9.0</langchain4j.version>
         <milvus.version>2.4.8</milvus.version>
+        <!-- 产业链调研「带资料」:PDF 上传后抽文本作为来源 -->
+        <pdfbox.version>3.0.3</pdfbox.version>
     </properties>
 
     <dependencyManagement>
@@ -85,6 +87,11 @@
                         <artifactId>slf4j-api</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>pdfbox</artifactId>
+                <version>${pdfbox.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

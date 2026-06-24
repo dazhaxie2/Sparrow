@@ -38,6 +38,11 @@ public class ChainResearchRepository {
     public record SourceInput(String sourceRef, String title, String url, String publisher, String snippet) {
     }
 
+    /** 用户上传/附带的资料来源：随卡片持久化，调研时作为优先编号的来源参与证据核验。 */
+    public record AttachmentRow(Long id, Long cardId, String sourceRef, String title, String url,
+                                String publisher, String snippet) {
+    }
+
     private final JdbcTemplate jdbc;
 
     public ChainResearchRepository(JdbcTemplate jdbc) {
@@ -74,6 +79,13 @@ public class ChainResearchRepository {
                 + "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
                 + "UNIQUE KEY uk_chain_research_source_ref(card_id,source_ref),"
                 + "KEY idx_chain_research_source_user(user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        jdbc.execute("CREATE TABLE IF NOT EXISTS chain_research_attachment ("
+                + "id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,card_id BIGINT NOT NULL,user_id BIGINT NOT NULL,"
+                + "source_ref VARCHAR(16) NOT NULL,title VARCHAR(300) NOT NULL,url VARCHAR(1200) NOT NULL,"
+                + "publisher VARCHAR(160) NULL,snippet VARCHAR(3000) NULL,"
+                + "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                + "UNIQUE KEY uk_chain_research_attachment_ref(card_id,source_ref),"
+                + "KEY idx_chain_research_attachment_card(card_id,id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     }
 
     public long createCard(long userId, String title, String brief) {
@@ -89,6 +101,34 @@ public class ChainResearchRepository {
         }, key);
         if (key.getKey() == null) throw new IllegalStateException("未生成调研卡片 ID");
         return key.getKey().longValue();
+    }
+
+    /** 覆盖式写入卡片附件：先删旧再批量插入，保证调用方传入的列表即最终态。 */
+    @Transactional
+    public void replaceAttachments(long userId, long cardId, List<SourceInput> attachments) {
+        jdbc.update("DELETE FROM chain_research_attachment WHERE card_id=? AND user_id=?", cardId, userId);
+        if (attachments == null) return;
+        for (SourceInput attachment : attachments) {
+            jdbc.update("INSERT INTO chain_research_attachment(card_id,user_id,source_ref,title,url,publisher,snippet) "
+                            + "VALUES(?,?,?,?,?,?,?)",
+                    cardId, userId, attachment.sourceRef(), attachment.title(), attachment.url(),
+                    attachment.publisher(), attachment.snippet());
+        }
+    }
+
+    /** 追加单个附件（PDF 上传后使用），由调用方分配 sourceRef。 */
+    public void addAttachment(long userId, long cardId, SourceInput attachment) {
+        jdbc.update("INSERT INTO chain_research_attachment(card_id,user_id,source_ref,title,url,publisher,snippet) "
+                        + "VALUES(?,?,?,?,?,?,?)",
+                cardId, userId, attachment.sourceRef(), attachment.title(), attachment.url(),
+                attachment.publisher(), attachment.snippet());
+    }
+
+    /** 计算卡片已有附件数量，用于决定下一个 sourceRef 编号。 */
+    public int attachmentCount(long userId, long cardId) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM chain_research_attachment "
+                + "WHERE card_id=? AND user_id=?", Integer.class, cardId, userId);
+        return count == null ? 0 : count;
     }
 
     public List<CardRow> listCards(long userId) {
@@ -108,6 +148,7 @@ public class ChainResearchRepository {
 
     @Transactional
     public void deleteCard(long userId, long cardId) {
+        jdbc.update("DELETE FROM chain_research_attachment WHERE card_id=? AND user_id=?", cardId, userId);
         jdbc.update("DELETE FROM chain_research_source WHERE card_id=? AND user_id=?", cardId, userId);
         jdbc.update("DELETE FROM chain_research_message WHERE card_id=? AND user_id=?", cardId, userId);
         jdbc.update("DELETE FROM chain_research_run WHERE card_id=? AND user_id=?", cardId, userId);
@@ -224,6 +265,14 @@ public class ChainResearchRepository {
         return jdbc.query("SELECT id,card_id,source_ref,title,url,publisher,snippet FROM chain_research_source "
                         + "WHERE card_id=? AND user_id=? ORDER BY id",
                 (rs, n) -> new SourceRow(rs.getLong("id"), rs.getLong("card_id"),
+                        rs.getString("source_ref"), rs.getString("title"), rs.getString("url"),
+                        rs.getString("publisher"), rs.getString("snippet")), cardId, userId);
+    }
+
+    public List<AttachmentRow> attachments(long userId, long cardId) {
+        return jdbc.query("SELECT id,card_id,source_ref,title,url,publisher,snippet FROM chain_research_attachment "
+                        + "WHERE card_id=? AND user_id=? ORDER BY id",
+                (rs, n) -> new AttachmentRow(rs.getLong("id"), rs.getLong("card_id"),
                         rs.getString("source_ref"), rs.getString("title"), rs.getString("url"),
                         rs.getString("publisher"), rs.getString("snippet")), cardId, userId);
     }

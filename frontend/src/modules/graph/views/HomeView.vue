@@ -88,21 +88,6 @@
       @switch-to-map="switchGraphMode('map')"
     />
 
-    <!-- 全屏沉浸模式:右侧停靠 AI 对话框(复用对话式 AI,提问后图谱跟随重构)。 -->
-    <DialogWorkbench
-      v-if="graphFullScreen"
-      class="fullscreen-ai-dock"
-      :dialog-messages="dialogMessages"
-      :dialog-loading="dialogLoading"
-      :dialog-error="dialogError"
-      :dialog-active="dialogActive"
-      title="AI 向导"
-      empty-title="与 AI 向导对话"
-      empty-hint="提问后图谱会跟随对话实时重构,例如:蒸汽机如何影响铁路和电力?"
-      @submit="runDialogExtraction"
-      @switch-to-map="exitImmersive"
-    />
-
     <CompareDock
       v-if="compareNodes.length"
       :compare-nodes="compareNodes"
@@ -599,12 +584,6 @@ async function toggleGraphFullScreen() {
   graphChart.resize()
 }
 
-/** 关闭全屏沉浸:若对话中先退出对话模式(还原原图谱),再退出全屏,回到干净的地图视图。 */
-function exitImmersive() {
-  if (dialogActive.value) exitDialogMode()
-  if (graphFullScreen.value) void toggleGraphFullScreen()
-}
-
 /** 同步原生全屏状态:用户按 ESC 退出时,一并撤掉 CSS 最大化并刷新图表。 */
 function handleFullscreenChange() {
   if (!document.fullscreenElement && graphFullScreen.value) {
@@ -841,17 +820,6 @@ onUnmounted(() => {
   z-index: 60;
 }
 
-/* 全屏沉浸模式下:右侧停靠的 AI 对话框(浮于图谱之上)。 */
-.fullscreen-ai-dock {
-  position: fixed;
-  top: 108px;
-  right: 16px;
-  bottom: 16px;
-  z-index: 70;
-  width: min(420px, calc(100vw - 32px));
-  box-shadow: 0 18px 50px rgba(20, 24, 29, 0.18);
-}
-
 @media (max-width: 920px) {
   .layout {
     height: calc(100vh - 48px);
@@ -864,15 +832,6 @@ onUnmounted(() => {
 
   .graph-shell.fullscreen {
     inset: 48px 0 0;
-  }
-
-  .fullscreen-ai-dock {
-    top: auto;
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
-    width: auto;
-    height: 56vh;
   }
 
   .layout.dialog-layout {

@@ -9,6 +9,7 @@ import com.sparrow.common.exception.BizException;
 import dev.langchain4j.model.chat.ChatModel;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -61,33 +62,51 @@ public class ChainResearchOrchestrator {
 
     public ResearchResult research(String title, String brief, List<MessageRow> history,
                                    StageListener listener) {
+        return research(title, brief, history, List.of(), listener);
+    }
+
+    /**
+     * 带「用户资料」的深度调研。
+     *
+     * @param userSources 用户上传/附带的资料（论文、PDF 摘要等），优先编号为 S1..Sk，
+     *                    与联网搜索结果 S(k+1)..Sn 合并后统一参与证据核验与引用追溯。
+     */
+    public ResearchResult research(String title, String brief, List<MessageRow> history,
+                                   List<SearchSource> userSources, StageListener listener) {
         if (chatModel == null) throw new BizException(503, "AI 服务未配置，无法执行深度调研");
+        List<SearchSource> provided = userSources == null ? List.of() : userSources;
 
         listener.update("planning", 10, "规划 Agent 正在拆解调研范围");
+        String attachmentBrief = provided.isEmpty() ? "" : attachmentContext(provided);
         String plan = chatModel.chat("""
                 你是产业链研究规划 Agent。根据标题、说明和用户对话，制定一份可执行的调研计划。
                 计划必须覆盖上游原料/设备、中游制造/集成、下游客户/应用、核心企业、竞争格局、
                 地域政策、供应风险和技术趋势。只写调研计划，不得填充未经联网核验的事实。
+                若用户已提供资料，应优先围绕这些资料展开；同时在结尾用「补充查询：」单独成段，
+                每行一个查询词，用于补充联网检索那些资料未覆盖的空白（如最新市场份额、地域政策）。
 
                 标题：%s
                 说明：%s
+                用户已提供资料：
+                %s
                 对话：%s
-                """.formatted(title, brief == null ? "" : brief, historyText(history)));
+                """.formatted(title, brief == null ? "" : brief, attachmentBrief, historyText(history)));
 
         listener.update("searching", 28, "搜索 Agent 正在联网收集中文与权威来源");
-        List<SearchSource> sources = webSearch.search(title, brief);
-        if (sources.isEmpty()) throw new BizException(502, "联网搜索未返回可用来源，请稍后重试");
+        List<SearchSource> webSources = webSearch.search(title, brief, extractQueries(plan), provided.size());
+        List<SearchSource> sources = mergeSources(provided, webSources);
+        if (sources.isEmpty()) throw new BizException(502, "未获得任何可用来源（用户资料与联网搜索均为空），请稍后重试");
         String sourceContext = sourceContext(sources);
 
         listener.update("verifying", 48, "证据 Agent 正在交叉核验来源");
         String evidence = chatModel.chat("""
-                你是证据核验 Agent。只能使用下方联网来源，整理可以被来源直接支持的产业链事实。
+                你是证据核验 Agent。只能使用下方来源（含用户提供的资料与联网搜索结果），整理可以被来源直接支持的产业链事实。
                 忽略广告、问答猜测和互相矛盾且无法核实的内容。每条事实末尾必须标注来源编号，
                 格式为 [S1]；证据不足要明确写“待核验”，不得凭常识补齐。
 
                 调研计划：%s
 
-                联网来源：
+                来源：
                 %s
                 """.formatted(compact(plan, 3000), sourceContext));
 
@@ -117,6 +136,43 @@ public class ChainResearchOrchestrator {
 
         return new ResearchResult(graphJson, report,
                 graph.path("nodes").size(), graph.path("edges").size(), sources);
+    }
+
+    /** 附件优先编号 S1..Sk，联网来源接续 S(k+1)..Sn，返回合并后的统一来源列表。 */
+    private List<SearchSource> mergeSources(List<SearchSource> provided, List<SearchSource> web) {
+        List<SearchSource> merged = new ArrayList<>(provided.size() + web.size());
+        int index = 1;
+        for (SearchSource source : provided) {
+            merged.add(new SearchSource("S" + index++, source.title(), source.url(),
+                    source.publisher(), source.snippet()));
+        }
+        merged.addAll(web);
+        return merged;
+    }
+
+    /** 规划 Agent 产出「补充查询：」段后的查询词（每行一个），供搜索 Agent 使用。 */
+    private List<String> extractQueries(String plan) {
+        if (plan == null) return List.of();
+        Matcher matcher = Pattern.compile("补充查询[：:]([\\s\\S]*)").matcher(plan);
+        if (!matcher.find()) return List.of();
+        String[] lines = matcher.group(1).split("\\r?\\n");
+        List<String> queries = new ArrayList<>();
+        for (String line : lines) {
+            String query = line.replaceAll("^[\\s·\\-\\*\\d.、]+", "").trim();
+            if (!query.isBlank() && query.length() <= 80) queries.add(query);
+        }
+        return queries;
+    }
+
+    /** 用户资料的简明上下文：编号 + 标题 + 摘要片段。 */
+    private String attachmentContext(List<SearchSource> provided) {
+        StringBuilder result = new StringBuilder();
+        for (SearchSource source : provided) {
+            result.append(source.sourceRef()).append(" | ").append(source.title()).append(" | ")
+                    .append(source.publisher()).append('\n')
+                    .append(compact(source.snippet(), 500)).append("\n\n");
+        }
+        return result.toString();
     }
 
     private String graphPrompt(String title, String evidence, List<SearchSource> sources) {

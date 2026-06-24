@@ -300,9 +300,12 @@ export function useSigmaGraph(opts: {
       defaultEdgeColor: '#b5bdc6',
       defaultNodeColor: '#52525b',
       labelColor: { color: '#30343a' },
-      labelDensity: 0.3,
-      labelGridCellSize: 60,
-      labelRenderedSizeThreshold: 6,
+      // 节点中文标签:放大字号 + 放开显示限制(更多节点带名字、更早浮现)。
+      labelSize: 14,            // 默认 14 → 18,显著加大中文显示比例
+      labelWeight: '500',       // 略加粗,改善中文在小尺寸下的可读性
+      labelDensity: 1,          // 0.3 → 1,大幅放开同屏标签数量
+      labelGridCellSize: 55,    // 60 → 55,标签网格更密,更多标签同时显示
+      labelRenderedSizeThreshold: 3, // 6 → 3,不再因节点偏小而掐掉标签
       labelFont: 'JetBrains Mono, Space Grotesk, Noto Sans SC, Microsoft YaHei, sans-serif',
       minCameraRatio: 0.05,
       maxCameraRatio: 20,
