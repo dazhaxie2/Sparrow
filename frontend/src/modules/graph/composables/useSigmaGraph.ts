@@ -104,16 +104,14 @@ export function useSigmaGraph(opts: {
       const fullLabel = (node.clusterSize ?? 0) > 1
         ? `${node.name} · ${node.clusterSize} 节点`
         : node.name
-      const showBaseLabel = (node.clusterSize ?? 0) > 1
-        || tree.nodes.length <= 120
-        || point.degree >= 3
-        || (node.importance ?? 0) >= 85
+      // label 始终持有文本,远景由 labelRenderedSizeThreshold 按渲染尺寸自动剔除,
+      // 放大后自然浮现;不再用 null 永久掐断叶子节点(否则放大也看不到名字)。
       next.addNode(String(node.id), {
         x: point.x,
         y: point.y,
         size: nodeSize(node, point.degree),
         color,
-        label: showBaseLabel ? fullLabel : null,
+        label: fullLabel,
         _nodeId: node.id,
         _category: node.category?.trim() || '未分类',
         _degree: point.degree,

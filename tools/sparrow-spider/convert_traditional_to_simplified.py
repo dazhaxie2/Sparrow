@@ -69,12 +69,12 @@ def convert_node_names(dry_run: bool = False, db_name: str = "sparrow_graph"):
                     if new_category != original_category:
                         print(f"  category: {original_category} -> {new_category}")
 
+                    updated += 1  # 统计"命中"数,dry-run 也要计,否则预演恒报 0
                     if not dry_run:
                         cur.execute(
                             "UPDATE tech_node SET name=%s, summary=%s, detail=%s, category=%s WHERE id=%s",
                             (new_name, new_summary, new_detail, new_category, row["id"])
                         )
-                        updated += 1
 
             if not dry_run:
                 conn.commit()

@@ -127,12 +127,12 @@ def run():
                     "INSERT INTO tech_node "
                     "(id, code, name, era, era_rank, year_label, summary, detail, premium, category, importance) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s) "
-                    "ON DUPLICATE KEY UPDATE era=VALUES(era), era_rank=VALUES(era_rank), "
+                    "ON DUPLICATE KEY UPDATE name=VALUES(name), era=VALUES(era), era_rank=VALUES(era_rank), "
                     "year_label=VALUES(year_label), summary=VALUES(summary), detail=VALUES(detail), "
                     "category=COALESCE(tech_node.category, VALUES(category)), importance=VALUES(importance)",
                     (config.SPARROW_ID_BASE + c["id"], code, name, _s(c["era"]),
                      c["era_rank"], _s(c["year_label"]), summary, _s(c["detail"]),
-                     c["category"], importance),
+                     _s(c["category"]), importance),
                 )
                 new_nodes += 1
 
@@ -152,7 +152,7 @@ def run():
                 if c["category"]:
                     cur.execute(
                         "UPDATE tech_node SET category = %s WHERE code = %s AND category IS NULL",
-                        (c["category"], c["sparrow_code"]),
+                        (_s(c["category"]), c["sparrow_code"]),
                     )
 
             # ── 3. 依赖边:名称消解 → id,按 era_rank 定向并去环 ──

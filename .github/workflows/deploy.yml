@@ -42,7 +42,7 @@ jobs:
         run: |
           Set-Location $env:DEPLOY_DIR
           # 默认只构建核心栈;AI 镜像(sparrow-ai)仅在按需部署步骤里构建,省一次重 build、降内存峰值
-          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade
+          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade sparrow-chain
 
       - name: Deploy core stack (up -d)
         shell: powershell
@@ -51,6 +51,26 @@ jobs:
           # AI 层(ai/milvus/etcd/minio/sentinel)已移入 compose profile "ai",spider 在 profile "spider";
           # 不带 --profile 的 up -d 只拉起核心栈,避免在 16G 机器上过量提交内存把 Docker 引擎压崩。
           docker compose up -d
+
+      - name: Apply DB migrations (idempotent)
+        shell: powershell
+        run: |
+          Set-Location $env:DEPLOY_DIR
+          # compose 的 init SQL 只在首次建卷执行;存量库靠 backend/scripts/migrate-*.sql
+          # 幂等补齐新库/表/列(2026-06 图谱 schema 漂移、产业链缺库两次"系统繁忙"皆因漏迁移)。
+          # 只跑 migrate-*.sql;seed-*.sql 是样例数据,不能在生产部署时执行。
+          # 必须 docker cp + 容器内重定向:Get-Content|docker exec 管道会按控制台码页重编码,
+          # 含中文的迁移(migrate-chain 的 4 条种子)会被压成 '?';docker cp 原样保字节。
+          # 上一步 up -d 已因 depends_on service_healthy 等到 mysql 健康,此处可直接 exec。
+          $mysql = (docker compose ps -q mysql | Select-Object -First 1)
+          if (-not $mysql) { throw "mysql container not found" }
+          Get-ChildItem "$env:DEPLOY_DIR\backend\scripts\migrate-*.sql" | Sort-Object Name | ForEach-Object {
+            Write-Host "==> applying $($_.Name)"
+            docker cp $_.FullName "${mysql}:/tmp/migrate.sql"
+            docker exec $mysql sh -c "mysql -uroot -proot123 --default-character-set=utf8mb4 < /tmp/migrate.sql"
+            if ($LASTEXITCODE -ne 0) { throw "migration $($_.Name) failed" }
+          }
+          Write-Host "All migrations applied."
 
       - name: Deploy AI tier (按需,仅 workflow_dispatch 勾选 deploy_ai)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_ai }}

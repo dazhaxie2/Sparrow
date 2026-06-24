@@ -426,6 +426,32 @@ services:
       sparrow-graph: { condition: service_started }
     networks: [sparrow_net]
 
+  # One-shot LOD 布局预计算:读 tech_node/tech_edge → 写 node_layout。
+  # 首次部署或图规模变化后跑一次,填充 node_layout 表;否则 >1000 节点的
+  # 「社区簇」模式(/api/graph/clusters)返回空 → 画布空白。
+  # 跑完后调 sparrow-graph 的 /reindex 清掉 Redis 里的空簇缓存(否则要等 1h TTL)。
+  # 用法: docker compose --profile layout run --rm sparrow-layout
+  sparrow-layout:
+    build:
+      context: .
+      dockerfile: tools/sparrow-layout/Dockerfile
+    profiles: ["layout"]
+    # --rebuild 走 staging 表 + RENAME 原子切换,失败不清空线上;成功后 curl 清缓存。
+    # 端口 8082 是 sparrow-graph 在 sparrow_net 内部的端口。
+    command: >
+      sh -c "python layout.py --scope real --rebuild &&
+             echo '[layout] flushing graph cache...' &&
+             curl -s -X POST http://sparrow-graph:8082/internal/graph/reindex || true"
+    environment:
+      SPARROW_GRAPH_DB_HOST: mysql
+      SPARROW_GRAPH_DB_PORT: 3306
+      SPARROW_GRAPH_DB_USER: root
+      SPARROW_GRAPH_DB_PASSWORD: root123
+      SPARROW_GRAPH_DB_NAME: sparrow_graph
+    depends_on:
+      mysql: { condition: service_healthy }
+    networks: [sparrow_net]
+
   # Sentinel 控制台:查看实时流量、动态下发 /api/ai/ask 限流规则。
   # 规则持久化走 Nacos 数据源(sparrow-ai 监听 dataId=sparrow-ai-flow-rules)。
   sentinel-dashboard:
