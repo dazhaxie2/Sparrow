@@ -13,6 +13,10 @@ export interface AgentStep {
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
+  /** reasoning 模型的思考过程(流式累加,仅 assistant 消息且模型吐 reasoning 时存在)。 */
+  thinking?: string
+  /** 流式中:正文是否仍在生成(用于显示闪烁光标、阻止重复操作)。 */
+  streaming?: boolean
   mode?: string
   format?: string
   intent?: string

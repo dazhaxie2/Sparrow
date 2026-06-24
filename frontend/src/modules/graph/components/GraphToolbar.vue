@@ -1,6 +1,6 @@
 <template>
   <div class="graph-toolbar">
-    <div class="toolbar-title">
+    <div v-if="!graphFullScreen" class="toolbar-title">
       <strong>{{ dialogActive ? '对话临时图谱' : 'Graph Relationship Visualization' }}</strong>
       <span v-if="dialogActive">提取 {{ formatNumber(nodeCount) }} 个相关节点</span>
       <span v-else-if="clusterDrilldown">{{ drilldownLabel }}社区 · {{ formatNumber(nodeCount) }} 个节点</span>
@@ -10,7 +10,7 @@
     </div>
 
     <div
-      v-if="graphMode === 'map'"
+      v-if="graphMode === 'map' && !graphFullScreen"
       class="search-box"
       @keydown.down.prevent="moveSearch(1)"
       @keydown.up.prevent="moveSearch(-1)"
@@ -43,18 +43,18 @@
       </div>
     </div>
 
-    <div v-else class="dialog-mode-status">
+    <div v-else-if="!graphFullScreen" class="dialog-mode-status">
       <BrainCircuit :size="14" />
       <span>{{ dialogQuery || '关联节点实时构建' }}</span>
     </div>
 
     <div class="toolbar-actions" aria-label="图谱控制">
       <span class="selected-status">{{ selectedStatusText }}</span>
-      <button v-if="clusterDrilldown" class="tool-btn text-btn" type="button" title="返回聚簇总览" @click="$emit('exitCluster')">
+      <button v-if="clusterDrilldown && !graphFullScreen" class="tool-btn text-btn" type="button" title="返回聚簇总览" @click="$emit('exitCluster')">
         <ArrowLeft :size="14" />
         <span>返回聚簇</span>
       </button>
-      <button class="tool-btn text-btn" type="button" title="刷新图谱" :disabled="treeLoading" @click="$emit('refresh')">
+      <button v-if="!graphFullScreen" class="tool-btn text-btn" type="button" title="刷新图谱" :disabled="treeLoading" @click="$emit('refresh')">
         <RefreshCcw :size="14" />
         <span>Refresh</span>
       </button>

@@ -292,12 +292,12 @@ public class AiService {
         sink.complete();
     }
 
-    /** 用流式 ChatModel 直接生成 RAG 回答;返回 true 表示成功完成,false 表示应降级。 */
+    /** 用流式模型直接生成 RAG 回答;逐 token 推 delta,reasoning 推 thinking。返回 true=成功,false=降级。 */
     private boolean streamRag(String question, Retrieved retrieved, StreamSink sink,
                               StringBuilder answer, StringBuilder thinking) {
         String prompt = systemPrompt() + "\n\n"
                 + ragUserMessage(question, retrieved.nodes(), retrieved.chunks());
-        return doStream(streamingChatModel.chat(prompt), sink, answer, thinking, "RAG");
+        return streamWithString(prompt, sink, answer, thinking, "RAG");
     }
 
     /**
@@ -334,21 +334,12 @@ public class AiService {
         return awaitStream(latch, error, "Agent");
     }
 
-    /** 通用流式消费:把 StreamingChatResponseHandler 的回调桥接到 sink。返回 true=成功,false=降级。 */
-    private boolean doStream(dev.langchain4j.model.chat.response.ChatResponse chatResponse,
-                             StreamSink sink, StringBuilder answer, StringBuilder thinking, String tag) {
-        // streamingChatModel.chat(...) 本身返回 ChatResponse(同步);真正的流式回调通过
-        // StreamingChatModel.chat(messages, handler) 重载触发。这里改用 handler 重载。
-        return false; // 占位,实际由 streamWithHandler 实现
-    }
-
-    /** 用 handler 重载驱动流式,逐 token 推送 delta,reasoning 推送 thinking。 */
-    private boolean streamWithHandler(java.util.List<dev.langchain4j.data.message.ChatMessage> messages,
-                                      StreamSink sink, StringBuilder answer,
-                                      StringBuilder thinking, String tag) {
+    /** 用 streamingChatModel.chat(String, handler) 驱动流式,把回调桥接到 sink。 */
+    private boolean streamWithString(String prompt, StreamSink sink, StringBuilder answer,
+                                     StringBuilder thinking, String tag) {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> error = new AtomicReference<>();
-        streamingChatModel.chat(messages, new StreamingChatResponseHandler() {
+        streamingChatModel.chat(prompt, new StreamingChatResponseHandler() {
             @Override
             public void onPartialResponse(String partialResponse) {
                 answer.append(partialResponse);
@@ -370,14 +361,10 @@ public class AiService {
             }
 
             @Override
-            public void onError(Throwable error) {
-                StreamingChatResponseHandler.super.onError(error);
-                err0.set(error);
+            public void onError(Throwable err) {
+                error.set(err);
                 latch.countDown();
             }
-
-            // 用容器字段持有错误,兼容 1.9.0 的 default onError 签名。
-            final java.util.concurrent.atomic.AtomicReference<Throwable> err0 = error;
         });
         return awaitStream(latch, error, tag);
     }

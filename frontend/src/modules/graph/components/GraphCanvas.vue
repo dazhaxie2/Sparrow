@@ -15,7 +15,7 @@
       <button type="button" @click="$emit('retry')">重试</button>
     </div>
 
-    <div v-if="categoryLegend.length && !treeLoading && !treeError" class="graph-legend" aria-label="领域图例">
+    <div v-if="categoryLegend.length && !treeLoading && !treeError && !immersive" class="graph-legend" aria-label="领域图例">
       <span class="legend-title">CATEGORY TYPES</span>
       <div class="legend-items">
         <button
@@ -32,7 +32,7 @@
       </div>
     </div>
 
-    <label v-if="hasInformativeEdgeLabels && !treeLoading && !treeError" class="edge-label-toggle">
+    <label v-if="hasInformativeEdgeLabels && !treeLoading && !treeError && !immersive" class="edge-label-toggle">
       <input
         type="checkbox"
         :checked="showEdgeLabels"
@@ -55,6 +55,8 @@ defineProps<{
   categoryLegend: CategoryLegendItem[]
   hasInformativeEdgeLabels: boolean
   showEdgeLabels: boolean
+  /** 全屏沉浸模式:隐藏图例与关系名开关等画布叠层。 */
+  immersive?: boolean
 }>()
 
 defineEmits<{

@@ -46,7 +46,17 @@
             <span v-if="msg.mode" class="mode-pill">{{ modeLabel(msg.mode) }}</span>
             <span v-if="msg.intent" class="intent-pill">{{ intentLabel(msg.intent) }}</span>
           </div>
+          <!-- 思考过程(reasoning 模型才有):默认折叠,可展开查看。流式生成时自动展开。 -->
+          <div v-if="msg.role !== 'user' && msg.thinking" class="thinking-block" :class="{ open: thinkingOpen[i] !== false }">
+            <button class="thinking-toggle" type="button" @click="toggleThinking(i)">
+              <Brain :size="13" />
+              <span>思考过程</span>
+              <ChevronDown :size="13" class="chev" :class="{ flipped: thinkingOpen[i] !== false }" />
+            </button>
+            <div v-if="thinkingOpen[i] !== false" class="thinking-content" v-html="renderMessage(msg.thinking)" />
+          </div>
           <div class="msg-content" v-html="renderMessage(msg.content)" />
+          <span v-if="msg.streaming" class="cursor" aria-hidden="true" />
           <div v-if="msg.role !== 'user' && msg.steps?.length" class="agent-steps">
             <span v-for="step in msg.steps" :key="step.key" :class="`step-${step.status}`">
               {{ step.label }}
@@ -62,7 +72,8 @@
           </div>
         </div>
 
-        <div v-if="loading" class="msg bot typing">
+        <!-- 初始检索阶段(占位消息尚未产生任何内容时)显示加载提示。 -->
+        <div v-if="loading && !lastMessageHasContent" class="msg bot typing">
           <LoaderCircle class="spin" :size="15" />
           {{ phase || '正在处理' }}
         </div>
@@ -85,8 +96,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Bot, LoaderCircle, Send, Sparkles, Trash2 } from '@lucide/vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { Bot, Brain, ChevronDown, LoaderCircle, Send, Sparkles, Trash2 } from '@lucide/vue'
 import { useChat } from '../composables/useChat'
 import { renderMarkdown } from '../utils/markdown'
 import { useUserStore } from '../../user/store'
@@ -103,6 +114,20 @@ const dockRef = ref<HTMLElement | null>(null)
 const positioned = ref(false)
 const dragging = ref(false)
 const position = ref({ x: 0, y: 0 })
+
+// 思考过程折叠状态:按消息索引记录 true=展开 / false=收起,默认展开(流式时直观)。
+// 用 reactive 对象而非 ref,以便动态键的增删保持响应式。
+const thinkingOpen = reactive<Record<number, boolean>>({})
+
+function toggleThinking(index: number) {
+  thinkingOpen[index] = thinkingOpen[index] === false
+}
+
+/** 最后一条消息是否已有可显示内容(content 或 thinking),用于决定是否显示独立的加载提示行。 */
+const lastMessageHasContent = computed(() => {
+  const last = messages.value[messages.value.length - 1]
+  return Boolean(last && (last.content || last.thinking))
+})
 
 const DOCK_POSITION_KEY = 'sparrow_ai_dock_position'
 const EDGE_GAP = 12
@@ -674,6 +699,81 @@ defineExpose({ open, close })
 
 .msg.user .src {
   color: rgba(255, 255, 255, 0.75);
+}
+
+/* 思考过程折叠区块 */
+.thinking-block {
+  margin-bottom: 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.thinking-toggle {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.thinking-toggle svg {
+  color: var(--muted);
+}
+
+.thinking-toggle .chev {
+  margin-left: auto;
+  transition: transform 0.16s ease;
+}
+
+.thinking-toggle .chev.flipped {
+  transform: rotate(180deg);
+}
+
+.thinking-content {
+  padding: 0 9px 9px;
+  border-top: 1px solid var(--line);
+  margin-top: 2px;
+  padding-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.65;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.thinking-content :deep(h3),
+.thinking-content :deep(h4),
+.thinking-content :deep(p) {
+  margin: 0 0 4px;
+}
+
+/* 流式光标 */
+.cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: blink 0.9s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  50.01%, 100% {
+    opacity: 0;
+  }
 }
 
 .ai-input-row {
