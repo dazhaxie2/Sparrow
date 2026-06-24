@@ -4,7 +4,6 @@
     @show-graph="switchGraphMode('map')"
     @open-login="showLogin = true"
     @open-member="showMemberModal"
-    @focus-ai="openAiGuide"
     @open-learning="showLearning = true"
     @open-settings="showSettings = true"
   />
@@ -66,6 +65,7 @@
       :loading="nodeLoading"
       :error="nodeError"
       :progress="currentProgress"
+      :progress-map="progressMap"
       :accent-color="currentNodeColor"
       :applications="currentApplications"
       :applications-loading="applicationsLoading"
@@ -116,6 +116,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '../../../app/components/AppHeader.vue'
 import GraphPanel from '../components/GraphPanel.vue'
 import GraphSideRail from '../components/GraphSideRail.vue'
@@ -143,6 +144,8 @@ const RAW_NODE_LIMIT = 1000
 const COMMUNITY_NODE_LIMIT = 10000
 
 const user = useUserStore()
+const route = useRoute()
+const router = useRouter()
 
 // ── 页面级状态 ──
 const treeData = ref<Tree | null>(null)
@@ -417,6 +420,20 @@ function showMemberModal() {
   showMember.value = true
 }
 
+function consumeHeaderIntent() {
+  const intent = Array.isArray(route.query.open) ? route.query.open[0] : route.query.open
+  if (!intent) return
+
+  if (intent === 'login') showLogin.value = true
+  else if (intent === 'member') showMemberModal()
+  else if (intent === 'learning') showLearning.value = true
+  else if (intent === 'settings') showSettings.value = true
+
+  const nextQuery = { ...route.query }
+  delete nextQuery.open
+  void router.replace({ path: '/', query: nextQuery })
+}
+
 function switchGraphMode(mode: GraphMode) {
   if (mode === 'map' && dialogActive.value) {
     exitDialogMode()
@@ -541,9 +558,37 @@ async function refreshGraph() {
 }
 
 async function toggleGraphFullScreen() {
-  graphFullScreen.value = !graphFullScreen.value
+  if (!graphFullScreen.value) {
+    // 优先使用浏览器原生全屏:可隐藏浏览器/系统外壳并支持 ESC 退出。
+    // 在受限 iframe 等不支持/被拒的环境下,回退到 CSS 伪全屏(仅最大化页面内的图谱区)。
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen()
+      }
+    } catch {
+      /* 原生全屏被拒,继续走 CSS 伪全屏 */
+    }
+    graphFullScreen.value = true
+  } else {
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen()
+      } catch {
+        /* 忽略,下面照常关闭 CSS 伪全屏 */
+      }
+    }
+    graphFullScreen.value = false
+  }
   await nextTick()
   graphChart.resize()
+}
+
+/** 同步原生全屏状态:用户按 ESC 退出时,一并撤掉 CSS 最大化并刷新图表。 */
+function handleFullscreenChange() {
+  if (!document.fullscreenElement && graphFullScreen.value) {
+    graphFullScreen.value = false
+    nextTick(() => graphChart.resize())
+  }
 }
 
 function clearSelection() {
@@ -718,13 +763,16 @@ onMounted(async () => {
   if (el) graphChart.init(el)
   window.addEventListener('resize', handleResize)
   window.addEventListener('focus', handleFocus)
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
   await user.loadProfile()
+  consumeHeaderIntent()
   await Promise.all([loadOverview(), loadTree()])
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('focus', handleFocus)
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
   graphChart.dispose()
 })
 </script>

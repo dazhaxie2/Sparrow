@@ -287,6 +287,9 @@ export function useSigmaGraph(opts: {
   }
 
   function resize() {
+    // 容器尺寸变化(如进出全屏)后,先强制重算画布宽高,再重绘;
+    // 仅 refresh() 在个别浏览器下会读到旧的 offsetWidth/Height 而不缩放。
+    sigma?.resize()
     sigma?.refresh()
   }
 

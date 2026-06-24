@@ -3,8 +3,8 @@
     <header class="workbench-header">
       <div>
         <BrainCircuit :size="17" />
-        <strong>SPARROW AGENT</strong>
-        <span>{{ dialogLoading ? 'BUILDING' : dialogActive ? 'GRAPH READY' : 'READY' }}</span>
+        <strong>{{ title }}</strong>
+        <span>{{ statusText || (dialogLoading ? 'BUILDING' : dialogActive ? 'GRAPH READY' : 'READY') }}</span>
       </div>
       <button type="button" title="返回图谱模式" @click="$emit('switchToMap')">
         <X :size="16" />
@@ -14,8 +14,8 @@
     <div ref="feedRef" class="dialog-feed">
       <div v-if="!dialogMessages.length" class="dialog-empty">
         <MessageSquareText :size="24" />
-        <strong>与 Agent 对话</strong>
-        <span>例如：蒸汽机如何影响铁路和电力？</span>
+        <strong>{{ emptyTitle }}</strong>
+        <span>{{ emptyHint }}</span>
       </div>
 
       <article
@@ -34,7 +34,7 @@
 
       <div v-if="dialogLoading" class="dialog-state">
         <LoaderCircle class="spin" :size="16" />
-        <span>BUILDING GRAPH MEMORY</span>
+        <span>{{ loadingLabel }}</span>
       </div>
       <div v-if="dialogError" class="dialog-error">{{ dialogError }}</div>
     </div>
@@ -44,7 +44,7 @@
         ref="inputRef"
         v-model="text"
         rows="3"
-        placeholder="Ask Agent..."
+        :placeholder="placeholder"
         :disabled="dialogLoading"
         @keydown.enter.exact.prevent="submit"
       ></textarea>
@@ -62,12 +62,25 @@ import { BrainCircuit, LoaderCircle, MessageSquareText, SendHorizontal, X } from
 import { renderMarkdown } from '../../ai/utils/markdown'
 import type { DialogMessage } from '../composables/useDialogMode'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   dialogMessages: DialogMessage[]
   dialogLoading: boolean
   dialogError: string
   dialogActive: boolean
-}>()
+  title?: string
+  statusText?: string
+  emptyTitle?: string
+  emptyHint?: string
+  loadingLabel?: string
+  placeholder?: string
+}>(), {
+  title: 'SPARROW AGENT',
+  statusText: '',
+  emptyTitle: '与 Agent 对话',
+  emptyHint: '例如：蒸汽机如何影响铁路和电力？',
+  loadingLabel: 'BUILDING GRAPH MEMORY',
+  placeholder: 'Ask Agent...',
+})
 
 const emit = defineEmits<{
   submit: [text: string]

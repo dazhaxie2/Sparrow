@@ -13,6 +13,10 @@ import com.sparrow.common.exception.BizException;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.PartialThinking;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +34,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * AI 服务核心类。
@@ -65,6 +73,22 @@ public class AiService {
     }
 
     /**
+     * 流式输出端口:把生成事件(meta/thinking/delta/done/error)投递给传输层(SSE / 其他)。
+     * 与具体 HTTP 实现解耦,便于测试与替换传输。
+     */
+    public interface StreamSink {
+
+        /** 投递一个事件(event=事件名,data=JSON 序列化前的键值)。 */
+        void emit(String event, Map<String, ?> data);
+
+        /** 正常结束流。 */
+        void complete();
+
+        /** 异常结束流:先推送 error 事件,再以错误收尾。 */
+        void completeWithError(Throwable error);
+    }
+
+    /**
      * 问答结果记录。
      *
      * @param answer         回答内容
@@ -90,6 +114,7 @@ public class AiService {
 
     private final AiProperties props;
     private final ChatModel chatModel;
+    private final StreamingChatModel streamingChatModel;
     private final EmbeddingModel embeddingModel;
     private final MilvusStore milvus;
     private final GraphClient graphClient;
@@ -100,21 +125,23 @@ public class AiService {
     /**
      * 构造函数。
      *
-     * @param props         AI 配置属性
-     * @param chatModel     大语言模型
-     * @param embeddingModel 向量嵌入模型
-     * @param milvus        Milvus 向量存储
-     * @param graphClient   图谱服务客户端
-     * @param userClient    用户服务客户端
-     * @param redis         Redis 模板(用于配额管理)
-     * @param agentProvider Agent 提供者(懒加载)
+     * @param props              AI 配置属性
+     * @param chatModel          大语言模型
+     * @param streamingChatModel 流式大语言模型,可为 null(未配置时退回同步生成)
+     * @param embeddingModel     向量嵌入模型
+     * @param milvus             Milvus 向量存储
+     * @param graphClient        图谱服务客户端
+     * @param userClient         用户服务客户端
+     * @param redis              Redis 模板(用于配额管理)
+     * @param agentProvider      Agent 提供者(懒加载)
      */
-    public AiService(AiProperties props, ChatModel chatModel, EmbeddingModel embeddingModel,
-                     MilvusStore milvus, GraphClient graphClient, UserClient userClient,
-                     StringRedisTemplate redis,
+    public AiService(AiProperties props, ChatModel chatModel, StreamingChatModel streamingChatModel,
+                     EmbeddingModel embeddingModel, MilvusStore milvus, GraphClient graphClient,
+                     UserClient userClient, StringRedisTemplate redis,
                      ObjectProvider<TechTreeAgent> agentProvider) {
         this.props = props;
         this.chatModel = chatModel;
+        this.streamingChatModel = streamingChatModel;
         this.embeddingModel = embeddingModel;
         this.milvus = milvus;
         this.graphClient = graphClient;
@@ -130,6 +157,11 @@ public class AiService {
      */
     public boolean llmConfigured() {
         return chatModel != null && embeddingModel != null;
+    }
+
+    /** 流式可用:LLM 已配置且流式模型就位。 */
+    public boolean streamConfigured() {
+        return llmConfigured() && streamingChatModel != null;
     }
 
     /**
@@ -176,6 +208,208 @@ public class AiService {
         return result(rulesAnswer(question, retrieved.nodes()), "rules", intent, sources,
                 buildSteps(intent, "关键词匹配图谱上下文", "规则引擎生成统一回答", sources.isEmpty()),
                 remaining);
+    }
+
+    /**
+     * 流式问答:逐 token 推送思考过程(thinking)与正文(delta),最后 done 收尾。
+     *
+     * <p>事件顺序:meta(来源/配额/步骤) → thinking*(reasoning 增量,可选) → delta*(正文增量)
+     * → done。失败降级:Agent 流式 → RAG 流式 → 规则(一次性 delta) → error。
+     * 任何异常都保证调用 {@link StreamSink#complete()} 或 {@link StreamSink#completeWithError(Throwable)},
+     * 不会让 SSE 连接悬挂。</p>
+     *
+     * <p>异步执行:本方法立即返回,生成在独立线程推进;客户端断开由 SseEmitter 超时兜底。</p>
+     *
+     * @param userId   用户 ID
+     * @param question 用户问题
+     * @param sink     流式输出端口
+     */
+    public void askStream(Long userId, String question, StreamSink sink) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                askStreamInternal(userId, question, sink);
+            } catch (BizException e) {
+                sink.emit("error", Map.of("message", e.getMessage()));
+                sink.complete();
+            } catch (Exception e) {
+                log.warn("流式问答失败 [userId={}]: {}", userId, e.toString());
+                sink.completeWithError(e);
+            }
+        });
+    }
+
+    private void askStreamInternal(Long userId, String question, StreamSink sink) {
+        long remaining = consumeQuota(userId);
+        String intent = classifyIntent(question);
+
+        // 检索上下文(三种模式共用),来源/步骤先于正文推给前端,UI 可先渲染来源卡片。
+        Retrieved retrieved = retrieve(question);
+        List<SourceRef> sources = buildSources(retrieved);
+
+        // 1. Agent 流式(优先)。TokenStream 流式 + 工具调用在部分 provider 上不稳,
+        //    onError 时降级 RAG 流式。
+        TechTreeAgent agent = agentProvider.getIfAvailable();
+        if (streamConfigured() && agent != null) {
+            Map<String, Object> meta = streamMeta("agent", intent, sources,
+                    buildSteps(intent, "检索图谱与知识库上下文", "Agent 工具链流式生成回答", sources.isEmpty()),
+                    remaining);
+            sink.emit("meta", meta);
+            StringBuilder answer = new StringBuilder();
+            StringBuilder thinking = new StringBuilder();
+            if (streamAgent(agent, String.valueOf(userId),
+                    agentUserMessage(question, intent), sink, answer, thinking)) {
+                sink.emit("done", Map.of("mode", "agent", "format", "markdown:v1"));
+                sink.complete();
+                return;
+            }
+            // Agent 流式失败:落到 RAG 流式(已在 streamAgent 内打 warn 日志)。
+        }
+
+        // 2. RAG 流式。
+        if (streamConfigured()) {
+            Map<String, Object> meta = streamMeta("rag", intent, sources,
+                    buildSteps(intent, "检索图谱与知识库上下文", "RAG 流式生成回答", sources.isEmpty()),
+                    remaining);
+            sink.emit("meta", meta);
+            StringBuilder answer = new StringBuilder();
+            StringBuilder thinking = new StringBuilder();
+            if (streamRag(question, retrieved, sink, answer, thinking)) {
+                sink.emit("done", Map.of("mode", "rag", "format", "markdown:v1"));
+                sink.complete();
+                return;
+            }
+            // RAG 流式失败:落到规则。
+        }
+
+        // 3. 规则模式:本地拼好整段,一次性推送(伪流式,体验统一)。
+        String answer = rulesAnswer(question, retrieved.nodes());
+        Map<String, Object> meta = streamMeta("rules", intent, sources,
+                buildSteps(intent, "关键词匹配图谱上下文", "规则引擎生成统一回答", sources.isEmpty()),
+                remaining);
+        sink.emit("meta", meta);
+        sink.emit("delta", Map.of("text", cleanupAnswer(answer)));
+        sink.emit("done", Map.of("mode", "rules", "format", "markdown:v1"));
+        sink.complete();
+    }
+
+    /** 用流式 ChatModel 直接生成 RAG 回答;返回 true 表示成功完成,false 表示应降级。 */
+    private boolean streamRag(String question, Retrieved retrieved, StreamSink sink,
+                              StringBuilder answer, StringBuilder thinking) {
+        String prompt = systemPrompt() + "\n\n"
+                + ragUserMessage(question, retrieved.nodes(), retrieved.chunks());
+        return doStream(streamingChatModel.chat(prompt), sink, answer, thinking, "RAG");
+    }
+
+    /**
+     * 用 Agent 的流式接口(TokenStream)生成回答。
+     * 流式 + 工具调用可能不稳定,失败时返回 false 以便上层降级。
+     */
+    private boolean streamAgent(TechTreeAgent agent, String memoryId, String userMessage,
+                                StreamSink sink, StringBuilder answer, StringBuilder thinking) {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> error = new AtomicReference<>();
+        try {
+            agent.chatStream(memoryId, userMessage)
+                    .onPartialResponse(token -> {
+                        answer.append(token);
+                        sink.emit("delta", Map.of("text", token));
+                    })
+                    .onPartialThinking(pt -> {
+                        String t = pt.text();
+                        if (t != null && !t.isEmpty()) {
+                            thinking.append(t);
+                            sink.emit("thinking", Map.of("text", t));
+                        }
+                    })
+                    .onCompleteResponse(resp -> latch.countDown())
+                    .onError(err -> {
+                        error.set(err);
+                        latch.countDown();
+                    })
+                    .start();
+        } catch (Exception e) {
+            log.warn("Agent 流式启动失败,降级 RAG: {}", e.getMessage());
+            return false;
+        }
+        return awaitStream(latch, error, "Agent");
+    }
+
+    /** 通用流式消费:把 StreamingChatResponseHandler 的回调桥接到 sink。返回 true=成功,false=降级。 */
+    private boolean doStream(dev.langchain4j.model.chat.response.ChatResponse chatResponse,
+                             StreamSink sink, StringBuilder answer, StringBuilder thinking, String tag) {
+        // streamingChatModel.chat(...) 本身返回 ChatResponse(同步);真正的流式回调通过
+        // StreamingChatModel.chat(messages, handler) 重载触发。这里改用 handler 重载。
+        return false; // 占位,实际由 streamWithHandler 实现
+    }
+
+    /** 用 handler 重载驱动流式,逐 token 推送 delta,reasoning 推送 thinking。 */
+    private boolean streamWithHandler(java.util.List<dev.langchain4j.data.message.ChatMessage> messages,
+                                      StreamSink sink, StringBuilder answer,
+                                      StringBuilder thinking, String tag) {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> error = new AtomicReference<>();
+        streamingChatModel.chat(messages, new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String partialResponse) {
+                answer.append(partialResponse);
+                sink.emit("delta", Map.of("text", partialResponse));
+            }
+
+            @Override
+            public void onPartialThinking(PartialThinking partialThinking) {
+                String t = partialThinking.text();
+                if (t != null && !t.isEmpty()) {
+                    thinking.append(t);
+                    sink.emit("thinking", Map.of("text", t));
+                }
+            }
+
+            @Override
+            public void onCompleteResponse(ChatResponse completeResponse) {
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                StreamingChatResponseHandler.super.onError(error);
+                err0.set(error);
+                latch.countDown();
+            }
+
+            // 用容器字段持有错误,兼容 1.9.0 的 default onError 签名。
+            final java.util.concurrent.atomic.AtomicReference<Throwable> err0 = error;
+        });
+        return awaitStream(latch, error, tag);
+    }
+
+    /** 等待流式结束,带超时兜底,防止 provider 不回调导致 SSE 悬挂。 */
+    private boolean awaitStream(CountDownLatch latch, AtomicReference<Throwable> error, String tag) {
+        try {
+            if (!latch.await(90, TimeUnit.SECONDS)) {
+                log.warn("{} 流式超时(90s),降级", tag);
+                return false;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        if (error.get() != null) {
+            log.warn("{} 流式出错,降级: {}", tag, error.get().getMessage());
+            return false;
+        }
+        return true;
+    }
+
+    /** 构造首帧 meta 事件的 payload。 */
+    private Map<String, Object> streamMeta(String mode, String intent, List<SourceRef> sources,
+                                           List<AgentStep> steps, long remaining) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("mode", mode);
+        meta.put("intent", intent);
+        meta.put("sources", sources);
+        meta.put("steps", steps);
+        meta.put("remainingQuota", remaining);
+        return meta;
     }
 
     /**

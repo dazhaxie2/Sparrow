@@ -4,7 +4,9 @@ import com.alibaba.csp.sentinel.annotation.SentinelResource;
 import com.alibaba.csp.sentinel.slots.block.BlockException;
 import com.sparrow.ai.application.AiService;
 import com.sparrow.ai.application.AiService.AskResult;
+import com.sparrow.ai.application.AiService.StreamSink;
 import com.sparrow.ai.infrastructure.config.SentinelRuleConfig;
+import com.sparrow.ai.infrastructure.streaming.SseStreamSink;
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.common.security.UserContext;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * AI 问答接口控制器。
@@ -50,7 +53,37 @@ public class AiController {
         return ApiResponse.ok(aiService.ask(UserContext.require(), req.question()));
     }
 
+    /**
+     * 流式问答:SSE 逐 token 推送思考过程(thinking)与正文(delta),最后以 done 收尾。
+     * 失败降级时推送 error 事件后结束。限流命中时由 blockHandler 推送 error 事件。
+     *
+     * @param req 问答请求
+     * @return SSE 流
+     */
+    @PostMapping(value = "/ask/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    @SentinelResource(value = SentinelRuleConfig.RESOURCE_AI_ASK, blockHandler = "streamBlocked")
+    public SseEmitter askStream(@RequestBody @Validated AskRequest req) {
+        // 120s 超时,覆盖检索 + 流式生成全过程;客户端断开会自动终止 emitter。
+        SseEmitter emitter = new SseEmitter(120_000L);
+        StreamSink sink = new SseStreamSink(emitter);
+        // 流式生成是异步的,不能阻塞请求线程;交由 AiService 内部线程推进。
+        aiService.askStream(UserContext.require(), req.question(), sink);
+        return emitter;
+    }
+
     public ApiResponse<AskResult> askBlocked(AskRequest req, BlockException ex) {
         throw new BizException(429, "AI 问答请求过于频繁,请稍后再试");
+    }
+
+    /** 流式限流降级:推送 error 事件后结束 emitter,而非抛异常(SSE 已开始)。 */
+    public SseEmitter streamBlocked(AskRequest req, BlockException ex) {
+        SseEmitter emitter = new SseEmitter(120_000L);
+        try {
+            emitter.send(SseEmitter.event().name("error").data("{\"message\":\"AI 问答请求过于频繁,请稍后再试\"}"));
+            emitter.complete();
+        } catch (Exception ignore) {
+            emitter.completeWithError(ignore);
+        }
+        return emitter;
     }
 }

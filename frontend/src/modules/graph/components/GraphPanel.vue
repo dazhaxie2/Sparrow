@@ -126,38 +126,24 @@
             </div>
           </section>
 
-          <section v-if="detail.prerequisites.length" class="relation-block">
+          <section v-if="recommendations.length" class="relation-block recommend-block">
             <div class="section-title">
-              <GitPullRequestArrow :size="15" />
-              <span>直接前置</span>
-              <small>{{ detail.prerequisites.length }}</small>
+              <Lightbulb :size="15" />
+              <span>推荐学习</span>
+              <small>{{ recommendations.length }}</small>
             </div>
             <div class="rel-chips">
               <button
-                v-for="item in detail.prerequisites"
+                v-for="item in recommendations"
                 :key="item.id"
                 type="button"
+                :class="{ learned: item.state === 'mastered' || item.state === 'read' }"
                 @click="$emit('select', item.id)"
               >
                 {{ item.name }}
-              </button>
-            </div>
-          </section>
-
-          <section v-if="detail.unlocks.length" class="relation-block">
-            <div class="section-title">
-              <UnlockKeyhole :size="15" />
-              <span>后续解锁</span>
-              <small>{{ detail.unlocks.length }}</small>
-            </div>
-            <div class="rel-chips">
-              <button
-                v-for="item in detail.unlocks"
-                :key="item.id"
-                type="button"
-                @click="$emit('select', item.id)"
-              >
-                {{ item.name }}
+                <span class="rel-tag" :class="item.direction">{{ item.direction === 'pre' ? '前置' : '后续' }}</span>
+                <span v-if="item.state === 'mastered'" class="rel-tag learned-tag">已掌握</span>
+                <span v-else-if="item.state === 'read'" class="rel-tag learned-tag">已读</span>
               </button>
             </div>
           </section>
@@ -198,8 +184,8 @@ import {
   BookOpen,
   Boxes,
   FileText,
-  GitPullRequestArrow,
   GitCompare,
+  Lightbulb,
   LoaderCircle,
   LockKeyhole,
   BookmarkPlus,
@@ -210,7 +196,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Target,
-  UnlockKeyhole,
 } from '@lucide/vue'
 import type { NodeBrief, NodeDetail } from '../types'
 
@@ -222,6 +207,8 @@ const props = defineProps<{
   loading: boolean
   error: string
   progress: ProgressState
+  /** 全局学习进度(节点 id → 状态),供推荐算法对已学节点降权。 */
+  progressMap?: Record<number, Exclude<ProgressState, null>>
   accentColor: string
   applications: NodeBrief[]
   applicationsLoading: boolean
@@ -247,6 +234,54 @@ const currentSummary = computed(() => current.value?.summary ?? '正在整理该
 const currentCategory = computed(() => current.value?.category ?? '')
 const currentPremium = computed(() => Boolean(current.value?.premium))
 const sources = computed(() => props.detail?.sources ?? [])
+
+type RecDirection = 'pre' | 'post'
+
+const RECOMMEND_LIMIT = 10
+
+/**
+ * 推荐学习评分:把「直接前置」(pre,先修基础) 与「后续解锁」(post,进阶方向) 统一为一个
+ * 可排序的推荐列表。底层有向数据模型(prerequisites/unlocks)保持不变,这里只在展示层做
+ * 加权排序。评分维度:
+ *  1) 方向基线:未掌握的前置是理解当前节点的必要基础,基线权重高于后续进阶。
+ *  2) 学习进度:已掌握/已读的节点价值下降(下沉),「想学」略微上浮。
+ *  3) 节点重要度:相对当前候选集归一化,越核心越靠前(规避未知量纲)。
+ *  4) 同类加成:与当前节点同 category 的节点学习路径更连贯,小幅加权。
+ *  5) 会员内容:深度付费内容轻微下沉,优先推荐可直接学习的节点。
+ */
+function scoreCandidate(node: NodeBrief, direction: RecDirection, maxImportance: number) {
+  let score = direction === 'pre' ? 1 : 0.72
+  const state = props.progressMap?.[node.id]
+  if (state === 'mastered') score *= 0.18
+  else if (state === 'read') score *= 0.55
+  else if (state === 'want') score *= 1.12
+  const importance = Math.max(0, node.importance ?? 0)
+  score *= 1 + 0.5 * (maxImportance > 0 ? importance / maxImportance : 0)
+  if (node.category && current.value?.category && node.category === current.value.category) score *= 1.15
+  if (node.premium) score *= 0.9
+  return score
+}
+
+const recommendations = computed(() => {
+  const detail = props.detail
+  if (!detail) return []
+  // 去重:同一节点若既是前置又是后续,保留「前置」(更基础)。
+  const byId = new Map<number, { node: NodeBrief; direction: RecDirection }>()
+  for (const node of detail.prerequisites) byId.set(node.id, { node, direction: 'pre' })
+  for (const node of detail.unlocks) if (!byId.has(node.id)) byId.set(node.id, { node, direction: 'post' })
+
+  const items = [...byId.values()]
+  const maxImportance = items.reduce((max, item) => Math.max(max, item.node.importance ?? 0), 0)
+  return items
+    .map(({ node, direction }) => ({
+      ...node,
+      direction,
+      state: props.progressMap?.[node.id] ?? null,
+      score: scoreCandidate(node, direction, maxImportance),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, RECOMMEND_LIMIT)
+})
 
 const allSources = computed(() => {
   const baikeSource = {
@@ -702,6 +737,45 @@ watch(() => props.floating, value => {
   border-color: var(--accent);
   color: var(--accent);
   background: rgba(255, 87, 34, 0.05);
+}
+
+.rel-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rel-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.rel-tag.pre {
+  background: rgba(20, 24, 29, 0.06);
+  color: var(--ink-2);
+}
+
+.rel-tag.post {
+  background: rgba(255, 87, 34, 0.12);
+  color: var(--accent);
+}
+
+.recommend-block .rel-chips button:hover .rel-tag.pre {
+  color: var(--accent);
+}
+
+.recommend-block .rel-chips button.learned {
+  opacity: 0.62;
+}
+
+.rel-tag.learned-tag {
+  background: rgba(46, 160, 67, 0.14);
+  color: #2ea043;
 }
 
 .application-block {

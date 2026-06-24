@@ -3,7 +3,9 @@ package com.sparrow.ai.infrastructure.agent;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.TokenStream;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,15 +33,17 @@ public class AgentConfig {
      * 方法内判空:有 key 时 chatModel bean 必然就位,Agent 一定创建;无 key 时入参为 null,
      * 返回 null,由 AiService 的降级链兜底。
      *
-     * @param chatModel        大语言模型,可为 null
-     * @param graphQueryTool   图谱查询工具
-     * @param vectorSearchTool 向量搜索工具
-     * @param userProgressTool 用户进度工具
-     * @param maxSessions      最大会话数,超出后按 LRU 淘汰
+     * @param chatModel          大语言模型,可为 null
+     * @param streamingChatModel 流式大语言模型,可为 null;非空时启用 {@link TechTreeAgent#chatStream} 的流式能力
+     * @param graphQueryTool     图谱查询工具
+     * @param vectorSearchTool   向量搜索工具
+     * @param userProgressTool   用户进度工具
+     * @param maxSessions        最大会话数,超出后按 LRU 淘汰
      * @return TechTreeAgent 实例,若 chatModel 为 null 则返回 null
      */
     @Bean
     public TechTreeAgent techTreeAgent(@Nullable ChatModel chatModel,
+                                       @Nullable StreamingChatModel streamingChatModel,
                                        GraphQueryTool graphQueryTool,
                                        VectorSearchTool vectorSearchTool,
                                        UserProgressTool userProgressTool,
@@ -56,14 +60,20 @@ public class AgentConfig {
                         return size() > maxSessions;
                     }
                 });
-        return AiServices.builder(TechTreeAgent.class)
+        AiServices<TechTreeAgent> builder = AiServices.builder(TechTreeAgent.class)
                 .chatModel(chatModel)
                 .tools(graphQueryTool, vectorSearchTool, userProgressTool)
                 .chatMemoryProvider(memoryId -> {
                     String key = (String) memoryId;
                     return memories.computeIfAbsent(key,
                             k -> MessageWindowChatMemory.withMaxMessages(20));
-                })
-                .build();
+                });
+        // 只有配置了流式模型,chatStream(TokenStream) 才能逐 token 返回;
+        // 否则 AiServices 在调用 chatStream 时会因缺少 streamingChatModel 而报错——
+        // 但调用方(AiService)只在 streamingChatModel 非空时才走流式分支,故此处条件装配安全。
+        if (streamingChatModel != null) {
+            builder.streamingChatModel(streamingChatModel);
+        }
+        return builder.build();
     }
 }

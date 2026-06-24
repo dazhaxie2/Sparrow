@@ -2,6 +2,7 @@ package com.sparrow.ai.infrastructure.agent;
 
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
 
 /**
@@ -29,4 +30,15 @@ public interface TechTreeAgent {
      * @return AI 回答
      */
     String chat(@MemoryId String memoryId, @UserMessage String userMessage);
+
+    /**
+     * 与 AI 向导流式对话(逐 token 返回)。
+     * 需要 Agent 配置了 streamingChatModel 才可用;返回 {@link TokenStream} 后,
+     * 调用方通过 onPartialResponse / onPartialThinking 等回调消费增量。
+     *
+     * @param memoryId    用户标识,用于关联对话记忆
+     * @param userMessage 用户消息
+     * @return token 流
+     */
+    TokenStream chatStream(@MemoryId String memoryId, @UserMessage String userMessage);
 }

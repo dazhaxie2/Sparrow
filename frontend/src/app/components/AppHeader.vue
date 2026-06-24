@@ -8,14 +8,13 @@
     </button>
 
     <nav class="top-nav" aria-label="Primary">
-      <button class="nav-item" :class="{ active: $route.path === '/' && graphMode === 'map' }" type="button" @click="$emit('showGraph')">图谱</button>
+      <button class="nav-item" :class="{ active: $route.path === '/' && graphMode === 'map' }" type="button" @click="activate('graph')">图谱</button>
       <router-link class="nav-item" :class="{ active: $route.path.startsWith('/chains') }" to="/chains">产业链</router-link>
-      <button class="nav-item" :class="{ active: $route.path === '/' && graphMode === 'dialog' }" type="button" @click="$emit('focusAi')">AI 向导</button>
-      <button class="nav-item" type="button" @click="$emit('openMember')">会员</button>
+      <button class="nav-item" type="button" @click="activate('member')">会员</button>
     </nav>
 
     <div class="actions">
-      <button v-if="!user.profile" class="btn primary" type="button" @click="$emit('openLogin')">
+      <button v-if="!user.profile" class="btn primary" type="button" @click="activate('login')">
         登录 / 注册
       </button>
       <div v-else class="user-menu">
@@ -39,20 +38,40 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ChevronDown, Crown, GraduationCap, LogOut, Settings } from '@lucide/vue'
 import { useUserStore } from '../../modules/user/store'
 
 const user = useUserStore()
+const route = useRoute()
+const router = useRouter()
 withDefaults(defineProps<{ graphMode?: 'map' | 'dialog' }>(), { graphMode: 'map' })
-const emit = defineEmits<{ showGraph: []; openLogin: []; openMember: []; focusAi: []; openLearning: []; openSettings: [] }>()
+const emit = defineEmits<{ showGraph: []; openLogin: []; openMember: []; openLearning: []; openSettings: [] }>()
 const menuOpen = ref(false)
+
+type HeaderAction = 'graph' | 'login' | 'member' | 'learning' | 'settings'
+
+function activate(action: HeaderAction) {
+  // Header 会被多个独立路由复用。首页可直接操作当前组件状态；其他页面则携带
+  // 一次性意图返回首页，由 HomeView 打开对应模式/弹窗，避免事件无人监听。
+  if (route.path !== '/') {
+    if (action === 'graph') void router.push('/')
+    else void router.push({ path: '/', query: { open: action } })
+    return
+  }
+
+  if (action === 'graph') emit('showGraph')
+  else if (action === 'login') emit('openLogin')
+  else if (action === 'member') emit('openMember')
+  else if (action === 'learning') emit('openLearning')
+  else emit('openSettings')
+}
 
 function select(action: 'openLearning' | 'openMember' | 'openSettings') {
   menuOpen.value = false
-  // 逐个字面量触发,避免联合类型变量无法匹配 defineEmits 重载签名
-  if (action === 'openLearning') emit('openLearning')
-  else if (action === 'openMember') emit('openMember')
-  else emit('openSettings')
+  if (action === 'openLearning') activate('learning')
+  else if (action === 'openMember') activate('member')
+  else activate('settings')
 }
 
 function logout() {
