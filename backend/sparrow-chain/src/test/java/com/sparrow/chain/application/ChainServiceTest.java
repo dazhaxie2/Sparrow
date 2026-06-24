@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -38,13 +39,27 @@ class ChainServiceTest {
     void listsChainsWithNodeCounts() {
         Chain chain = chain(1L, "nvidia-ai", "英伟达 / AI 芯片链");
         when(chainMapper.selectList(any(Wrapper.class))).thenReturn(List.of(chain));
-        when(nodeMapper.selectCount(any(Wrapper.class))).thenReturn(3L);
+        // N+1 优化后:节点数来自一次 GROUP BY 聚合(selectMaps,列别名 chainId/cnt),而非逐条 selectCount。
+        when(nodeMapper.selectMaps(any(Wrapper.class)))
+                .thenReturn(List.of(Map.of("chainId", 1L, "cnt", 3L)));
 
         var result = service.listChains();
 
         assertEquals(1, result.size());
         assertEquals("nvidia-ai", result.get(0).slug());
         assertEquals(3, result.get(0).nodeCount());
+    }
+
+    @Test
+    void listChainWithoutNodesCountsZero() {
+        Chain chain = chain(2L, "empty-chain", "空链");
+        when(chainMapper.selectList(any(Wrapper.class))).thenReturn(List.of(chain));
+        when(nodeMapper.selectMaps(any(Wrapper.class))).thenReturn(List.of());
+
+        var result = service.listChains();
+
+        assertEquals(1, result.size());
+        assertEquals(0, result.get(0).nodeCount());
     }
 
     @Test

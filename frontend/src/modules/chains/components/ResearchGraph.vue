@@ -25,15 +25,22 @@
 </template>
 
 <script setup lang="ts">
-import * as echarts from 'echarts'
+// 按需引入 echarts:仅注册力导向关系图所需的图表/组件/渲染器,
+// 避免 `import * as echarts from 'echarts'` 把整个库(~1MB)打进 bundle。
+import * as echarts from 'echarts/core'
+import { GraphChart } from 'echarts/charts'
+import { TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Network, X } from '@lucide/vue'
 import type { ResearchGraph, ResearchSource } from '../researchTypes'
 
+echarts.use([GraphChart, TooltipComponent, CanvasRenderer])
+
 const props = defineProps<{ graph: ResearchGraph | null; sources: ResearchSource[] }>()
 const canvasRef = ref<HTMLElement | null>(null)
 const selectedId = ref<string | null>(null)
-let chart: echarts.ECharts | null = null
+let chart: ReturnType<typeof echarts.init> | null = null
 
 const sourceByRef = computed(() => new Map(props.sources.map(source => [source.sourceRef, source])))
 const selectedNode = computed(() => props.graph?.nodes.find(node => node.id === selectedId.value) ?? null)
