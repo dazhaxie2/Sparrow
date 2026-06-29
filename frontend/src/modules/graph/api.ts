@@ -1,10 +1,11 @@
+import { ttlCache } from '../../shared/utils/ttlCache'
 import { get } from '../../shared/api/request'
 import type {
   Tree, NodeDetail, NodeBrief, KnowledgeStatus, Overview, Neighborhood, SubgraphFilters, GraphTile, ClusterOverview,
 } from './types'
 
 export function fetchTree() {
-  return get<Tree>('/api/graph/tree')
+  return ttlCache('graph:tree', 300000, () => get<Tree>('/api/graph/tree'))
 }
 
 /** 领域×时代聚合总览(响应体小,展示真实规模 + 领域列表)。 */

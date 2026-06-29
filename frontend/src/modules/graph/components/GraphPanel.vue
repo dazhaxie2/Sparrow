@@ -110,11 +110,11 @@
             <div class="section-title">
               <ExternalLink :size="15" />
               <span>资料来源</span>
-              <small>{{ sources.length + 1 }}</small>
+              <small>{{ sources.length }}</small>
             </div>
             <div class="source-list">
               <a
-                v-for="source in allSources"
+                v-for="source in sources"
                 :key="`${source.title}-${source.url}`"
                 :href="source.url"
                 target="_blank"
