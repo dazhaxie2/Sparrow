@@ -148,9 +148,9 @@ import { useCompare } from '../composables/useCompare'
 type GraphMode = 'map' | 'dialog'
 type DisplayMode = 'raw' | 'community' | 'lod'
 
-const LIMIT_OPTIONS = [200, 400, 800]
-const RAW_NODE_LIMIT = 1000
-const COMMUNITY_NODE_LIMIT = 10000
+const LIMIT_OPTIONS = [200, 400, 800, 1500, 3000]
+const RAW_NODE_LIMIT = 3000
+const COMMUNITY_NODE_LIMIT = 30000
 
 const user = useUserStore()
 const route = useRoute()
@@ -822,10 +822,10 @@ onUnmounted(() => {
   flex-direction: column;
   transition: flex-basis 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.2s ease;
 }
-/* 折叠态容器自身变黑，杜绝按钮未铺满时透出底层近白底色 */
+/* 折叠态：容器透明融入背景，避免突兀的纯黑色块 */
 .ai-rail.collapsed {
   flex: 0 0 44px;
-  background: var(--ink);
+  background: transparent;
 }
 
 .graph-shell {

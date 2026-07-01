@@ -110,8 +110,9 @@ public class MysqlGraphReader {
     /** 过滤后构造有界子图:保留核心高重要度节点,同时补入可连接核心的邻居以提升可见关系密度。 */
     public Tree subgraph(String category, Integer eraRank, String q,
                          Integer minImportance, int limit) {
-        int lim = Math.min(Math.max(limit, 1), 1000);
-        int candidateLimit = Math.min(Math.max(lim * 3, lim), 2000);
+        // 上限 3000：满足超大类目全量浏览；候选池按 lim*3 比例放大，保证核心节点能选到足够邻居提升关系密度。
+        int lim = Math.min(Math.max(limit, 1), 3000);
+        int candidateLimit = Math.min(Math.max(lim * 3, lim), 9000);
         QueryWrapper<TechNode> filter = baseFilter(category, eraRank, q, minImportance);
         filter.orderByDesc("importance").orderByAsc("id").last("LIMIT " + candidateLimit);
         List<TechNode> candidates = nodeMapper.selectList(filter);

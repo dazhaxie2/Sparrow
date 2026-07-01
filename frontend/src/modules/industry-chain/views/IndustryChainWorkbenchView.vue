@@ -509,10 +509,10 @@ onUnmounted(stopEvents)
 .workbench-layout { flex: 1; min-height: 0; display: flex; gap: 12px; }
 .result-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; }
 .ai-rail { flex: 0 0 360px; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; transition: flex-basis .3s cubic-bezier(.25,.8,.25,1), background .2s ease, border-color .2s ease; }
-/* 折叠态：容器自身变黑、去掉白底与圆角，杜绝露白；只留一条干净窄条 */
-.ai-rail.collapsed { flex: 0 0 44px; background: var(--ink); border-color: var(--ink); border-radius: 0; }
-.rail-collapsed { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0; border: 0; background: transparent; color: var(--bg); cursor: pointer; }
-.rail-collapsed:hover { background: rgba(255,255,255,.06); }
+/* 折叠态：容器透明融入背景，去掉白底圆角防露白；低调浅色不抢眼 */
+.ai-rail.collapsed { flex: 0 0 44px; background: transparent; border-color: transparent; }
+.rail-collapsed { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; transition: color .16s ease, background .16s ease; }
+.rail-collapsed:hover { background: var(--surface); color: var(--accent); }
 .rail-collapsed span { writing-mode: vertical-rl; letter-spacing: .12em; font-size: 12px; font-weight: 800; }
 .rail-tabs { flex: none; display: grid; grid-template-columns: 1fr 1fr auto; min-height: 46px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .rail-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 12px; font-weight: 800; cursor: pointer; }
