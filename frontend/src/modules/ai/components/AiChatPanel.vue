@@ -57,7 +57,7 @@ async function handleSubmit(text: string) {
 </script>
 
 <style scoped>
-/* 折叠窄竖条 */
+/* 折叠窄竖条：透明背景继承父容器(.ai-rail.collapsed 已是黑底)，确保不露白 */
 .ai-rail-collapsed {
   width: 100%;
   height: 100%;
@@ -67,13 +67,12 @@ async function handleSubmit(text: string) {
   gap: 10px;
   padding: 14px 0;
   border: 0;
-  border-left: 1px solid var(--ink);
-  background: var(--ink);
+  background: transparent;
   color: var(--bg);
   cursor: pointer;
   transition: padding 0.16s ease, background 0.16s ease;
 }
-.ai-rail-collapsed:hover { padding: 18px 0; background: #000; }
+.ai-rail-collapsed:hover { padding: 18px 0; background: rgba(255, 255, 255, 0.06); }
 .rail-text { writing-mode: vertical-rl; letter-spacing: 0.12em; font-size: 12px; font-weight: 800; }
 
 /* 展开竖栏 */

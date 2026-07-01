@@ -820,10 +820,12 @@ onUnmounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  transition: flex-basis 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: flex-basis 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.2s ease;
 }
+/* 折叠态容器自身变黑，杜绝按钮未铺满时透出底层近白底色 */
 .ai-rail.collapsed {
   flex: 0 0 44px;
+  background: var(--ink);
 }
 
 .graph-shell {

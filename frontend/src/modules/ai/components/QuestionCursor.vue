@@ -6,12 +6,12 @@
       class="cursor-mark"
       :class="{ active: index === activeIndex }"
       type="button"
-      :title="item.label"
       :aria-label="`跳到第 ${index + 1} 个问题`"
       :aria-current="index === activeIndex ? 'true' : undefined"
       @click="$emit('select', index)"
     >
-      <span :style="{ width: `${markWidth(index)}px` }" />
+      <i class="dot" />
+      <span class="cursor-tip">{{ item.label }}</span>
     </button>
   </nav>
 </template>
@@ -25,58 +25,91 @@ defineProps<{
 defineEmits<{
   select: [index: number]
 }>()
-
-function markWidth(index: number) {
-  const widths = [24, 18, 14, 10, 8]
-  return widths[Math.min(index, widths.length - 1)]
-}
 </script>
 
 <style scoped>
+/* 千问风格：圆点列融进消息区背景，整组垂直居中，低调不抢焦。 */
 .question-cursor {
   flex: none;
-  width: 32px;
-  padding: 14px 4px 10px;
+  width: 28px;
+  padding: 10px 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  border-right: 1px solid var(--line);
-  background: var(--surface);
+  justify-content: center; /* 整列在容器高度内垂直居中 */
+  gap: 7px;
 }
 
 .cursor-mark {
-  width: 24px;
-  height: 7px;
+  position: relative; /* 给 .cursor-tip 气泡做定位锚 */
   display: grid;
-  place-items: center start;
+  place-items: center;
+  width: 18px;
+  height: 18px;
   border: 0;
   padding: 0;
   background: transparent;
   cursor: pointer;
 }
 
-.cursor-mark span {
+/* 圆点：默认极淡灰，融进背景。 */
+.dot {
   display: block;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--line-strong);
-  transition: width 0.16s ease, background 0.16s ease, opacity 0.16s ease;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.16);
+  transition: background 0.16s ease, width 0.16s ease, height 0.16s ease;
 }
 
-.cursor-mark:hover span {
-  background: var(--muted);
+.cursor-mark:hover .dot {
+  background: rgba(0, 0, 0, 0.4);
 }
 
-.cursor-mark.active span {
-  width: 24px !important;
-  height: 3px;
+/* 当前提问：淡橙点缀，略大但不发光，保留品牌识别性。 */
+.cursor-mark.active .dot {
+  width: 6px;
+  height: 6px;
   background: var(--accent);
+}
+
+/* 悬浮气泡：默认隐藏，hover 时淡入，显示问题缩略内容。 */
+.cursor-tip {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  max-width: 220px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 500;
+  white-space: normal;
+  /* 截断到两行，超长问题也能克制 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  /* 避免气泡顶端贴着圆点边缘，留一点呼吸感 */
+  word-break: break-word;
+}
+
+.cursor-mark:hover .cursor-tip {
+  opacity: 1;
 }
 
 @media (max-width: 640px) {
   .question-cursor {
-    width: 26px;
+    width: 22px;
   }
 }
 </style>
