@@ -35,7 +35,7 @@ def show_status():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SparrowSpider - 科技树知识爬虫")
+    parser = argparse.ArgumentParser(description="SparrowSpider - 科技图知识爬虫")
     parser.add_argument("--init-seeds", action="store_true", help="载入种子词表(Sparrow 77 对齐 + 扩展)")
     parser.add_argument("--discover-categories", action="store_true",
                         help="分类目录子类目 BFS 发现候选(到万级的主引擎,无 LLM)")

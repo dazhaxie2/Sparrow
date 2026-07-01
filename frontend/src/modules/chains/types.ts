@@ -1,4 +1,4 @@
-/** 产业链专题类型(与科技树图谱模块完全独立)。 */
+/** 产业链专题类型(与科技图图谱模块完全独立)。 */
 
 export interface ChainSummary {
   id: number

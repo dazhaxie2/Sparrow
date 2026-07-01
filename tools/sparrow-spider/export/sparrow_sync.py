@@ -5,7 +5,7 @@
 1. 新技术节点 + 依赖边 → sparrow.tech_node / tech_edge
 2. 既有节点 detail 增补(仅当新内容更充实)
 3. 全部词条语料 → sparrow.rag_document(给 Sparrow 的 RAG embedding 管道消费)
-4. 失效 Redis 科技树缓存(sparrow:graph:tree),前端立即可见
+4. 失效 Redis 科技图缓存(sparrow:graph:tree),前端立即可见
 """
 import socket
 import time

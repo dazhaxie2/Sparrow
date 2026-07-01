@@ -1,6 +1,7 @@
 import { get, post, request } from '../../shared/api/request'
 import type {
   AttachmentRequest,
+  ForumEventView,
   ResearchCardDetail,
   ResearchCardSummary,
   ResearchMessageReply,
@@ -21,6 +22,11 @@ export function createResearchCard(title: string, brief: string, sources?: Attac
 
 export function fetchResearchCard(id: number) {
   return get<ResearchCardDetail>(`${ROOT}/${id}`)
+}
+
+/** 拉取卡片最近一次运行的论坛事件(工作台初次加载还原协作流)。 */
+export function fetchForumEvents(cardId: number) {
+  return get<ForumEventView[]>(`${ROOT}/${cardId}/forum`)
 }
 
 export function updateResearchCard(id: number, title: string, brief: string, sources?: AttachmentRequest[]) {

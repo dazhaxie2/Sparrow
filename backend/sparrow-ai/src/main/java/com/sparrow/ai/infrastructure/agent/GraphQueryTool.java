@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 科技树图谱查询工具。
+ * 科技图图谱查询工具。
  * 供 TechTreeAgent 调用,用于查询技术节点详情和前置依赖链。
  */
 @Component

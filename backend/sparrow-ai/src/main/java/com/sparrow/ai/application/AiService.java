@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * AI 服务核心类。
- * 提供基于科技树图谱的问答能力,支持三种模式的分级降级:
+ * 提供基于科技图图谱的问答能力,支持三种模式的分级降级:
  * 1. Agent 工具链模式 - 最高级,使用 AI Agent 自主调用工具
  * 2. RAG 检索增强模式 - 中间级,检索上下文后直接调用大模型
  * 3. 规则引擎模式 - 兜底级,纯图谱规则匹配回答
@@ -638,7 +638,7 @@ public class AiService {
      * @return 系统提示词
      */
     private String systemPrompt() {
-        return "你是 Sparrow 科技树的 AI 向导。请基于提供的科技树资料回答用户问题," +
+        return "你是 Sparrow 科技图的 AI 向导。请基于提供的科技图资料回答用户问题," +
                 "自然地讲清技术之间的依赖关系与历史脉络;资料不足以回答时,如实说明。" +
                 "回答用中文,像聊天那样自然、口语化,直接说重点;" +
                 "内容要充分、有信息量,给足背景和关键的年代、数字、事实与例子,把「为什么」讲透,宁可多展开也别敷衍带过;" +
@@ -648,7 +648,7 @@ public class AiService {
     }
 
     /**
-     * 构建 RAG 模式的用户消息,包含科技树资料和相关词条。
+     * 构建 RAG 模式的用户消息,包含科技图资料和相关词条。
      *
      * @param question 用户问题
      * @param hits     匹配的节点列表
@@ -657,7 +657,7 @@ public class AiService {
      */
     private String ragUserMessage(String question, List<NodeBrief> hits,
                                   List<MilvusStore.ChunkHit> chunks) {
-        StringBuilder sb = new StringBuilder("### 科技树资料\n");
+        StringBuilder sb = new StringBuilder("### 科技图资料\n");
         if (hits.isEmpty()) {
             sb.append("(未检索到直接相关节点)\n");
         }
@@ -697,7 +697,7 @@ public class AiService {
      */
     private String rulesAnswer(String question, List<NodeBrief> hits) {
         if (hits.isEmpty()) {
-            return "### 结论\n我没有在科技树中找到与问题直接相关的技术节点。\n\n" +
+            return "### 结论\n我没有在科技图中找到与问题直接相关的技术节点。\n\n" +
                     "### 关键依据\n- 当前检索没有命中明确节点。\n" +
                     "- 问题可以改成具体技术名、时代名或关系问题。\n\n" +
                     "### 学习路径\n1. 先选择图谱上的一个节点。\n" +

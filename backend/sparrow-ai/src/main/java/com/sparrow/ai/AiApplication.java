@@ -11,7 +11,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 
 /**
  * Sparrow AI 服务启动类。
- * 提供基于科技树图谱的 AI 问答能力,支持 Agent 工具链、RAG 检索增强和规则引擎三种模式。
+ * 提供基于科技图图谱的 AI 问答能力,支持 Agent 工具链、RAG 检索增强和规则引擎三种模式。
  */
 @SpringBootApplication
 @ConfigurationPropertiesScan

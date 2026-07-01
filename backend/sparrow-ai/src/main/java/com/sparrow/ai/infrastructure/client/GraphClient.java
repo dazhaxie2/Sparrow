@@ -10,15 +10,15 @@ import java.util.List;
 
 /**
  * 图谱服务 Feign 客户端。
- * 调用 sparrow-graph 服务获取科技树数据。
+ * 调用 sparrow-graph 服务获取科技图数据。
  */
 @FeignClient(name = "sparrow-graph", contextId = "aiGraphClient", path = "/internal/graph")
 public interface GraphClient {
 
     /**
-     * 获取完整科技树结构。
+     * 获取完整科技图结构。
      *
-     * @return 包含节点和边的科技树
+     * @return 包含节点和边的科技图
      */
     @GetMapping("/tree")
     ApiResponse<GraphViews.Tree> tree();

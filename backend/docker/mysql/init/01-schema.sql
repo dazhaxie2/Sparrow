@@ -243,7 +243,7 @@ CREATE TABLE IF NOT EXISTS chain_research_source (
     KEY idx_chain_research_source_user (user_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
--- ── 产业链专题(sparrow_chain 库,与科技树图谱语义隔离) ──
+-- ── 产业链专题(sparrow_chain 库,与科技图图谱语义隔离) ──
 USE sparrow_chain;
 
 -- 产业链主表:每条对应一条独立供应链(英伟达链/苹果链/特斯拉链/SpaceX链)。

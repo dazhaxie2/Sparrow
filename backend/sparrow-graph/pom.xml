@@ -12,7 +12,7 @@
 
     <artifactId>sparrow-graph</artifactId>
     <name>sparrow-graph</name>
-    <description>科技树图谱服务(Neo4j + Redis 缓存)</description>
+    <description>科技图图谱服务(Neo4j + Redis 缓存)</description>
 
     <dependencies>
         <dependency>

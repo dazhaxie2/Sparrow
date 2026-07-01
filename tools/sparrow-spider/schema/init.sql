@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS tech_relation (
     UNIQUE KEY uk_rel (from_name, to_name)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
--- 产业链专题抓取结果：与科技树候选/关系表完全隔离。
+-- 产业链专题抓取结果：与科技图候选/关系表完全隔离。
 CREATE TABLE IF NOT EXISTS supply_chain_company (
     id         BIGINT       NOT NULL AUTO_INCREMENT,
     chain_slug VARCHAR(64)  NOT NULL,

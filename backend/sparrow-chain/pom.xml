@@ -12,7 +12,7 @@
 
     <artifactId>sparrow-chain</artifactId>
     <name>sparrow-chain</name>
-    <description>产业链专题服务(供应链网络,与科技树图谱语义隔离)</description>
+    <description>产业链专题服务(供应链网络,与科技图图谱语义隔离)</description>
 
     <dependencies>
         <dependency>

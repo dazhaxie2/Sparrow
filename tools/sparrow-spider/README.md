@@ -1,4 +1,4 @@
-# SparrowSpider · 科技树知识爬虫
+# SparrowSpider · 科技图知识爬虫
 
 ## 在 Sparrow 应用内跑完整闭环
 
@@ -32,7 +32,7 @@ docker compose --profile spider run --rm sparrow-spider
 
 可继续覆盖 `SPIDER_PROXY`、`SPIDER_WIKI_API`、`AI_BASE_URL`、`AI_API_KEY`、`AI_CHAT_MODEL` 等变量。
 
-为 [Sparrow](../Sparrow) 持续供给科技树知识的独立爬虫项目,架构参考
+为 [Sparrow](../Sparrow) 持续供给科技图知识的独立爬虫项目,架构参考
 [MindSpider](https://github.com/666ghj/MindSpider) 的"两阶段 + LLM"形态:
 
 | MindSpider | SparrowSpider 对应 |
@@ -90,7 +90,7 @@ python main.py --status
 2. `tech_node.detail` — 既有节点增补,**仅当新内容比现有更长**才覆盖
 3. `rag_document(code, name, title, url, content)` — 全量词条语料表(自动建表),
    Sparrow 后端的 embedding 管道按 `code` 对齐节点,把 `content` 切块进 Milvus
-4. `DEL sparrow:graph:tree` — 失效 Redis 科技树缓存,前端立即可见新内容
+4. `DEL sparrow:graph:tree` — 失效 Redis 科技图缓存,前端立即可见新内容
 
 ## 配置(环境变量,见 config.py)
 
@@ -113,7 +113,7 @@ python main.py --status
 ```bash
 docker exec -i sparrow-mysql-1 mysql -usparrow -psparrow123 sparrow < out/sparrow_new_nodes.sql
 docker exec -i sparrow-mysql-1 mysql -usparrow -psparrow123 sparrow < out/enrich_existing.sql
-# 清掉科技树缓存让新节点立即可见
+# 清掉科技图缓存让新节点立即可见
 docker exec sparrow-redis-1 redis-cli del sparrow:graph:tree
 ```
 

@@ -96,6 +96,8 @@
       @remove="removeCompare"
       @clear="clearCompare"
     />
+
+    <AiDock v-if="!aiContextNode" :context-node="null" :immersive="graphFullScreen" />
   </main>
 
   <LoginModal v-if="showLogin" @close="showLogin = false" />
@@ -126,6 +128,7 @@ import GraphCanvas from '../components/GraphCanvas.vue'
 import DialogWorkbench from '../components/DialogWorkbench.vue'
 import CompareDock from '../components/CompareDock.vue'
 import GraphModals from '../components/GraphModals.vue'
+import AiDock from '../../ai/components/AiDock.vue'
 import LoginModal from '../../user/components/LoginModal.vue'
 import MemberModal from '../../trade/components/MemberModal.vue'
 import { fetchClusterOverview, fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites, fetchApplications } from '../api'
@@ -229,6 +232,9 @@ const currentNodeColor = computed(() => {
   const category = selectedDetail.value?.category ?? selectedPreview.value?.category
   return colorForCategory(category, categoryLegend.value)
 })
+const aiContextNode = computed<NodeBrief | null>(() => (
+  selectedDetail.value ? detailToBrief(selectedDetail.value) : selectedPreview.value
+))
 
 // 仅当详情/预览属于材料类时,把当前 applications 透传给面板;否则恒为空(不显示区块)。
 const MATERIAL_CATEGORIES = new Set(['材料冶金', '化学化工'])

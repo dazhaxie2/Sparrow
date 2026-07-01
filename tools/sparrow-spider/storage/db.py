@@ -186,7 +186,7 @@ def all_relations(conn):
         return cur.fetchall()
 
 
-# ───────────────────── 产业链专题（与科技树表隔离） ─────────────────────
+# ───────────────────── 产业链专题（与科技图表隔离） ─────────────────────
 
 def upsert_supply_chain_company(conn, chain_slug, name, wiki_title, page_id, summary):
     with conn.cursor() as cur:

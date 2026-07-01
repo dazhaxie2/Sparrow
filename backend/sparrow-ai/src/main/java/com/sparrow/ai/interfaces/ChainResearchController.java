@@ -24,17 +24,20 @@ import java.util.List;
 @Validated
 public class ChainResearchController {
 
+    /** 附件请求：用户提交的结构化来源（标题、URL、发布者、摘要）。 */
     public record AttachmentRequest(@Size(max = 300) String title,
                                     @Size(max = 1200) String url,
                                     @Size(max = 160) String publisher,
                                     @Size(max = 3000) String snippet) {
     }
 
+    /** 卡片请求：标题、简述与可选的资料来源列表。 */
     public record CardRequest(@NotBlank @Size(max = 120) String title,
                               @Size(max = 2000) String brief,
                               List<AttachmentRequest> sources) {
     }
 
+    /** 消息请求：用户对话内容。 */
     public record MessageRequest(@NotBlank @Size(max = 2000) String content) {
     }
 
@@ -46,59 +49,75 @@ public class ChainResearchController {
         this.pdfExtractor = pdfExtractor;
     }
 
+    /** 查询用户的所有调研卡片列表。 */
     @GetMapping("/cards")
     public ApiResponse<List<CardSummary>> list() {
         return ApiResponse.ok(service.list(UserContext.require()));
     }
 
+    /** 创建新的调研卡片，可选附带资料来源。 */
     @PostMapping("/cards")
     public ApiResponse<CardDetail> create(@RequestBody @Valid CardRequest request) {
         return ApiResponse.ok(service.create(UserContext.require(), request.title(), request.brief(),
                 toSourceInputs(request.sources())));
     }
 
+    /** 获取调研卡片详情。 */
     @GetMapping("/cards/{cardId}")
     public ApiResponse<CardDetail> get(@PathVariable long cardId) {
         return ApiResponse.ok(service.get(UserContext.require(), cardId));
     }
 
+    /** 更新调研卡片信息与资料来源。 */
     @PutMapping("/cards/{cardId}")
     public ApiResponse<CardDetail> update(@PathVariable long cardId, @RequestBody @Valid CardRequest request) {
         return ApiResponse.ok(service.update(UserContext.require(), cardId, request.title(), request.brief(),
                 toSourceInputs(request.sources())));
     }
 
+    /** 删除调研卡片。 */
     @DeleteMapping("/cards/{cardId}")
     public ApiResponse<Void> delete(@PathVariable long cardId) {
         service.delete(UserContext.require(), cardId);
         return ApiResponse.ok(null);
     }
 
+    /** 发送用户消息，获取规划 Agent 回复。 */
     @PostMapping("/cards/{cardId}/messages")
     public ApiResponse<MessageReply> message(@PathVariable long cardId,
                                              @RequestBody @Valid MessageRequest request) {
         return ApiResponse.ok(service.message(UserContext.require(), cardId, request.content()));
     }
 
+    /** 启动深度调研任务。 */
     @PostMapping("/cards/{cardId}/runs")
     public ApiResponse<StartRunResult> start(@PathVariable long cardId) {
         return ApiResponse.ok(service.start(UserContext.require(), cardId));
     }
 
+    /** 查询调研任务运行状态。 */
     @GetMapping("/cards/{cardId}/runs/{runId}")
     public ApiResponse<RunView> run(@PathVariable long cardId, @PathVariable long runId) {
         return ApiResponse.ok(service.run(UserContext.require(), cardId, runId));
     }
 
+    /** 取消运行中的调研任务。 */
     @PostMapping("/cards/{cardId}/runs/{runId}/cancel")
     public ApiResponse<Void> cancel(@PathVariable long cardId, @PathVariable long runId) {
         service.cancel(UserContext.require(), cardId, runId);
         return ApiResponse.ok(null);
     }
 
+    /** 订阅调研进度 SSE 事件流。 */
     @GetMapping(value = "/cards/{cardId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events(@PathVariable long cardId) {
         return service.subscribe(UserContext.require(), cardId);
+    }
+
+    /** 查询卡片最近一次运行的论坛事件(用于工作台初次加载还原协作流)。 */
+    @GetMapping("/cards/{cardId}/forum")
+    public ApiResponse<List<ForumEventView>> forum(@PathVariable long cardId) {
+        return ApiResponse.ok(service.forumEvents(UserContext.require(), cardId));
     }
 
     /** PDF 上传：抽文本后作为附件追加到卡片，来源编号由服务端自动分配。 */
@@ -122,6 +141,7 @@ public class ChainResearchController {
         return ApiResponse.ok(service.addAttachment(userId, cardId, attachment));
     }
 
+    /** 将附件请求列表转为 SourceInput，供 Service 层使用。 */
     private List<SourceInput> toSourceInputs(List<AttachmentRequest> sources) {
         if (sources == null) return List.of();
         return sources.stream().map(item -> new SourceInput(null, item.title(), item.url(),

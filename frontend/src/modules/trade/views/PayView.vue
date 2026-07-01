@@ -35,7 +35,7 @@
 
         <router-link class="back" to="/">
           <ArrowLeft :size="15" aria-hidden="true" />
-          <span>返回科技树</span>
+          <span>返回科技图</span>
         </router-link>
       </section>
     </main>

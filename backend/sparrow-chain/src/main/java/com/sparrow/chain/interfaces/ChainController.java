@@ -15,7 +15,7 @@ import java.util.List;
  * 产业链专题接口。
  *
  * <p>路径前缀 /api/chains,经 sparrow-gateway 路由到本服务。
- * 与 /api/graph(科技树图谱)完全隔离,语义不同。</p>
+ * 与 /api/graph(科技图图谱)完全隔离,语义不同。</p>
  */
 @RestController
 @RequestMapping("/api/chains")

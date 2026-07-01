@@ -31,6 +31,14 @@ public class ChainResearchEventHub {
                 "message", message));
     }
 
+    /** 论坛事件：Multi-Agent 协作过程中的实时发言(对照 BettaFish forum_message)。 */
+    public void forum(long cardId, long runId, Object event) {
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("runId", runId);
+        payload.put("event", event);
+        emit(cardId, "forum", payload);
+    }
+
     public void completed(long cardId, long runId) {
         emit(cardId, "completed", Map.of("runId", runId, "progress", 100));
     }

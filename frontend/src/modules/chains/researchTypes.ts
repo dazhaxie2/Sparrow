@@ -72,9 +72,119 @@ export interface ResearchCardDetail {
   messages: ResearchMessage[]
   activeRun: ResearchRun | null
   graph: ResearchGraph | null
+  reportIr: DocumentIr | null
   reportMarkdown: string | null
   sources: ResearchSource[]
   attachments: ResearchSource[]
+}
+
+// ===== 论坛协作事件(对标 BettaFish forum_message) =====
+export interface ForumEventView {
+  id: number
+  source: 'INDUSTRY' | 'QUERY' | 'INSIGHT' | 'HOST' | 'SYSTEM' | string
+  sourceText: string
+  content: string
+  createdAt: string
+}
+
+// SSE 推送的论坛事件载荷(后端 ChainForumBus 发出)
+export interface ForumSsePayload {
+  runId: number
+  event: { cardId: number; runId: number; source: string; content: string; createdAt: string }
+}
+
+// ===== Document IR 富报告类型(对标 BettaFish ReportEngine IR) =====
+export interface DocumentIr {
+  metadata: {
+    title: string | null
+    subtitle: string | null
+    generatedAt: string | null
+    query: string | null
+    toc: TocEntry[] | null
+  } | null
+  chapters: Chapter[]
+}
+
+export interface TocEntry {
+  level: number
+  display: string
+  anchor: string
+}
+
+export interface Chapter {
+  chapterId: string
+  title: string
+  anchor: string
+  order: number
+  summary: string | null
+  blocks: Block[]
+}
+
+export interface InlineRun {
+  text: string
+  marks?: InlineMark[]
+}
+
+export interface InlineMark {
+  type: 'bold' | 'italic' | 'code' | 'link' | 'source' | 'color' | 'highlight' | string
+  value?: string | null
+  href?: string | null
+  title?: string | null
+}
+
+export type Block =
+  | { type: 'heading'; level: number; text: string; anchor: string }
+  | { type: 'paragraph'; inlines: InlineRun[] }
+  | { type: 'list'; items: Block[][] }
+  | { type: 'table'; rows: { header: InlineRun[][][] | null; body: InlineRun[][][] | null; caption: string | null } }
+  | { type: 'swotTable'; swot: SwotTable }
+  | { type: 'pestTable'; pest: PestTable }
+  | { type: 'blockquote'; inlines: InlineRun[] }
+  | { type: 'callout'; tone: string; text: string; items: Block[][] }
+  | { type: 'kpiGrid'; kpi: { items: KpiItem[]; cols: number | null } }
+  | { type: 'widget'; widget: Widget }
+  | { type: 'hr' }
+
+export interface SwotTable {
+  strengths: SwotItem[]
+  weaknesses: SwotItem[]
+  opportunities: SwotItem[]
+  threats: SwotItem[]
+}
+
+export interface SwotItem {
+  title: string
+  detail: string | null
+  impact: string | null
+}
+
+export interface PestTable {
+  political: PestItem[]
+  economic: PestItem[]
+  social: PestItem[]
+  technological: PestItem[]
+}
+
+export interface PestItem {
+  title: string
+  detail: string | null
+  trend: string | null
+  source: string | null
+}
+
+export interface KpiItem {
+  label: string
+  value: string
+  unit: string | null
+  delta: string | null
+  deltaTone: string | null
+}
+
+export interface Widget {
+  widgetId: string
+  widgetType: string
+  title: string | null
+  data: unknown
 }
 
 export interface ResearchMessageReply {

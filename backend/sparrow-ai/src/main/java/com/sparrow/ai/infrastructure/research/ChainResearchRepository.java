@@ -17,24 +17,29 @@ import java.util.Optional;
 @Repository
 public class ChainResearchRepository {
 
+    /** 调研卡片行数据：基本信息、状态、图谱与报告内容。 */
     public record CardRow(Long id, Long userId, String title, String brief, String status,
                           String currentStage, int progress, int nodeCount, int edgeCount,
-                          String graphJson, String reportMd, String lastError,
+                          String graphJson, String reportIr, String reportMd, String lastError,
                           LocalDateTime createdAt, LocalDateTime updatedAt) {
     }
 
+    /** 对话消息行数据：角色、发送方、内容。 */
     public record MessageRow(Long id, Long cardId, String role, String agent, String content,
                              LocalDateTime createdAt) {
     }
 
+    /** 运行任务行数据：状态、进度、错误信息与时间戳。 */
     public record RunRow(Long id, Long cardId, String status, String currentStage, int progress,
                          String errorMessage, LocalDateTime startedAt, LocalDateTime finishedAt) {
     }
 
+    /** 来源行数据：调研结果中引用的来源记录。 */
     public record SourceRow(Long id, Long cardId, String sourceRef, String title, String url,
                             String publisher, String snippet) {
     }
 
+    /** 来源输入：用于持久化来源/附件的数据结构。 */
     public record SourceInput(String sourceRef, String title, String url, String publisher, String snippet) {
     }
 
@@ -43,12 +48,18 @@ public class ChainResearchRepository {
                                 String publisher, String snippet) {
     }
 
+    /** 论坛事件行：Multi-Agent 协作过程中的一条发言/系统记录。 */
+    public record ForumEventRow(Long id, Long cardId, Long runId, Long userId, String source,
+                                String content, LocalDateTime createdAt) {
+    }
+
     private final JdbcTemplate jdbc;
 
     public ChainResearchRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
+    /** 初始化建表：启动时确保所有调研相关表存在，支持老库平滑升级。 */
     @PostConstruct
     public void ensureTables() {
         jdbc.execute("CREATE TABLE IF NOT EXISTS chain_research_card ("
@@ -86,8 +97,27 @@ public class ChainResearchRepository {
                 + "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
                 + "UNIQUE KEY uk_chain_research_attachment_ref(card_id,source_ref),"
                 + "KEY idx_chain_research_attachment_card(card_id,id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // Multi-Agent 论坛协作事件流
+        jdbc.execute("CREATE TABLE IF NOT EXISTS chain_research_forum ("
+                + "id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,card_id BIGINT NOT NULL,user_id BIGINT NOT NULL,"
+                + "run_id BIGINT NOT NULL,source VARCHAR(16) NOT NULL,content TEXT NOT NULL,"
+                + "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                + "KEY idx_chain_research_forum_run(card_id,run_id,id),"
+                + "KEY idx_chain_research_forum_user(user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // 平滑升级：老库补 report_ir 列
+        addColumnIfMissing("chain_research_card", "report_ir", "LONGTEXT NULL AFTER report_md");
     }
 
+    /** 幂等加列：列已存在时忽略异常。 */
+    private void addColumnIfMissing(String table, String column, String definition) {
+        try {
+            jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+        } catch (Exception ignored) {
+            // 列已存在(重复升级)或语法不兼容，安全忽略
+        }
+    }
+
+    /** 创建调研卡片，初始状态为 DRAFT。 */
     public long createCard(long userId, String title, String brief) {
         KeyHolder key = new GeneratedKeyHolder();
         jdbc.update(connection -> {
@@ -131,30 +161,36 @@ public class ChainResearchRepository {
         return count == null ? 0 : count;
     }
 
+    /** 查询用户的所有调研卡片，按更新时间倒序。 */
     public List<CardRow> listCards(long userId) {
         return jdbc.query("SELECT * FROM chain_research_card WHERE user_id=? ORDER BY updated_at DESC,id DESC",
                 (rs, n) -> card(rs), userId);
     }
 
+    /** 查询单个卡片，校验用户归属。 */
     public Optional<CardRow> findCard(long userId, long cardId) {
         return jdbc.query("SELECT * FROM chain_research_card WHERE id=? AND user_id=?",
                 (rs, n) -> card(rs), cardId, userId).stream().findFirst();
     }
 
+    /** 更新卡片标题和简述。 */
     public void updateCard(long userId, long cardId, String title, String brief) {
         jdbc.update("UPDATE chain_research_card SET title=?,brief=? WHERE id=? AND user_id=?",
                 title, brief, cardId, userId);
     }
 
+    /** 删除卡片及其关联的附件、来源、消息、论坛和运行记录。 */
     @Transactional
     public void deleteCard(long userId, long cardId) {
         jdbc.update("DELETE FROM chain_research_attachment WHERE card_id=? AND user_id=?", cardId, userId);
         jdbc.update("DELETE FROM chain_research_source WHERE card_id=? AND user_id=?", cardId, userId);
         jdbc.update("DELETE FROM chain_research_message WHERE card_id=? AND user_id=?", cardId, userId);
+        jdbc.update("DELETE FROM chain_research_forum WHERE card_id=? AND user_id=?", cardId, userId);
         jdbc.update("DELETE FROM chain_research_run WHERE card_id=? AND user_id=?", cardId, userId);
         jdbc.update("DELETE FROM chain_research_card WHERE id=? AND user_id=?", cardId, userId);
     }
 
+    /** 添加对话消息。 */
     public long addMessage(long userId, long cardId, String role, String agent, String content) {
         KeyHolder key = new GeneratedKeyHolder();
         jdbc.update(connection -> {
@@ -171,6 +207,7 @@ public class ChainResearchRepository {
         return key.getKey() == null ? 0 : key.getKey().longValue();
     }
 
+    /** 查询卡片的所有对话消息，按 ID 顺序。 */
     public List<MessageRow> messages(long userId, long cardId) {
         return jdbc.query("SELECT id,card_id,role,agent,content,created_at FROM chain_research_message "
                         + "WHERE card_id=? AND user_id=? ORDER BY id",
@@ -179,6 +216,7 @@ public class ChainResearchRepository {
                         rs.getTimestamp("created_at").toLocalDateTime()), cardId, userId);
     }
 
+    /** 创建调研运行任务：加锁检查防止重复启动，初始阶段 planning。 */
     @Transactional
     public long createRun(long userId, long cardId) {
         jdbc.queryForObject("SELECT id FROM chain_research_card WHERE id=? AND user_id=? FOR UPDATE",
@@ -201,17 +239,27 @@ public class ChainResearchRepository {
         return key.getKey().longValue();
     }
 
+    /** 查询单个运行任务。 */
     public Optional<RunRow> findRun(long userId, long cardId, long runId) {
         return jdbc.query("SELECT * FROM chain_research_run WHERE id=? AND card_id=? AND user_id=?",
                 (rs, n) -> run(rs), runId, cardId, userId).stream().findFirst();
     }
 
+    /** 查询卡片当前运行中的任务。 */
     public Optional<RunRow> activeRun(long userId, long cardId) {
         return jdbc.query("SELECT * FROM chain_research_run WHERE card_id=? AND user_id=? "
                         + "AND status='RUNNING' ORDER BY id DESC LIMIT 1",
                 (rs, n) -> run(rs), cardId, userId).stream().findFirst();
     }
 
+    /** 查询卡片最近一次运行(任意状态)的 ID，用于工作台初次加载还原论坛流。无则返回 null。 */
+    public Long lastRunId(long userId, long cardId) {
+        return jdbc.query("SELECT id FROM chain_research_run WHERE card_id=? AND user_id=? "
+                        + "ORDER BY id DESC LIMIT 1",
+                (rs, n) -> rs.getLong("id"), cardId, userId).stream().findFirst().orElse(null);
+    }
+
+    /** 更新任务进度和阶段，同步到卡片。 */
     public void updateProgress(long userId, long cardId, long runId, String stage, int progress) {
         jdbc.update("UPDATE chain_research_run SET current_stage=?,progress=? WHERE id=? AND user_id=?",
                 stage, progress, runId, userId);
@@ -219,12 +267,14 @@ public class ChainResearchRepository {
                 stage, progress, cardId, userId);
     }
 
+    /** 判断任务是否仍在运行中。 */
     public boolean isRunRunning(long userId, long runId) {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM chain_research_run "
                 + "WHERE id=? AND user_id=? AND status='RUNNING'", Integer.class, runId, userId);
         return count != null && count > 0;
     }
 
+    /** 取消运行中的任务，恢复卡片状态。 */
     public void cancelRun(long userId, long cardId, long runId) {
         jdbc.update("UPDATE chain_research_run SET status='CANCELLED',current_stage='cancelled',"
                         + "finished_at=NOW() WHERE id=? AND card_id=? AND user_id=? AND status='RUNNING'",
@@ -235,9 +285,10 @@ public class ChainResearchRepository {
                 cardId, userId);
     }
 
+    /** 完成调研任务：保存来源、更新运行记录和卡片状态(含报告 IR)。 */
     @Transactional
-    public void complete(long userId, long cardId, long runId, String graphJson, String reportMd,
-                         int nodeCount, int edgeCount, List<SourceInput> sources) {
+    public void complete(long userId, long cardId, long runId, String graphJson, String reportIr,
+                         String reportMd, int nodeCount, int edgeCount, List<SourceInput> sources) {
         jdbc.update("DELETE FROM chain_research_source WHERE card_id=? AND user_id=?", cardId, userId);
         for (SourceInput source : sources) {
             jdbc.update("INSERT INTO chain_research_source(card_id,user_id,source_ref,title,url,publisher,snippet) "
@@ -249,10 +300,12 @@ public class ChainResearchRepository {
                         + "finished_at=NOW(),error_message=NULL WHERE id=? AND user_id=?",
                 runId, userId);
         jdbc.update("UPDATE chain_research_card SET status='COMPLETED',current_stage='completed',progress=100,"
-                        + "graph_json=?,report_md=?,node_count=?,edge_count=?,last_error=NULL WHERE id=? AND user_id=?",
-                graphJson, reportMd, nodeCount, edgeCount, cardId, userId);
+                        + "graph_json=?,report_ir=?,report_md=?,node_count=?,edge_count=?,last_error=NULL "
+                        + "WHERE id=? AND user_id=?",
+                graphJson, reportIr, reportMd, nodeCount, edgeCount, cardId, userId);
     }
 
+    /** 标记任务失败，记录错误信息。 */
     public void fail(long userId, long cardId, long runId, String error) {
         String safe = error == null ? "调研失败" : error.substring(0, Math.min(error.length(), 1000));
         jdbc.update("UPDATE chain_research_run SET status='FAILED',error_message=?,finished_at=NOW() "
@@ -261,6 +314,7 @@ public class ChainResearchRepository {
                 safe, cardId, userId);
     }
 
+    /** 查询卡片的调研来源列表。 */
     public List<SourceRow> sources(long userId, long cardId) {
         return jdbc.query("SELECT id,card_id,source_ref,title,url,publisher,snippet FROM chain_research_source "
                         + "WHERE card_id=? AND user_id=? ORDER BY id",
@@ -269,6 +323,7 @@ public class ChainResearchRepository {
                         rs.getString("publisher"), rs.getString("snippet")), cardId, userId);
     }
 
+    /** 查询卡片的用户附件列表。 */
     public List<AttachmentRow> attachments(long userId, long cardId) {
         return jdbc.query("SELECT id,card_id,source_ref,title,url,publisher,snippet FROM chain_research_attachment "
                         + "WHERE card_id=? AND user_id=? ORDER BY id",
@@ -277,11 +332,27 @@ public class ChainResearchRepository {
                         rs.getString("publisher"), rs.getString("snippet")), cardId, userId);
     }
 
+    /** 写入一条论坛事件。 */
+    public void addForumEvent(long userId, long cardId, long runId, String source, String content) {
+        jdbc.update("INSERT INTO chain_research_forum(card_id,user_id,run_id,source,content) VALUES(?,?,?,?,?)",
+                cardId, userId, runId, source, content);
+    }
+
+    /** 查询某次运行的论坛事件(按时间顺序)，用于工作台初次加载还原协作流。 */
+    public List<ForumEventRow> forumEvents(long cardId, long runId) {
+        return jdbc.query("SELECT id,card_id,run_id,user_id,source,content,created_at FROM chain_research_forum "
+                        + "WHERE card_id=? AND run_id=? ORDER BY id",
+                (rs, n) -> new ForumEventRow(rs.getLong("id"), rs.getLong("card_id"), rs.getLong("run_id"),
+                        rs.getLong("user_id"), rs.getString("source"), rs.getString("content"),
+                        rs.getTimestamp("created_at").toLocalDateTime()), cardId, runId);
+    }
+
     private CardRow card(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new CardRow(rs.getLong("id"), rs.getLong("user_id"), rs.getString("title"),
                 rs.getString("brief"), rs.getString("status"), rs.getString("current_stage"),
                 rs.getInt("progress"), rs.getInt("node_count"), rs.getInt("edge_count"),
-                rs.getString("graph_json"), rs.getString("report_md"), rs.getString("last_error"),
+                rs.getString("graph_json"), rs.getString("report_ir"), rs.getString("report_md"),
+                rs.getString("last_error"),
                 rs.getTimestamp("created_at").toLocalDateTime(), rs.getTimestamp("updated_at").toLocalDateTime());
     }
 

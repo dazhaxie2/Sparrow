@@ -302,7 +302,7 @@
       <div class="doc-meta">
         <span><strong>版本</strong> v1.0</span>
         <span><strong>日期</strong> 2026-06-28</span>
-        <span><strong>产品</strong> Sparrow 人类科技树</span>
+        <span><strong>产品</strong> Sparrow 人类科技图</span>
         <span><strong>状态</strong> 已合并至主干，待灰度</span>
       </div>
     </header>
@@ -310,7 +310,7 @@
     <main>
       <section id="background">
         <h2>需求背景 <a href="#background" class="section-anchor">#</a></h2>
-        <p>Sparrow 的核心定位是"从石器时代到 AGI 的技术演进"知识图谱平台。当前平台已具备两条主线能力：一是面向宏观技术演进的<strong>科技树图谱</strong>（万级节点，十万级边），二是面向具体企业供应链的<strong>产业链专题</strong>（英伟达、苹果、特斯拉、SpaceX）。</p>
+        <p>Sparrow 的核心定位是"从石器时代到 AGI 的技术演进"知识图谱平台。当前平台已具备两条主线能力：一是面向宏观技术演进的<strong>科技图图谱</strong>（万级节点，十万级边），二是面向具体企业供应链的<strong>产业链专题</strong>（英伟达、苹果、特斯拉、SpaceX）。</p>
         <p>然而，产业链专题目前的数据来源于维基百科词条的 LLM 抽取，属于静态草图，更新频率低且深度不足。用户在研究某一产业（如"中国人形机器人产业链"）时，缺乏一个能够<strong>自主调研、持续跟踪、带证据引用</strong>的分析工具。调研结果无法沉淀为可交互的结构化知识，也无法与用户对话形成闭环。</p>
         <p>Chain Research 模块的引入，旨在填补这一空白：让用户可以针对任意产业链主题，通过与 AI Agent 对话明确调研范围，随后触发 Multi-Agent 自动完成联网检索、交叉核验、图谱构建和报告撰写。调研产出的不再是静态页面，而是一个可交互的、带来源引用的<strong>动态知识工件</strong>——包含互动图谱、Markdown 深度报告和可追溯的来源列表。</p>
 
@@ -775,7 +775,7 @@ sequenceDiagram
             <tr><td>Apache PDFBox 3.0.3</td><td>PDF 文本抽取</td><td>已引入依赖，仅支持文本型 PDF</td></tr>
             <tr><td>SSE 流式输出</td><td>实时进度推送</td><td>前端已有 SSE 支持（AI 对话复用），后端已接入 SseEmitter</td></tr>
             <tr><td>chain_research 数据库表</td><td>卡片、消息、运行记录、来源存储</td><td>已创建表结构，需确认索引和分库分表兼容性</td></tr>
-            <tr><td>Sigma.js / Graphology</td><td>前端图谱渲染</td><td>前端已具备图谱渲染能力（科技树复用）</td></tr>
+            <tr><td>Sigma.js / Graphology</td><td>前端图谱渲染</td><td>前端已具备图谱渲染能力（科技图复用）</td></tr>
           </tbody>
         </table>
 

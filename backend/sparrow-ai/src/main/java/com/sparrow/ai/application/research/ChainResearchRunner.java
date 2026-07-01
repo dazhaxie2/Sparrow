@@ -29,6 +29,7 @@ public class ChainResearchRunner {
         this.events = events;
     }
 
+    /** 异步执行产业链深度调研：读取用户附件，调用 orchestrator.research，处理进度更新与结果持久化。 */
     @Async("chainResearchExecutor")
     public void run(long userId, long cardId, long runId) {
         try {
@@ -37,15 +38,15 @@ public class ChainResearchRunner {
             List<SearchSource> userSources = repository.attachments(userId, cardId).stream()
                     .map(this::toSearchSource).toList();
             var result = orchestrator.research(card.title(), card.brief(), repository.messages(userId, cardId),
-                    userSources,
+                    userSources, userId, cardId, runId,
                     (stage, progress, message) -> {
                         if (!repository.isRunRunning(userId, runId)) throw new CancellationException("任务已取消");
                         repository.updateProgress(userId, cardId, runId, stage, progress);
                         events.progress(cardId, runId, stage, progress, message);
                     });
             if (!repository.isRunRunning(userId, runId)) return;
-            repository.complete(userId, cardId, runId, result.graphJson(), result.reportMarkdown(),
-                    result.nodeCount(), result.edgeCount(), result.sources().stream()
+            repository.complete(userId, cardId, runId, result.graphJson(), result.reportIrJson(),
+                    result.reportMarkdown(), result.nodeCount(), result.edgeCount(), result.sources().stream()
                             .map(source -> new SourceInput(source.sourceRef(), source.title(), source.url(),
                                     source.publisher(), source.snippet())).toList());
             repository.addMessage(userId, cardId, "assistant", "reporter",
@@ -62,6 +63,7 @@ public class ChainResearchRunner {
         }
     }
 
+    /** 将持久化的附件记录转为 SearchSource，供 orchestrator 使用。 */
     private SearchSource toSearchSource(AttachmentRow attachment) {
         return new SearchSource(attachment.sourceRef(), attachment.title(), attachment.url(),
                 attachment.publisher(), attachment.snippet());

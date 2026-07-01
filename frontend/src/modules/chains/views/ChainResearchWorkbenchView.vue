@@ -52,6 +52,9 @@
             <button :class="{ active: tab === 'report' }" type="button" @click="tab = 'report'">
               <FileText :size="15" />深度报告
             </button>
+            <button :class="{ active: tab === 'forum' }" type="button" @click="tab = 'forum'">
+              <MessagesSquare :size="15" />调研过程
+            </button>
             <button :class="{ active: tab === 'sources' }" type="button" @click="tab = 'sources'">
               <BookOpenCheck :size="15" />来源
               <span>{{ detail.sources.length }}</span>
@@ -65,9 +68,23 @@
           <div v-if="researching" class="run-progress"><i :style="{ width: `${progress}%` }"></i></div>
           <ResearchGraph v-if="tab === 'graph'" :graph="detail.graph" :sources="detail.sources" />
           <article v-else-if="tab === 'report'" class="report-view">
-            <div v-if="detail.reportMarkdown" class="markdown" v-html="renderMarkdown(detail.reportMarkdown)"></div>
+            <div v-if="detail.reportIr" class="report-toolbar">
+              <button class="export-btn" type="button" :disabled="exporting" @click="exportReportPdf">
+                <LoaderCircle v-if="exporting" class="spin" :size="14" />
+                <FileDown v-else :size="14" />导出 PDF
+              </button>
+            </div>
+            <RichReport
+              v-if="detail.reportIr"
+              ref="richReportRef"
+              :report="detail.reportIr"
+              :sources="detail.sources"
+              @source-click="jumpToSource"
+            />
+            <div v-else-if="detail.reportMarkdown" class="markdown" v-html="renderMarkdown(detail.reportMarkdown)"></div>
             <div v-else class="result-empty"><FileText :size="30" /><strong>报告尚未生成</strong><span>启动联网调研后，报告 Agent 会在这里交付带引用的分析。</span></div>
           </article>
+          <AgentForum v-else-if="tab === 'forum'" ref="forumRef" :researching="researching" />
           <div v-else class="source-list">
             <a v-for="source in detail.sources" :key="source.id" :href="source.url" target="_blank" rel="noreferrer" class="source-card">
               <span>{{ source.sourceRef }}</span>
@@ -129,14 +146,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { AlertTriangle, ArrowLeft, BookOpenCheck, ExternalLink, FileText, LoaderCircle, Network, Plus, SearchCheck, Upload } from '@lucide/vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { AlertTriangle, ArrowLeft, BookOpenCheck, ExternalLink, FileDown, FileText, LoaderCircle, MessagesSquare, Network, Plus, SearchCheck, Upload } from '@lucide/vue'
 import AppHeader from '../../../app/components/AppHeader.vue'
 import DialogWorkbench from '../../graph/components/DialogWorkbench.vue'
 import { renderMarkdown } from '../../ai/utils/markdown'
+import AgentForum from '../components/AgentForum.vue'
 import ResearchGraph from '../components/ResearchGraph.vue'
+import RichReport from '../components/RichReport.vue'
 import {
   cancelResearchRun,
+  fetchForumEvents,
   fetchResearchCard,
   sendResearchMessage,
   startResearchRun,
@@ -144,7 +164,7 @@ import {
   updateResearchCard,
   uploadResearchAttachment,
 } from '../researchApi'
-import type { ResearchCardDetail } from '../researchTypes'
+import type { ForumSsePayload, ResearchCardDetail } from '../researchTypes'
 
 const props = defineProps<{ id: number }>()
 const detail = ref<ResearchCardDetail | null>(null)
@@ -152,7 +172,10 @@ const loading = ref(true)
 const sending = ref(false)
 const starting = ref(false)
 const error = ref('')
-const tab = ref<'graph' | 'report' | 'sources' | 'attachments'>('graph')
+const tab = ref<'graph' | 'report' | 'forum' | 'sources' | 'attachments'>('graph')
+const forumRef = ref<InstanceType<typeof AgentForum> | null>(null)
+const richReportRef = ref<InstanceType<typeof RichReport> | null>(null)
+const exporting = ref(false)
 let streamController: AbortController | null = null
 let pollTimer: number | null = null
 
@@ -185,11 +208,23 @@ async function load(silent = false) {
   try {
     detail.value = await fetchResearchCard(props.id)
     error.value = ''
-    if (researching.value) connectEvents()
+    // 还原历史论坛流(工作台初次进入 / 刷新)
+    void loadForumHistory()
+    if (researching.value) { tab.value = 'forum'; connectEvents() }
   } catch (e: any) {
     error.value = e.message || '调研工作台加载失败'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadForumHistory() {
+  try {
+    const history = await fetchForumEvents(props.id)
+    await nextTick()
+    forumRef.value?.setHistory(history)
+  } catch {
+    // 论坛历史为体验增强，失败静默
   }
 }
 
@@ -316,17 +351,59 @@ function connectEvents() {
   const controller = new AbortController()
   streamController = controller
   void streamResearchEvents(props.id, async (event, data) => {
+    if (event === 'forum') {
+      forumRef.value?.append(data as unknown as ForumSsePayload)
+      return
+    }
     applyProgress(data)
     if (event === 'completed' || event === 'failed') {
       stopEvents()
       await load(true)
-      if (event === 'completed') tab.value = 'graph'
+      if (event === 'completed') tab.value = 'report'
     }
   }, controller.signal).catch(() => {
     if (!controller.signal.aborted && researching.value) startPolling()
   }).finally(() => {
     if (streamController === controller) streamController = null
   })
+}
+
+/** 点击报告里的来源徽章 [Sx] → 跳到来源 Tab 并高亮对应条目。 */
+function jumpToSource(_ref: string) {
+  tab.value = 'sources'
+}
+
+/** 前端导出 PDF：用 html2canvas 截取 RichReport DOM + jsPDF 合成(无需服务端依赖)。 */
+async function exportReportPdf() {
+  if (exporting.value) return
+  const el = richReportRef.value?.$el as HTMLElement | undefined
+  if (!el) return
+  exporting.value = true
+  try {
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+    const img = canvas.toDataURL('image/jpeg', 0.92)
+    const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' })
+    const pageW = pdf.internal.pageSize.getWidth()
+    const pageH = pdf.internal.pageSize.getHeight()
+    const imgH = (canvas.height * pageW) / canvas.width
+    let position = 0
+    let remaining = imgH
+    // 分页：A4 宽度铺满，超出高度自动续页
+    pdf.addImage(img, 'JPEG', 0, position, pageW, imgH)
+    remaining -= pageH
+    while (remaining > 0) {
+      position -= pageH
+      pdf.addPage()
+      pdf.addImage(img, 'JPEG', 0, position, pageW, imgH)
+      remaining -= pageH
+    }
+    pdf.save(`${detail.value?.card.title || '产业链深度报告'}.pdf`)
+  } catch (e: any) {
+    error.value = '导出 PDF 失败：' + (e?.message || '未知错误')
+  } finally {
+    exporting.value = false
+  }
 }
 
 function startPolling() {
@@ -373,6 +450,9 @@ onUnmounted(stopEvents)
 .run-progress { flex: none; height: 3px; background: #f0f1f2; }
 .run-progress i { display: block; height: 100%; background: var(--accent); transition: width .3s ease; }
 .report-view, .source-list { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; }
+.report-toolbar { max-width: 840px; margin: 0 auto 14px; display: flex; justify-content: flex-end; }
+.export-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; cursor: pointer; }
+.export-btn:disabled { opacity: .55; cursor: default; }
 .markdown { max-width: 840px; margin: 0 auto; color: var(--ink-2); font-size: 14px; line-height: 1.85; }
 .markdown :deep(h3), .markdown :deep(h4) { margin: 22px 0 8px; color: var(--ink); }
 .markdown :deep(p) { margin: 0 0 11px; }

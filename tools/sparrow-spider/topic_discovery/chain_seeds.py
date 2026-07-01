@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """产业链专题种子词(供应链爬虫专用)。
 
-与科技树种子(topic_discovery/seeds.py)语义隔离:这里只放公司/机构名,
+与科技图种子(topic_discovery/seeds.py)语义隔离:这里只放公司/机构名,
 供 chain_pipeline 抓维基百科词条 + LLM 抽取供应链关系使用。
 
 注意:产物是「维基级粗略草图」,非权威商业供应链数据库。
