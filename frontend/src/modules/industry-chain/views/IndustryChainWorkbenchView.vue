@@ -204,7 +204,7 @@ const error = ref('')
 const tab = ref<'graph' | 'report' | 'forum' | 'sources' | 'attachments'>('graph')
 const railMode = ref<RailMode>('ask')
 const railModeTouched = ref(false)
-const chainRailCollapsed = ref(localStorage.getItem('sparrow_chain_ai_rail_collapsed') === '1')
+const chainRailCollapsed = ref(localStorage.getItem('industry_chain_ai_rail_collapsed') === '1')
 const forumRef = ref<InstanceType<typeof AgentForum> | null>(null)
 const richReportRef = ref<InstanceType<typeof RichReport> | null>(null)
 const exporting = ref(false)
@@ -481,7 +481,7 @@ function stopEvents() {
   pollTimer = null
 }
 
-watch(chainRailCollapsed, value => localStorage.setItem('sparrow_chain_ai_rail_collapsed', value ? '1' : '0'))
+watch(chainRailCollapsed, value => localStorage.setItem('industry_chain_ai_rail_collapsed', value ? '1' : '0'))
 watch(() => props.id, () => {
   railModeTouched.value = false
   stopEvents()
