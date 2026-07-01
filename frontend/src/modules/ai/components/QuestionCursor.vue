@@ -41,8 +41,8 @@ function markWidth(index: number) {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  background: #151515;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .cursor-mark {
@@ -60,18 +60,18 @@ function markWidth(index: number) {
   display: block;
   height: 2px;
   border-radius: 999px;
-  background: #5f5f5f;
+  background: var(--line-strong);
   transition: width 0.16s ease, background 0.16s ease, opacity 0.16s ease;
 }
 
 .cursor-mark:hover span {
-  background: #b8b8b8;
+  background: var(--muted);
 }
 
 .cursor-mark.active span {
   width: 24px !important;
   height: 3px;
-  background: #ffffff;
+  background: var(--accent);
 }
 
 @media (max-width: 640px) {

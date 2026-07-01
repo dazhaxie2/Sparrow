@@ -67,30 +67,6 @@
           </div>
         </section>
 
-        <section v-if="currentBrief" class="node-ai-card">
-          <div class="node-ai-head">
-            <div class="section-title">
-              <Sparkles :size="15" />
-              <span>AI 追问</span>
-              <small>{{ aiTurnCount ? `${aiTurnCount} 轮` : '围绕当前节点' }}</small>
-            </div>
-            <button type="button" class="ai-clear-btn" title="清空对话" aria-label="清空对话" @click="clearAiMessages">
-              <Trash2 :size="13" />
-            </button>
-          </div>
-
-          <p class="node-ai-context">
-            <strong>{{ currentBrief.name }}</strong>
-            <span>{{ [currentBrief.era, currentBrief.yearLabel, currentBrief.category].filter(Boolean).join(' · ') }}</span>
-          </p>
-
-          <div class="node-ai-messages">
-            <AiMessageList :messages="aiMessages" :loading="aiLoading" :phase="aiPhase" />
-          </div>
-
-          <AiComposer :context-node="currentBrief" :loading="aiLoading" @submit="handleAiSubmit" />
-        </section>
-
         <section v-if="loading" class="loading-box" aria-live="polite">
           <LoaderCircle class="spin" :size="18" />
           <strong>正在加载节点详情</strong>
@@ -145,7 +121,7 @@
                 rel="noreferrer"
               >
                 <strong>{{ source.title || currentName }}</strong>
-                <span>{{ source.updatedAt ? `更新于 ${source.updatedAt} · ${source.source}` : source.source }}</span>
+                <span>{{ source.updatedAt ? `更新于 ${source.updatedAt} · ${source.source || '资料来源'}` : (source.source || '资料来源') }}</span>
               </a>
             </div>
           </section>
@@ -219,15 +195,9 @@ import {
   ExternalLink,
   PanelRightClose,
   PanelRightOpen,
-  Sparkles,
   Target,
-  Trash2,
 } from '@lucide/vue'
 import type { NodeBrief, NodeDetail } from '../types'
-import { useChat } from '../../ai/composables/useChat'
-import AiComposer from '../../ai/components/AiComposer.vue'
-import AiMessageList from '../../ai/components/AiMessageList.vue'
-import { useUserStore } from '../../user/store'
 
 type ProgressState = 'want' | 'read' | 'mastered' | null
 
@@ -256,14 +226,6 @@ defineEmits<{
 const bodyRef = ref<HTMLElement | null>(null)
 const drawerCollapsed = ref(false)
 const sheetExpanded = ref(false)
-const user = useUserStore()
-const {
-  messages: aiMessages,
-  loading: aiLoading,
-  phase: aiPhase,
-  ask: askAi,
-  clearMessages: clearAiMessages,
-} = useChat()
 const current = computed(() => props.detail ?? props.preview)
 const currentName = computed(() => current.value?.name ?? '加载中')
 const currentEra = computed(() => current.value?.era ?? '未知时代')
@@ -272,23 +234,6 @@ const currentSummary = computed(() => current.value?.summary ?? '正在整理该
 const currentCategory = computed(() => current.value?.category ?? '')
 const currentPremium = computed(() => Boolean(current.value?.premium))
 const sources = computed(() => props.detail?.sources ?? [])
-const aiTurnCount = computed(() => Math.max(0, Math.floor((aiMessages.value.length - 1) / 2)))
-const currentBrief = computed<NodeBrief | null>(() => {
-  const node = current.value
-  if (!node) return null
-  return {
-    id: node.id,
-    code: node.code,
-    name: node.name,
-    era: node.era,
-    eraRank: node.eraRank,
-    yearLabel: node.yearLabel,
-    summary: node.summary,
-    premium: node.premium,
-    category: node.category,
-    importance: node.importance,
-  }
-})
 
 type RecDirection = 'pre' | 'post'
 
@@ -338,38 +283,11 @@ const recommendations = computed(() => {
     .slice(0, RECOMMEND_LIMIT)
 })
 
-const allSources = computed(() => {
-  const baikeSource = {
-    title: currentName.value,
-    url: `https://baike.baidu.com/item/${encodeURIComponent(currentName.value || '')}`,
-    source: '百度百科',
-    updatedAt: undefined
-  }
-  const originalSources = sources.value.map(src => ({
-    ...src,
-    source: (src as any).source || '维基百科'
-  }))
-  return [baikeSource, ...originalSources]
-})
 const statusLabel = computed(() => {
   if (props.loading) return 'LOADING'
   if (props.error) return 'RETRY'
   return current.value ? 'SELECTED' : 'WAITING'
 })
-
-async function handleAiSubmit(text: string) {
-  const question = text.trim()
-  const node = currentBrief.value
-  if (!question || !node) return
-  const contextualQuestion = [
-    `当前科技图节点: ${node.name}`,
-    `时代: ${node.era || '未知'} ${node.yearLabel || ''}`.trim(),
-    node.category ? `分类: ${node.category}` : '',
-    node.summary ? `节点摘要: ${node.summary}` : '',
-    `用户问题: ${question}`,
-  ].filter(Boolean).join('\n')
-  await askAi(contextualQuestion, user.isLoggedIn())
-}
 
 watch(() => current.value?.id, async () => {
   await nextTick()
@@ -510,8 +428,7 @@ watch(() => props.floating, value => {
 .locked-box,
 .loading-box,
 .error-box,
-.source-block,
-.node-ai-card {
+.source-block {
   margin: 15px;
 }
 
@@ -607,71 +524,6 @@ watch(() => props.floating, value => {
 
 .node-actions .compare-btn {
   margin-left: auto;
-}
-
-.node-ai-card {
-  border: 1px solid rgba(20, 24, 29, 0.1);
-  background: linear-gradient(180deg, #fff 0%, var(--surface) 100%);
-}
-
-.node-ai-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 12px 0;
-}
-
-.node-ai-head .section-title {
-  flex: 1;
-  padding-bottom: 8px;
-}
-
-.ai-clear-btn {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  min-height: 28px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
-  color: var(--ink-2);
-  padding: 0;
-  cursor: pointer;
-  transition: border-color 0.16s ease, color 0.16s ease;
-}
-
-.ai-clear-btn:hover {
-  border-color: var(--ink);
-  color: var(--ink);
-}
-
-.node-ai-context {
-  display: grid;
-  gap: 3px;
-  margin: 9px 12px 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.node-ai-context strong {
-  color: var(--ink);
-  font-size: 13px;
-}
-
-.node-ai-context span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-ai-messages {
-  height: clamp(220px, 34vh, 360px);
-  margin-top: 10px;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.72);
-  display: flex;
-  min-height: 0;
 }
 
 .section-title {

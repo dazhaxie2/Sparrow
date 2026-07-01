@@ -14,6 +14,17 @@
     </nav>
 
     <div class="actions">
+      <button
+        v-if="showAiToggle"
+        class="btn ai-toggle"
+        :class="{ active: !aiRailCollapsed }"
+        type="button"
+        :title="aiRailCollapsed ? '展开 AI 对话' : '收起 AI 对话'"
+        @click="emit('toggleAi')"
+      >
+        <Bot :size="14" />
+        <span>{{ aiRailCollapsed ? 'AI' : 'AI 对话' }}</span>
+      </button>
       <button v-if="!user.profile" class="btn primary" type="button" @click="activate('login')">
         登录 / 注册
       </button>
@@ -39,14 +50,25 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ChevronDown, Crown, GraduationCap, LogOut, Settings } from '@lucide/vue'
+import { Bot, ChevronDown, Crown, GraduationCap, LogOut, Settings } from '@lucide/vue'
 import { useUserStore } from '../../modules/user/store'
 
 const user = useUserStore()
 const route = useRoute()
 const router = useRouter()
-withDefaults(defineProps<{ graphMode?: 'map' | 'dialog' }>(), { graphMode: 'map' })
-const emit = defineEmits<{ showGraph: []; openLogin: []; openMember: []; openLearning: []; openSettings: [] }>()
+withDefaults(defineProps<{ graphMode?: 'map' | 'dialog'; showAiToggle?: boolean; aiRailCollapsed?: boolean }>(), {
+  graphMode: 'map',
+  showAiToggle: false,
+  aiRailCollapsed: true,
+})
+const emit = defineEmits<{
+  showGraph: []
+  toggleAi: []
+  openLogin: []
+  openMember: []
+  openLearning: []
+  openSettings: []
+}>()
 const menuOpen = ref(false)
 
 type HeaderAction = 'graph' | 'login' | 'member' | 'learning' | 'settings'
@@ -300,6 +322,18 @@ a.nav-item {
   background: #fff;
   border-color: var(--line);
   color: var(--ink-2);
+}
+
+.btn.ai-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn.ai-toggle.active {
+  border-color: var(--accent);
+  background: rgba(255, 87, 34, 0.08);
+  color: var(--accent);
 }
 
 .btn.accent {

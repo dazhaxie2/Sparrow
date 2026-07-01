@@ -73,7 +73,7 @@ interface ChatStep {
 interface ChatSource {
   id?: string | number
   name: string
-  url?: string
+  url?: string | null
 }
 
 interface ChatMessage {

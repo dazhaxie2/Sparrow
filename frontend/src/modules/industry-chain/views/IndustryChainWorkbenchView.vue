@@ -28,21 +28,6 @@
         <button type="button" @click="load()">重试</button>
       </div>
       <section v-else-if="detail" class="workbench-layout">
-        <DialogWorkbench
-          :dialog-messages="dialogMessages"
-          :dialog-loading="sending || researching"
-          :dialog-error="error"
-          :dialog-active="Boolean(detail.graph)"
-          title="CHAIN RESEARCH AGENTS"
-          :status-text="researching ? stageText.toUpperCase() : detail.card.status.toUpperCase()"
-          empty-title="和调研 Agent 对话"
-          empty-hint="说说你关注的产品、企业、地区和时间范围。"
-          :loading-label="researching ? `${stageText} · ${progress}%` : 'AGENT THINKING'"
-          placeholder="补充调研范围、重点公司或想验证的问题…"
-          @submit="sendMessage"
-          @switch-to-map="$router.push('/chains')"
-        />
-
         <section class="result-panel">
           <nav class="result-tabs">
             <button :class="{ active: tab === 'graph' }" type="button" @click="tab = 'graph'">
@@ -85,7 +70,7 @@
             <div v-else class="result-empty"><FileText :size="30" /><strong>报告尚未生成</strong><span>启动联网调研后，报告 Agent 会在这里交付带引用的分析。</span></div>
           </article>
           <AgentForum v-else-if="tab === 'forum'" ref="forumRef" :researching="researching" />
-          <div v-else class="source-list">
+          <div v-else-if="tab === 'sources'" class="source-list">
             <a v-for="source in detail.sources" :key="source.id" :href="source.url" target="_blank" rel="noreferrer" class="source-card">
               <span>{{ source.sourceRef }}</span>
               <div><strong>{{ source.title }}</strong><small>{{ source.publisher || source.url }}</small><p>{{ source.snippet }}</p></div>
@@ -140,6 +125,46 @@
             </div>
           </div>
         </section>
+
+        <aside class="ai-rail" :class="{ collapsed: chainRailCollapsed }">
+          <button v-if="chainRailCollapsed" class="rail-collapsed" type="button" title="展开 AI 对话" @click="chainRailCollapsed = false">
+            <Bot :size="16" />
+            <span>AI 对话</span>
+          </button>
+          <template v-else>
+            <div class="rail-tabs" role="tablist" aria-label="产业链 AI 模式">
+              <button :class="{ active: railMode === 'planning' }" type="button" @click="setRailMode('planning')">
+                <BrainCircuit :size="14" />调研规划
+              </button>
+              <button :class="{ active: railMode === 'ask' }" type="button" @click="setRailMode('ask')">
+                <Bot :size="14" />向导问答
+              </button>
+              <button class="rail-close" type="button" title="收起右栏" @click="chainRailCollapsed = true">
+                <PanelRightClose :size="15" />
+              </button>
+            </div>
+
+            <div class="rail-body">
+              <DialogWorkbench
+                v-if="railMode === 'planning'"
+                class="rail-dialog"
+                :dialog-messages="dialogMessages"
+                :dialog-loading="sending || researching"
+                :dialog-error="error"
+                :dialog-active="Boolean(detail.graph)"
+                title="CHAIN RESEARCH AGENTS"
+                :status-text="researching ? stageText.toUpperCase() : detail.card.status.toUpperCase()"
+                empty-title="和调研 Agent 对话"
+                empty-hint="说说你关注的产品、企业、地区和时间范围。"
+                :loading-label="researching ? `${stageText} · ${progress}%` : 'AGENT THINKING'"
+                placeholder="补充调研范围、重点公司或想验证的问题…"
+                @submit="sendMessage"
+                @switch-to-map="setRailMode('ask')"
+              />
+              <AiChatPanel v-else class="rail-chat" :context-node="chainContextBrief" />
+            </div>
+          </template>
+        </aside>
       </section>
     </main>
   </div>
@@ -147,9 +172,10 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { AlertTriangle, ArrowLeft, BookOpenCheck, ExternalLink, FileDown, FileText, LoaderCircle, MessagesSquare, Network, Plus, SearchCheck, Upload } from '@lucide/vue'
+import { AlertTriangle, ArrowLeft, BookOpenCheck, Bot, BrainCircuit, ExternalLink, FileDown, FileText, LoaderCircle, MessagesSquare, Network, PanelRightClose, Plus, SearchCheck, Upload } from '@lucide/vue'
 import AppHeader from '../../../app/components/AppHeader.vue'
 import DialogWorkbench from '../../graph/components/DialogWorkbench.vue'
+import AiChatPanel from '../../ai/components/AiChatPanel.vue'
 import { renderMarkdown } from '../../ai/utils/markdown'
 import AgentForum from '../components/AgentForum.vue'
 import ResearchGraph from '../components/ResearchGraph.vue'
@@ -165,14 +191,20 @@ import {
   uploadResearchAttachment,
 } from '../api'
 import type { ForumSsePayload, ResearchCardDetail } from '../model/types'
+import type { NodeBrief } from '../../graph/types'
 
 const props = defineProps<{ id: number }>()
+type RailMode = 'planning' | 'ask'
+
 const detail = ref<ResearchCardDetail | null>(null)
 const loading = ref(true)
 const sending = ref(false)
 const starting = ref(false)
 const error = ref('')
 const tab = ref<'graph' | 'report' | 'forum' | 'sources' | 'attachments'>('graph')
+const railMode = ref<RailMode>('ask')
+const railModeTouched = ref(false)
+const chainRailCollapsed = ref(localStorage.getItem('sparrow_chain_ai_rail_collapsed') === '1')
 const forumRef = ref<InstanceType<typeof AgentForum> | null>(null)
 const richReportRef = ref<InstanceType<typeof RichReport> | null>(null)
 const exporting = ref(false)
@@ -202,11 +234,38 @@ const stageText = computed(() => ({
   mapping: '构建产业链图谱',
   writing: '撰写深度报告',
 }[detail.value?.card.currentStage || ''] || '准备调研'))
+const chainContextBrief = computed<NodeBrief | null>(() => {
+  const card = detail.value?.card
+  if (!card) return null
+  return {
+    id: -card.id,
+    code: `chain-${card.id}`,
+    name: card.title,
+    era: '产业链',
+    eraRank: 0,
+    yearLabel: card.status,
+    summary: card.brief || '围绕当前产业链调研产物继续追问。',
+    premium: false,
+    category: '产业链',
+    importance: card.nodeCount,
+  }
+})
+
+function setRailMode(mode: RailMode) {
+  railModeTouched.value = true
+  railMode.value = mode
+}
+
+function syncDefaultRailMode() {
+  if (railModeTouched.value || !detail.value) return
+  railMode.value = detail.value.card.status === 'COMPLETED' ? 'ask' : 'planning'
+}
 
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
     detail.value = await fetchResearchCard(props.id)
+    syncDefaultRailMode()
     error.value = ''
     // 还原历史论坛流(工作台初次进入 / 刷新)
     void loadForumHistory()
@@ -320,6 +379,7 @@ async function startRun() {
       detail.value.card.progress = 3
       detail.value.activeRun = { id: result.runId, status: 'RUNNING', currentStage: 'planning', progress: 3, errorMessage: null, startedAt: new Date().toISOString(), finishedAt: null }
     }
+    railMode.value = 'planning'
     connectEvents()
   } catch (e: any) {
     error.value = e.message || '启动调研失败'
@@ -421,7 +481,12 @@ function stopEvents() {
   pollTimer = null
 }
 
-watch(() => props.id, () => { stopEvents(); void load() })
+watch(chainRailCollapsed, value => localStorage.setItem('sparrow_chain_ai_rail_collapsed', value ? '1' : '0'))
+watch(() => props.id, () => {
+  railModeTouched.value = false
+  stopEvents()
+  void load()
+})
 onMounted(() => void load())
 onUnmounted(stopEvents)
 </script>
@@ -443,6 +508,20 @@ onUnmounted(stopEvents)
 .progress-copy strong { color: var(--accent); }
 .workbench-layout { flex: 1; min-height: 0; display: flex; gap: 12px; }
 .result-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; }
+.ai-rail { flex: 0 0 360px; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; transition: flex-basis .3s cubic-bezier(.25,.8,.25,1); }
+.ai-rail.collapsed { flex: 0 0 44px; }
+.rail-collapsed { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0; border: 0; background: var(--ink); color: var(--bg); cursor: pointer; }
+.rail-collapsed:hover { background: #000; }
+.rail-collapsed span { writing-mode: vertical-rl; letter-spacing: .12em; font-size: 12px; font-weight: 800; }
+.rail-tabs { flex: none; display: grid; grid-template-columns: 1fr 1fr auto; min-height: 46px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.rail-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 12px; font-weight: 800; cursor: pointer; }
+.rail-tabs button.active { background: #fff; color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+.rail-tabs svg { color: currentColor; }
+.rail-tabs .rail-close { width: 42px; border-right: 0; color: var(--ink-2); }
+.rail-tabs .rail-close:hover { color: var(--accent); }
+.rail-body { flex: 1; min-height: 0; display: flex; }
+.rail-chat { flex: 1; min-width: 0; }
+.rail-body :deep(.conversation-workbench) { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
 .result-tabs { flex: none; display: flex; min-height: 56px; align-items: stretch; padding: 0 12px; border-bottom: 1px solid var(--line); }
 .result-tabs button { display: inline-flex; align-items: center; gap: 7px; border: 0; border-bottom: 2px solid transparent; background: transparent; padding: 0 14px; color: var(--muted); font-size: 12px; font-weight: 800; cursor: pointer; }
 .result-tabs button.active { border-bottom-color: var(--accent); color: var(--ink); }
@@ -497,5 +576,9 @@ onUnmounted(stopEvents)
   .research-header { align-items: flex-start; flex-direction: column; }
   .workbench-layout { flex-direction: column; overflow: visible; }
   .result-panel { min-height: 600px; }
+  .ai-rail { flex: 0 0 auto; min-height: 540px; }
+  .ai-rail.collapsed { min-height: 44px; flex-basis: auto; }
+  .rail-collapsed { min-height: 44px; flex-direction: row; justify-content: center; padding: 0 14px; }
+  .rail-collapsed span { writing-mode: horizontal-tb; letter-spacing: .08em; }
 }
 </style>

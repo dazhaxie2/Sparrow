@@ -123,6 +123,7 @@ export interface SubgraphFilters {
 export interface SourceBrief {
   title: string
   url: string
+  source?: string | null
   updatedAt: string
 }
 

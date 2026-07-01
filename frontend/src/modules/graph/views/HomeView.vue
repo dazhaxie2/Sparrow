@@ -1,7 +1,10 @@
 <template>
   <AppHeader
     :graph-mode="graphMode"
+    :show-ai-toggle="!graphFullScreen"
+    :ai-rail-collapsed="aiRailCollapsed"
     @show-graph="switchGraphMode('map')"
+    @toggle-ai="aiRailCollapsed = !aiRailCollapsed"
     @open-login="showLogin = true"
     @open-member="showMemberModal"
     @open-learning="showLearning = true"
@@ -97,7 +100,9 @@
       @clear="clearCompare"
     />
 
-    <AiDock v-if="!aiContextNode" :context-node="null" :immersive="graphFullScreen" />
+    <aside v-if="!graphFullScreen" class="ai-rail" :class="{ collapsed: aiRailCollapsed }">
+      <AiChatPanel :context-node="aiContextNode" :collapsed="aiRailCollapsed" @toggle="aiRailCollapsed = !aiRailCollapsed" />
+    </aside>
   </main>
 
   <LoginModal v-if="showLogin" @close="showLogin = false" />
@@ -128,7 +133,7 @@ import GraphCanvas from '../components/GraphCanvas.vue'
 import DialogWorkbench from '../components/DialogWorkbench.vue'
 import CompareDock from '../components/CompareDock.vue'
 import GraphModals from '../components/GraphModals.vue'
-import AiDock from '../../ai/components/AiDock.vue'
+import AiChatPanel from '../../ai/components/AiChatPanel.vue'
 import LoginModal from '../../user/components/LoginModal.vue'
 import MemberModal from '../../trade/components/MemberModal.vue'
 import { fetchClusterOverview, fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites, fetchApplications } from '../api'
@@ -177,6 +182,9 @@ const nodeError = ref('')
 const showLogin = ref(false)
 const showMember = ref(false)
 const graphFullScreen = ref(false)
+// 右侧常驻 AI 对话栏：折叠状态记忆在 localStorage，与全屏沉浸互斥（全屏时整栏隐藏）。
+const aiRailCollapsed = ref(localStorage.getItem('sparrow_ai_rail_collapsed') === '1')
+watch(aiRailCollapsed, value => localStorage.setItem('sparrow_ai_rail_collapsed', value ? '1' : '0'))
 const showLearning = ref(false)
 const showSettings = ref(false)
 
@@ -413,10 +421,6 @@ function addCurrentToCompare() {
   const current = selectedDetail.value ? detailToBrief(selectedDetail.value) : selectedPreview.value
   if (!current) return
   addToCompare(current, selectedChain.value, selectedDetail.value)
-}
-
-function openAiGuide() {
-  switchGraphMode('dialog')
 }
 
 function showMemberModal() {
@@ -810,6 +814,18 @@ onUnmounted(() => {
   flex: 1 1 auto;
 }
 
+/* 右侧常驻 AI 对话栏：宽 390px，折叠态收为 44px 竖条 */
+.ai-rail {
+  flex: 0 0 390px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  transition: flex-basis 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.ai-rail.collapsed {
+  flex: 0 0 44px;
+}
+
 .graph-shell {
   position: relative;
   flex: 1;
@@ -838,6 +854,11 @@ onUnmounted(() => {
 
   .graph-shell.fullscreen {
     inset: 48px 0 0;
+  }
+
+  /* 移动端隐藏常驻 AI 栏(屏宽不足，避免挤压图谱)；用户改用全屏沉浸外的其它入口 */
+  .ai-rail {
+    display: none;
   }
 
   .layout.dialog-layout {
