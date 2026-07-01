@@ -1,7 +1,7 @@
 ﻿name: sparrow
 
 # Phase 2 docker-compose:
-# - 业务数据拆为 sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai / sparrow_chain
+# - 业务数据拆为 sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai / sparrow_industry_chain
 # - 8081-8085 不 publish,只在 sparrow_net 内互访;唯一入口 = gateway:8080
 # - Nacos 2.x gRPC 走 9848(8848+1000),宿主机访问 dashboard 需同时映射
 
@@ -322,23 +322,31 @@ services:
       kafka: { condition: service_healthy }
     networks: [sparrow_net]
 
-  sparrow-chain:
+  sparrow-industry-chain:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      target: chain-runtime
+      target: industry-chain-runtime
     environment:
       NACOS_ADDR: nacos:8848
       MYSQL_HOST: mysql
-      MYSQL_DB: sparrow_chain
+      MYSQL_DB: sparrow_industry_chain
+      REDIS_HOST: redis
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-glm-4.5-air}
+      CHAIN_RESEARCH_FREE_PER_DAY: ${CHAIN_RESEARCH_FREE_PER_DAY:-1}
+      CHAIN_RESEARCH_MEMBER_PER_DAY: ${CHAIN_RESEARCH_MEMBER_PER_DAY:-10}
+      CHAIN_RESEARCH_SEARCH_URL: ${CHAIN_RESEARCH_SEARCH_URL:-https://m.sogou.com/web/searchList.jsp}
     expose: ["8085"]
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 768M
+          cpus: '1.5'
+          memory: 1G
     depends_on:
       mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
       nacos: { condition: service_healthy }
     networks: [sparrow_net]
 
@@ -402,11 +410,6 @@ services:
       SPARROW_RAG_DB_USER: sparrow
       SPARROW_RAG_DB_PASSWORD: sparrow123
       SPARROW_RAG_DB_NAME: sparrow
-      SPARROW_CHAIN_DB_HOST: mysql
-      SPARROW_CHAIN_DB_PORT: 3306
-      SPARROW_CHAIN_DB_USER: sparrow
-      SPARROW_CHAIN_DB_PASSWORD: sparrow123
-      SPARROW_CHAIN_DB_NAME: sparrow_chain
       SPARROW_REDIS_HOST: redis
       SPARROW_REDIS_PORT: 6379
       SPARROW_GRAPH_IMPORT_URL: http://sparrow-graph:8082/internal/graph/import

@@ -1,0 +1,42 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: sparrow-industry-chain
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 50MB
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:localhost:8848}
+      config:
+        file-extension: yaml
+      discovery:
+        server-addr: ${NACOS_ADDR:localhost:8848}
+  config:
+    import:
+      - optional:nacos:sparrow-common.yaml
+      - optional:nacos:sparrow-industry-chain.yaml
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:sparrow_industry_chain}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${MYSQL_USER:sparrow}
+    password: ${MYSQL_PASSWORD:sparrow123}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+sparrow:
+  industry-chain:
+    base-url: ${AI_BASE_URL:}
+    api-key: ${AI_API_KEY:}
+    chat-model: ${AI_CHAT_MODEL:glm-4.5-air}
+    research-free-per-day: ${CHAIN_RESEARCH_FREE_PER_DAY:1}
+    research-member-per-day: ${CHAIN_RESEARCH_MEMBER_PER_DAY:10}
+    search-url: ${CHAIN_RESEARCH_SEARCH_URL:https://m.sogou.com/web/searchList.jsp}
+
+logging:
+  level:
+    com.sparrow: info

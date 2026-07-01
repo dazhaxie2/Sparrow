@@ -11,7 +11,7 @@ CREATE DATABASE IF NOT EXISTS sparrow_graph
     DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS sparrow_ai
     DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE DATABASE IF NOT EXISTS sparrow_chain
+CREATE DATABASE IF NOT EXISTS sparrow_industry_chain
     DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 GRANT ALL PRIVILEGES ON sparrow.* TO 'sparrow'@'%';
@@ -19,7 +19,7 @@ GRANT ALL PRIVILEGES ON sparrow_user.* TO 'sparrow'@'%';
 GRANT ALL PRIVILEGES ON sparrow_trade.* TO 'sparrow'@'%';
 GRANT ALL PRIVILEGES ON sparrow_graph.* TO 'sparrow'@'%';
 GRANT ALL PRIVILEGES ON sparrow_ai.* TO 'sparrow'@'%';
-GRANT ALL PRIVILEGES ON sparrow_chain.* TO 'sparrow'@'%';
+GRANT ALL PRIVILEGES ON sparrow_industry_chain.* TO 'sparrow'@'%';
 FLUSH PRIVILEGES;
 
 USE sparrow_user;
@@ -181,7 +181,9 @@ CREATE TABLE IF NOT EXISTS kafka_consumed_event (
     KEY idx_topic_consumed_at (topic, consumed_at)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
-CREATE TABLE IF NOT EXISTS chain_research_card (
+USE sparrow_industry_chain;
+
+CREATE TABLE IF NOT EXISTS research_card (
     id            BIGINT       NOT NULL AUTO_INCREMENT,
     user_id       BIGINT       NOT NULL,
     title         VARCHAR(120) NOT NULL,
@@ -192,15 +194,16 @@ CREATE TABLE IF NOT EXISTS chain_research_card (
     node_count    INT          NOT NULL DEFAULT 0,
     edge_count    INT          NOT NULL DEFAULT 0,
     graph_json    LONGTEXT     NULL,
+    report_ir     LONGTEXT     NULL,
     report_md     LONGTEXT     NULL,
     last_error    VARCHAR(1000) NULL,
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_chain_research_user_updated (user_id, updated_at)
+    KEY idx_research_user_updated (user_id, updated_at)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
-CREATE TABLE IF NOT EXISTS chain_research_message (
+CREATE TABLE IF NOT EXISTS research_message (
     id         BIGINT      NOT NULL AUTO_INCREMENT,
     card_id    BIGINT      NOT NULL,
     user_id    BIGINT      NOT NULL,
@@ -209,11 +212,11 @@ CREATE TABLE IF NOT EXISTS chain_research_message (
     content    TEXT        NOT NULL,
     created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_chain_research_message_card (card_id, id),
-    KEY idx_chain_research_message_user (user_id)
+    KEY idx_research_message_card (card_id, id),
+    KEY idx_research_message_user (user_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
-CREATE TABLE IF NOT EXISTS chain_research_run (
+CREATE TABLE IF NOT EXISTS research_run (
     id            BIGINT      NOT NULL AUTO_INCREMENT,
     card_id       BIGINT      NOT NULL,
     user_id       BIGINT      NOT NULL,
@@ -224,11 +227,11 @@ CREATE TABLE IF NOT EXISTS chain_research_run (
     started_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at   DATETIME    NULL,
     PRIMARY KEY (id),
-    KEY idx_chain_research_run_card (card_id, id),
-    KEY idx_chain_research_run_user (user_id)
+    KEY idx_research_run_card (card_id, id),
+    KEY idx_research_run_user (user_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
-CREATE TABLE IF NOT EXISTS chain_research_source (
+CREATE TABLE IF NOT EXISTS research_source (
     id          BIGINT        NOT NULL AUTO_INCREMENT,
     card_id     BIGINT        NOT NULL,
     user_id     BIGINT        NOT NULL,
@@ -239,46 +242,34 @@ CREATE TABLE IF NOT EXISTS chain_research_source (
     snippet     VARCHAR(1200) NULL,
     created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_chain_research_source_ref (card_id, source_ref),
-    KEY idx_chain_research_source_user (user_id)
+    UNIQUE KEY uk_research_source_ref (card_id, source_ref),
+    KEY idx_research_source_user (user_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
--- ── 产业链专题(sparrow_chain 库,与科技图图谱语义隔离) ──
-USE sparrow_chain;
-
--- 产业链主表:每条对应一条独立供应链(英伟达链/苹果链/特斯拉链/SpaceX链)。
-CREATE TABLE IF NOT EXISTS chain (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    slug        VARCHAR(64)  NOT NULL COMMENT 'URL 友好标识(nvidia-ai 等)',
-    name        VARCHAR(120) NOT NULL,
-    description TEXT,
-    cover_color VARCHAR(16)  NULL COMMENT '列表卡片主题色',
+CREATE TABLE IF NOT EXISTS research_attachment (
+    id          BIGINT        NOT NULL AUTO_INCREMENT,
+    card_id     BIGINT        NOT NULL,
+    user_id     BIGINT        NOT NULL,
+    source_ref  VARCHAR(16)   NOT NULL,
+    title       VARCHAR(300)  NOT NULL,
+    url         VARCHAR(1200) NOT NULL,
+    publisher   VARCHAR(160)  NULL,
+    snippet     VARCHAR(3000) NULL,
+    created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_slug (slug)
+    UNIQUE KEY uk_research_attachment_ref (card_id, source_ref),
+    KEY idx_research_attachment_card (card_id, id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
--- 供应链节点:核心公司 / 供应商 / 代工厂 / 材料商。
-CREATE TABLE IF NOT EXISTS chain_node (
+CREATE TABLE IF NOT EXISTS research_forum (
     id         BIGINT      NOT NULL AUTO_INCREMENT,
-    chain_id   BIGINT      NOT NULL,
-    name       VARCHAR(160) NOT NULL,
-    node_type  VARCHAR(32) NULL COMMENT '核心公司/供应商/代工厂/材料商',
-    summary    TEXT,
-    importance INT         NOT NULL DEFAULT 0 COMMENT '度中心度,决定节点大小',
+    card_id    BIGINT      NOT NULL,
+    user_id    BIGINT      NOT NULL,
+    run_id     BIGINT      NOT NULL,
+    source     VARCHAR(16) NOT NULL,
+    content    TEXT        NOT NULL,
+    created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_chain_name (chain_id, name),
-    KEY idx_chain (chain_id)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
-
--- 供应链边:from 供货给 to(有向)。edge_type 区分供货/代工/材料供应/授权。
-CREATE TABLE IF NOT EXISTS chain_edge (
-    id        BIGINT      NOT NULL AUTO_INCREMENT,
-    chain_id  BIGINT      NOT NULL,
-    from_id   BIGINT      NOT NULL COMMENT '供应方节点 id',
-    to_id     BIGINT      NOT NULL COMMENT '被供应方节点 id',
-    edge_type VARCHAR(32) NULL COMMENT '供货/代工/材料供应/授权',
-    product   VARCHAR(200) NULL COMMENT '具体供应的产品或环节',
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_edge (from_id, to_id, edge_type),
-    KEY idx_chain (chain_id)
+    KEY idx_research_forum_run (card_id, run_id, id),
+    KEY idx_research_forum_user (user_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;

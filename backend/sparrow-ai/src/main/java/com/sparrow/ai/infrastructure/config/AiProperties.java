@@ -27,10 +27,7 @@ public record AiProperties(
         /**
          * 免费用户每日配额
          */
-        int freeQuotaPerDay,
-        int chainResearchFreePerDay,
-        int chainResearchMemberPerDay,
-        String chainResearchSearchUrl) {
+        int freeQuotaPerDay) {
 
     /**
      * 检查 LLM 是否已配置。

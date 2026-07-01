@@ -1,49 +1,59 @@
 <template>
-  <div ref="scrollRef" class="ai-messages">
-    <div
-      v-for="(msg, i) in messages"
-      :key="i"
-      class="msg"
-      :class="msg.role === 'user' ? 'user' : 'bot'"
-    >
-      <div v-if="msg.role !== 'user' && (msg.mode || msg.intent)" class="msg-meta">
-        <span v-if="msg.mode" class="mode-pill">{{ modeLabel(msg.mode) }}</span>
-        <span v-if="msg.intent" class="intent-pill">{{ intentLabel(msg.intent) }}</span>
-      </div>
-      <!-- 思考过程(reasoning 模型才有):默认展开,可折叠。 -->
-      <div
-        v-if="msg.role !== 'user' && msg.thinking"
-        class="thinking-block"
-        :class="{ open: thinkingOpen[i] !== false }"
-      >
-        <button class="thinking-toggle" type="button" @click="toggleThinking(i)">
-          <Brain :size="13" />
-          <span>思考过程</span>
-          <ChevronDown :size="13" class="chev" :class="{ flipped: thinkingOpen[i] !== false }" />
-        </button>
-        <div v-if="thinkingOpen[i] !== false" class="thinking-content" v-html="renderMessage(msg.thinking)" />
-      </div>
-      <div class="msg-content" v-html="renderMessage(msg.content)" />
-      <span v-if="msg.streaming" class="cursor" aria-hidden="true" />
-      <div v-if="msg.role !== 'user' && msg.steps?.length" class="agent-steps">
-        <span v-for="step in msg.steps" :key="step.key" :class="`step-${step.status}`">
-          {{ step.label }}
-        </span>
-      </div>
-      <div v-if="msg.sources?.length" class="src">
-        <span>来源:</span>
-        <template v-for="(source, sourceIndex) in msg.sources" :key="source.id ?? sourceIndex">
-          <a v-if="source.url" :href="source.url" target="_blank" rel="noreferrer">{{ source.name }}</a>
-          <span v-else>{{ source.name }}</span>
-          <span v-if="sourceIndex < msg.sources.length - 1">、</span>
-        </template>
-      </div>
-    </div>
+  <div class="ai-message-shell">
+    <QuestionCursor
+      v-if="questionItems.length"
+      :items="questionItems"
+      :active-index="activeQuestionIndex"
+      @select="scrollToQuestion"
+    />
 
-    <!-- 初始检索阶段(占位消息尚未产生任何内容时)显示加载提示。 -->
-    <div v-if="loading && !lastMessageHasContent" class="msg bot typing">
-      <LoaderCircle class="spin" :size="15" />
-      {{ phase || '正在处理' }}
+    <div ref="scrollRef" class="ai-messages" @scroll="syncActiveQuestion">
+      <div
+        v-for="(msg, i) in messages"
+        :key="i"
+        class="msg"
+        :class="msg.role === 'user' ? 'user' : 'bot'"
+        :data-question-order="questionOrderByMessageIndex.get(i) ?? undefined"
+      >
+        <div v-if="msg.role !== 'user' && (msg.mode || msg.intent)" class="msg-meta">
+          <span v-if="msg.mode" class="mode-pill">{{ modeLabel(msg.mode) }}</span>
+          <span v-if="msg.intent" class="intent-pill">{{ intentLabel(msg.intent) }}</span>
+        </div>
+        <!-- 思考过程(reasoning 模型才有):默认展开,可折叠。 -->
+        <div
+          v-if="msg.role !== 'user' && msg.thinking"
+          class="thinking-block"
+          :class="{ open: thinkingOpen[i] !== false }"
+        >
+          <button class="thinking-toggle" type="button" @click="toggleThinking(i)">
+            <Brain :size="13" />
+            <span>思考过程</span>
+            <ChevronDown :size="13" class="chev" :class="{ flipped: thinkingOpen[i] !== false }" />
+          </button>
+          <div v-if="thinkingOpen[i] !== false" class="thinking-content" v-html="renderMessage(msg.thinking)" />
+        </div>
+        <div class="msg-content" v-html="renderMessage(msg.content)" />
+        <span v-if="msg.streaming" class="cursor" aria-hidden="true" />
+        <div v-if="msg.role !== 'user' && msg.steps?.length" class="agent-steps">
+          <span v-for="step in msg.steps" :key="step.key" :class="`step-${step.status}`">
+            {{ step.label }}
+          </span>
+        </div>
+        <div v-if="msg.sources?.length" class="src">
+          <span>来源:</span>
+          <template v-for="(source, sourceIndex) in msg.sources" :key="source.id ?? sourceIndex">
+            <a v-if="source.url" :href="source.url" target="_blank" rel="noreferrer">{{ source.name }}</a>
+            <span v-else>{{ source.name }}</span>
+            <span v-if="sourceIndex < msg.sources.length - 1">、</span>
+          </template>
+        </div>
+      </div>
+
+      <!-- 初始检索阶段(占位消息尚未产生任何内容时)显示加载提示。 -->
+      <div v-if="loading && !lastMessageHasContent" class="msg bot typing">
+        <LoaderCircle class="spin" :size="15" />
+        {{ phase || '正在处理' }}
+      </div>
     </div>
   </div>
 </template>
@@ -52,6 +62,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Brain, ChevronDown, LoaderCircle } from '@lucide/vue'
 import { renderMarkdown } from '../utils/markdown'
+import QuestionCursor from './QuestionCursor.vue'
 
 interface ChatStep {
   key: string
@@ -68,6 +79,7 @@ interface ChatSource {
 interface ChatMessage {
   role: string
   content: string
+  timestamp?: number
   thinking?: string
   mode?: string
   intent?: string
@@ -83,6 +95,7 @@ const props = defineProps<{
 }>()
 
 const scrollRef = ref<HTMLElement | null>(null)
+const activeQuestionIndex = ref(0)
 
 // 思考过程折叠状态:按消息索引记录 true=展开 / false=收起,默认展开(流式时直观)。
 const thinkingOpen = reactive<Record<number, boolean>>({})
@@ -95,6 +108,21 @@ function toggleThinking(index: number) {
 const lastMessageHasContent = computed(() => {
   const last = props.messages[props.messages.length - 1]
   return Boolean(last && (last.content || last.thinking))
+})
+
+const questionItems = computed(() => props.messages
+  .map((message, messageIndex) => ({ message, messageIndex }))
+  .filter(item => item.message.role === 'user')
+  .map((item, order) => ({
+    id: `${item.messageIndex}-${item.message.timestamp ?? order}`,
+    label: compactLabel(item.message.content),
+    messageIndex: item.messageIndex,
+  })))
+
+const questionOrderByMessageIndex = computed(() => {
+  const map = new Map<number, number>()
+  questionItems.value.forEach((item, order) => map.set(item.messageIndex, order))
+  return map
 })
 
 const modeLabels: Record<string, string> = {
@@ -125,9 +153,43 @@ function intentLabel(intent: string) {
   return intentLabels[intent] ?? intent
 }
 
+function compactLabel(value: string) {
+  const text = value.replace(/\s+/g, ' ').trim()
+  return text.length <= 80 ? text : `${text.slice(0, 80)}...`
+}
+
+function syncActiveQuestion() {
+  const container = scrollRef.value
+  if (!container || !questionItems.value.length) {
+    activeQuestionIndex.value = 0
+    return
+  }
+  const marks = Array.from(container.querySelectorAll<HTMLElement>('[data-question-order]'))
+  const currentTop = container.scrollTop + 24
+  let active = 0
+  for (const mark of marks) {
+    if (mark.offsetTop <= currentTop) {
+      active = Number(mark.dataset.questionOrder ?? 0)
+    }
+  }
+  activeQuestionIndex.value = Math.min(active, questionItems.value.length - 1)
+}
+
+async function scrollToQuestion(index: number) {
+  await nextTick()
+  const container = scrollRef.value
+  const target = container?.querySelector<HTMLElement>(`[data-question-order="${index}"]`)
+  if (!container || !target) return
+  container.scrollTo({ top: Math.max(0, target.offsetTop - 10), behavior: 'smooth' })
+  activeQuestionIndex.value = index
+}
+
 // 新消息到达或流式内容增长时,自动滚动到底部。
 function scrollToBottom() {
-  if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+  if (scrollRef.value) {
+    scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+    syncActiveQuestion()
+  }
 }
 
 watch(() => props.messages.length, async () => {
@@ -153,6 +215,13 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.ai-message-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: var(--panel);
 }
 
 .msg {

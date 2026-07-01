@@ -11,32 +11,42 @@
       </button>
     </header>
 
-    <div ref="feedRef" class="dialog-feed">
-      <div v-if="!dialogMessages.length" class="dialog-empty">
-        <MessageSquareText :size="24" />
-        <strong>{{ emptyTitle }}</strong>
-        <span>{{ emptyHint }}</span>
-      </div>
+    <div class="dialog-body">
+      <QuestionCursor
+        v-if="questionItems.length"
+        :items="questionItems"
+        :active-index="activeQuestionIndex"
+        @select="scrollToQuestion"
+      />
 
-      <article
-        v-for="message in dialogMessages"
-        :key="message.id"
-        class="dialog-message"
-        :class="message.role"
-      >
-        <div class="message-meta">
-          <strong>{{ message.role === 'user' ? 'YOU' : 'AGENT' }}</strong>
-          <span v-if="message.title">{{ message.title }}</span>
+      <div ref="feedRef" class="dialog-feed" @scroll="syncActiveQuestion">
+        <div v-if="!dialogMessages.length" class="dialog-empty">
+          <MessageSquareText :size="24" />
+          <strong>{{ emptyTitle }}</strong>
+          <span>{{ emptyHint }}</span>
         </div>
-        <div v-if="message.role === 'assistant'" class="dialog-md" v-html="renderMarkdown(message.content)" />
-        <p v-else>{{ message.content }}</p>
-      </article>
 
-      <div v-if="dialogLoading" class="dialog-state">
-        <LoaderCircle class="spin" :size="16" />
-        <span>{{ loadingLabel }}</span>
+        <article
+          v-for="message in dialogMessages"
+          :key="message.id"
+          class="dialog-message"
+          :class="message.role"
+          :data-question-order="questionOrderByMessageId.get(message.id) ?? undefined"
+        >
+          <div class="message-meta">
+            <strong>{{ message.role === 'user' ? 'YOU' : 'AGENT' }}</strong>
+            <span v-if="message.title">{{ message.title }}</span>
+          </div>
+          <div v-if="message.role === 'assistant'" class="dialog-md" v-html="renderMarkdown(message.content)" />
+          <p v-else>{{ message.content }}</p>
+        </article>
+
+        <div v-if="dialogLoading" class="dialog-state">
+          <LoaderCircle class="spin" :size="16" />
+          <span>{{ loadingLabel }}</span>
+        </div>
+        <div v-if="dialogError" class="dialog-error">{{ dialogError }}</div>
       </div>
-      <div v-if="dialogError" class="dialog-error">{{ dialogError }}</div>
     </div>
 
     <form class="workbench-input" @submit.prevent="submit">
@@ -57,9 +67,10 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { BrainCircuit, LoaderCircle, MessageSquareText, SendHorizontal, X } from '@lucide/vue'
 import { renderMarkdown } from '../../ai/utils/markdown'
+import QuestionCursor from '../../ai/components/QuestionCursor.vue'
 import type { DialogMessage } from '../composables/useDialogMode'
 
 const props = withDefaults(defineProps<{
@@ -90,6 +101,22 @@ const emit = defineEmits<{
 const text = ref('')
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const feedRef = ref<HTMLElement | null>(null)
+const activeQuestionIndex = ref(0)
+
+const questionItems = computed(() => props.dialogMessages
+  .filter(message => message.role === 'user')
+  .map((message, index) => ({
+    id: message.id,
+    label: compactLabel(message.content),
+    messageId: message.id,
+    order: index,
+  })))
+
+const questionOrderByMessageId = computed(() => {
+  const map = new Map<string | number, number>()
+  questionItems.value.forEach(item => map.set(item.messageId, item.order))
+  return map
+})
 
 function submit() {
   const value = text.value.trim()
@@ -100,7 +127,39 @@ function submit() {
 
 async function scrollToBottom() {
   await nextTick()
-  if (feedRef.value) feedRef.value.scrollTop = feedRef.value.scrollHeight
+  if (feedRef.value) {
+    feedRef.value.scrollTop = feedRef.value.scrollHeight
+    syncActiveQuestion()
+  }
+}
+
+function compactLabel(value: string) {
+  const text = value.replace(/\s+/g, ' ').trim()
+  return text.length <= 80 ? text : `${text.slice(0, 80)}...`
+}
+
+function syncActiveQuestion() {
+  const feed = feedRef.value
+  if (!feed || !questionItems.value.length) {
+    activeQuestionIndex.value = 0
+    return
+  }
+  const marks = Array.from(feed.querySelectorAll<HTMLElement>('[data-question-order]'))
+  const currentTop = feed.scrollTop + 24
+  let active = 0
+  for (const mark of marks) {
+    if (mark.offsetTop <= currentTop) active = Number(mark.dataset.questionOrder ?? 0)
+  }
+  activeQuestionIndex.value = Math.min(active, questionItems.value.length - 1)
+}
+
+async function scrollToQuestion(index: number) {
+  await nextTick()
+  const feed = feedRef.value
+  const target = feed?.querySelector<HTMLElement>(`[data-question-order="${index}"]`)
+  if (!feed || !target) return
+  feed.scrollTo({ top: Math.max(0, target.offsetTop - 10), behavior: 'smooth' })
+  activeQuestionIndex.value = index
 }
 
 watch(() => props.dialogMessages, scrollToBottom, { deep: true })
@@ -189,6 +248,12 @@ onMounted(() => {
     linear-gradient(#ffffff, rgba(255, 255, 255, 0.94)),
     radial-gradient(#dddddd 1px, transparent 1px);
   background-size: auto, 20px 20px;
+}
+
+.dialog-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
 .dialog-empty {

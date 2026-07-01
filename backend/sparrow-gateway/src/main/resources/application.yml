@@ -52,7 +52,7 @@ spring:
           predicates:
             - Path=/api/pay/**
         - id: chain
-          uri: lb://sparrow-chain
+          uri: lb://sparrow-industry-chain
           predicates:
             - Path=/api/chains/**
   config:

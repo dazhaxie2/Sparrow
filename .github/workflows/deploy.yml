@@ -37,12 +37,18 @@ jobs:
           git reset --hard origin/main
           git log -1 --oneline
 
+      - name: Architecture guard
+        shell: powershell
+        run: |
+          Set-Location $env:DEPLOY_DIR
+          docker run --rm -v "${PWD}:/repo" -w /repo/frontend node:20-alpine npm run guard:architecture
+
       - name: Build core images
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
           # 默认只构建核心栈;AI 镜像(sparrow-ai)仅在按需部署步骤里构建,省一次重 build、降内存峰值
-          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade sparrow-chain
+          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade sparrow-industry-chain
 
       - name: Deploy core stack (up -d)
         shell: powershell

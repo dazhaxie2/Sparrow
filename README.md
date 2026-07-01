@@ -31,7 +31,7 @@
 
 相比同类知识图谱项目，Sparrow 拥有 🚀 六大优势：
 
-1. **微服务化与拆库治理**：6 个业务服务（gateway / user / graph / chain / ai / trade）+ 5 个独立业务库，服务边界纪律严格：`gateway` 剥离伪造身份、下游只读 `X-User-Id`、服务间走 OpenFeign、支付回调走 Seata AT 全局事务。
+1. **微服务化与拆库治理**：6 个业务服务（gateway / user / graph / industry-chain / ai / trade）+ 5 个独立业务库，服务边界纪律严格：`gateway` 剥离伪造身份、下游只读 `X-User-Id`、服务间走 OpenFeign、支付回调走 Seata AT 全局事务。
 2. **Neo4j 驱动的图读路径**：科技树全量读路径走 Neo4j，启动时从 MySQL 邻接表迁移并建立 `(:TechNode {id})` 唯一约束；社区簇布局预计算，千节点级别流畅交互。
 3. **Multi-Agent 产业链调研**：对标业界多智能体系统的「论坛协作」机制 —— 行业 / 检索 / 洞察多类 Agent 并行反思循环，论坛主持人定期汇总观点整合与分歧，避免单一模型同质化。
 4. **带证据引用的富报告**：调研结论不依赖 LLM 常识 —— 所有关系图节点 / 边、报告关键结论都强制 `[Sx]` 来源引用，并通过 Schema 校验 + 修复重试守住事实边界；前端以 Document IR 渲染交互式报告（目录、SWOT/PEST、图表、来源徽章）。
@@ -53,24 +53,25 @@
 | **sparrow-gateway** | 唯一入口 | 静态前端托管、路由、Redis token 鉴权、`X-User-Id` 注入 |
 | **sparrow-user** | 用户与会员 | 注册登录、会员状态、会员开通流水（审计/对账） |
 | **sparrow-graph** | 科技树 | 节点 / 依赖关系 / 会员内容解锁，Neo4j 读路径 |
-| **sparrow-chain** | 产业链专题 | 预采集的供应链网络图（独立 `sparrow_chain` 库） |
-| **sparrow-ai** | AI 与调研 | AI 问答（Agent/RAG/规则三级）、产业链 Multi-Agent 深度调研、向量索引 |
+| **sparrow-industry-chain** | 产业链调研 | 用户调研卡片、对话收窄、Multi-Agent 调研、互动图谱、富报告 |
+| **sparrow-ai** | 通用 AI | AI 问答（Agent/RAG/规则三级）、科技树 Agent、向量索引 |
 | **sparrow-trade** | 商品与支付 | 商品、订单、沙箱支付回调（Seata AT 全局事务） |
 
 **中间件**：MySQL 8（拆 5 业务库）/ Redis 7 / Nacos 2.4 / Kafka 3.7 / Neo4j 5 / Milvus 2.4（AI 层）/ Seata 2.1 / Sentinel。
 
 ### 服务化边界纪律
 
-- 运行时 6 个业务服务；产业链因数据语义和采集链路独立而单列 `sparrow-chain`。
+- 运行时 6 个业务服务；产业链调研是独立限界上下文，单列 `sparrow-industry-chain`。
 - `gateway` 负责剥离外部伪造的 `X-User-Id`，根据 Redis token 重新注入身份；下游 MVC 服务只读取 `X-User-Id`，不再各自查 Redis token。
-- 服务间调用使用 OpenFeign，例如 `trade -> user` 开通会员、`ai -> graph/user` 查询上下文。
-- 数据默认拆为 `sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai / sparrow_chain` 五个业务库。
+- 服务间调用使用 OpenFeign，例如 `trade -> user` 开通会员、`ai -> graph/user` 查询上下文、`industry-chain -> user` 查询会员配额。
+- 数据默认拆为 `sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai / sparrow_industry_chain` 五个业务库。
 - 支付回调的 `trade` 标记支付 + `user` 开通会员使用 Seata AT 全局事务配置。
 - `trade` 在事务提交后发布 `OrderPaidEvent`；`graph` 可通过内部 `/internal/graph/reindex` 发布 `GraphChangedEvent`；`ai` 监听图谱变更后登记 `kafka_consumed_event` 幂等记录并异步触发 RAG 索引同步。
 - `user` 消费 `OrderPaidEvent` 写 `member_grant_log` 会员开通流水（审计/对账），`order_no` 唯一键天然幂等；会员开通本身仍由 trade 全局事务完成，事件消费不重复开通。
 - `ai`/`user` 消费者使用 `ErrorHandlingDeserializer` + `DefaultErrorHandler`，坏消息只 log+skip，不阻塞 consumer group。
 - `graph` 的科技树读路径全部走 Neo4j，启动时 `Neo4jMigrator` 从 MySQL 邻接表同步并建立 `(:TechNode {id})` 唯一约束及 `era_rank/code` 索引。
 - `ai` 的 `/api/ai/ask` 在 LLM/Agent 可用时走 LangChain4j AiServices（`GraphQueryTool`/`VectorSearchTool`/`UserProgressTool`），并经 Sentinel `@SentinelResource` 限流（默认 5 QPS，触发返回 429）。
+- `industry-chain` 统一暴露 `/api/chains/cards/**`；旧静态产业链 `/api/chains/{slug}/graph` 与旧 AI 子路径 `/api/ai/chain-research/**` 不再作为正式入口。
 - `sparrow` 保留为爬虫语料 staging schema，供 AI 读取 `rag_document`。
 
 ### 产业链 Multi-Agent 调研流程
@@ -99,9 +100,9 @@ Sparrow/
 │   ├── sparrow-gateway/                   # 唯一入口:静态前端、路由、Redis token 鉴权
 │   ├── sparrow-user/                      # 用户、登录、会员状态、开通流水
 │   ├── sparrow-graph/                     # 科技树节点、依赖关系、会员内容解锁(Neo4j 读路径)
-│   ├── sparrow-chain/                     # 产业链专题节点与供应关系(独立 sparrow_chain 库)
-│   ├── sparrow-ai/                        # AI 问答、RAG、向量索引、产业链 Multi-Agent 调研
-│   │   └── .../application/research/      # 调研编排:Orchestrator / Runner / Service / IR 模型
+│   ├── sparrow-industry-chain/            # 产业链调研限界上下文(独立 sparrow_industry_chain 库)
+│   │   └── .../industrychain/             # card / run / workflow / source / forum / graph / report
+│   ├── sparrow-ai/                        # 通用 AI 问答、RAG、科技树 Agent、向量索引
 │   ├── sparrow-trade/                     # 商品、订单、支付、沙箱回调(Seata AT 全局事务)
 │   ├── docker/                            # 中间件配置:mysql my.cnf / redis.conf / 初始化脚本
 │   ├── scripts/                           # 运维与验证脚本
@@ -115,14 +116,14 @@ Sparrow/
 ├── frontend/                              # 前端:Vue 3.5 + Vite + Pinia
 │   └── src/modules/
 │       ├── graph/                         # 科技树图谱(Sigma + Graphology,沉浸全屏/社区簇/对比)
-│       ├── chains/                        # 产业链专题 + Multi-Agent 深度调研工作台
-│       │   ├── views/                     # ChainListView / ChainDetailView / ChainResearchWorkbenchView
+│       ├── industry-chain/                # 产业链调研首页 + 工作台
+│       │   ├── views/                     # IndustryChainHomeView / IndustryChainWorkbenchView
 │       │   └── components/                # ResearchGraph / RichReport / AgentForum
 │       ├── ai/                            # AI 对话(右侧抽屉、流式问答、RAG、Markdown 渲染)
 │       ├── trade/                         # 会员支付(沙箱收银台)
 │       └── user/                          # 登录 / 注册
 ├── tools/
-│   ├── sparrow-spider/                    # 一次性爬虫管线:维基词条抓取 → 抽取 → 导入 graph/RAG/chain
+│   ├── sparrow-spider/                    # 一次性爬虫管线:维基词条抓取 → 抽取 → 导入 graph/RAG
 │   └── sparrow-layout/                    # 一次性 LOD 布局预计算:tech_node/edge → node_layout
 ├── docs/                                  # 设计文档:作战手册、架构演进、代码规范、各阶段 PRD
 ├── chain-research-prd/                    # 产业链深度调研模块 PRD(HTML)
@@ -133,13 +134,13 @@ Sparrow/
 
 ## 🚀 快速开始（Docker）
 
-默认启动完整链路（gateway / user / graph / ai / trade + MySQL / Redis / Nacos / Kafka / Neo4j）：
+默认启动完整链路（gateway / user / graph / industry-chain / trade + MySQL / Redis / Nacos / Kafka / Neo4j）：
 
 ```bash
 docker compose up -d --build
 ```
 
-> **注：AI 层较重**（含 Milvus / Sentinel），默认不随 `up -d` 启动。需要 AI 对话与产业链调研时加 `--profile ai`：
+> **注：通用 AI 层较重**（含 Milvus / Sentinel），默认不随 `up -d` 启动。需要 `/api/ai/ask` 的完整 RAG / Agent 能力时加 `--profile ai`：
 > ```bash
 > docker compose --profile ai up -d --build
 > ```
@@ -187,7 +188,7 @@ AI_CHAT_MODEL=glm-4.5-air
 AI_EMBEDDING_MODEL=embedding-3
 ```
 
-未配置时，AI 对话走规则降级，产业链深度调研按钮禁用 —— 核心图谱浏览与支付链路不受影响。
+未配置时，AI 对话走规则降级，产业链调研无法启动联网研究 —— 核心图谱浏览、调研卡片管理与支付链路不受影响。
 
 ## ⚙️ 配置说明
 
@@ -195,7 +196,7 @@ AI_EMBEDDING_MODEL=embedding-3
 
 | 中间件 | 默认端口 | 说明 |
 |:---|:---|:---|
-| MySQL | 3307→3306 | 拆 5 业务库：`sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai / sparrow_chain` |
+| MySQL | 3307→3306 | 拆 5 业务库：`sparrow_user / sparrow_graph / sparrow_trade / sparrow_ai / sparrow_industry_chain` |
 | Redis | 6379 | token 鉴权、配额计数、图谱读缓存 |
 | Nacos | 8848 / 9848 | 服务注册与配置（2.x gRPC 走 9848） |
 | Kafka | 9094→9092 | 事件总线：`OrderPaidEvent` / `GraphChangedEvent` |
@@ -216,8 +217,7 @@ AI_EMBEDDING_MODEL=embedding-3
 | 功能 | 入口 | 说明 |
 |---|---|---|
 | 科技树图谱 | 首页 | 按时代分层布局，点击节点看详情，自动高亮完整前置技术链；支持社区簇模式与对比 |
-| 产业链专题 | `/chains` | 英伟达、苹果、特斯拉、SpaceX 四条独立供应链网络图（爬虫预采集） |
-| **产业链深度调研** | `/chains`（登录后） | Multi-Agent 论坛协作调研：对话收窄 → 多 Agent 并行反思 → 主持人汇总 → 带引用的互动图谱 + 富报告 |
+| **产业链调研工作台** | `/chains`（登录后） | Multi-Agent 论坛协作调研：对话收窄 → 多 Agent 并行反思 → 主持人汇总 → 带引用的互动图谱 + 富报告 |
 | AI 向导 | 右下角抽屉 | 登录后提问；Agent/RAG/规则三级降级；免费用户每日 3 次 |
 | 会员支付 | 右上角 | 下单 → 沙箱收银台 → 模拟支付回调 → 会员开通（幂等 + Seata 全局事务） |
 
@@ -230,14 +230,14 @@ GET  /api/user/me              当前用户(需 Bearer token)
 GET  /api/graph/tree           全树(Redis 缓存)
 GET  /api/graph/node/{id}      节点详情(含前置/解锁;会员内容鉴权)
 GET  /api/graph/node/{id}/prerequisites  完整前置链(反向 BFS)
-GET  /api/chains               四条产业链概览
-GET  /api/chains/{slug}        单条产业链元数据
-GET  /api/chains/{slug}/graph  供应链节点与有向边
-GET  /api/ai/chain-research/cards          我的调研卡片列表(登录)
-POST /api/ai/chain-research/cards          新建调研卡片 {title,brief,sources?}
-GET  /api/ai/chain-research/cards/{id}     卡片详情(图谱/报告 IR/来源/论坛)
-POST /api/ai/chain-research/cards/{id}/runs          启动 Multi-Agent 调研
-GET  /api/ai/chain-research/cards/{id}/events        SSE 实时进度与论坛流
+GET  /api/chains/cards          我的调研卡片列表(登录)
+POST /api/chains/cards          新建调研卡片 {title,brief,sources?}
+GET  /api/chains/cards/{id}     卡片详情(图谱/报告 IR/来源/论坛)
+PUT  /api/chains/cards/{id}     更新调研卡片
+DELETE /api/chains/cards/{id}   删除调研卡片
+POST /api/chains/cards/{id}/messages       追加对话消息
+POST /api/chains/cards/{id}/runs           启动 Multi-Agent 调研
+GET  /api/chains/cards/{id}/events         SSE 实时进度与论坛流
 POST /api/trade/order          下单 {productCode} -> {orderNo,payUrl}
 POST /api/pay/mock/notify      模拟支付回调 {orderNo,payToken}(HMAC 校验 + 幂等)
 POST /api/ai/ask               AI 问答 {question}(需登录)
@@ -251,6 +251,11 @@ POST /api/ai/ask               AI 问答 {question}(需登录)
 # Java 17 构建/测试
 powershell -ExecutionPolicy Bypass -File backend/scripts/mvn17.ps1 test
 docker build -f backend/Dockerfile --target gateway-runtime -t sparrow-gateway:phase2-check .
+
+# 架构边界守卫(防止旧产业链模块/入口被重新接回)
+cd frontend
+npm run guard:architecture
+cd ..
 
 # 端到端冒烟(注册登录、科技树浏览、AI、会员下单、Mock 支付回调校验、重复回调幂等、会员解锁和订单列表)
 powershell -File backend/scripts/smoke.ps1
