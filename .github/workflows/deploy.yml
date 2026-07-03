@@ -37,6 +37,41 @@ jobs:
           git reset --hard origin/main
           git log -1 --oneline
 
+      # 路径检测:本次 push 是否触及 AI 相关代码。改了才在后续步骤重建 sparrow-ai,
+      # 没改就跳过 —— 省 build 时间、避免 16G 机器重复构建大镜像压垮内存。
+      # workflow_dispatch(手动触发)无 before/after,默认按"有改动"处理,交给原 Deploy AI tier 开关控制。
+      - name: Detect AI changes
+        id: detect
+        shell: powershell
+        run: |
+          $before = '${{ github.event.before }}'
+          $after  = '${{ github.event.after }}'
+          $aiChanged = $false
+          # before 为空或全零(首次推送/force-push/手动触发)→ 无法 diff,默认按有改动处理(宁可多重建也不漏)
+          if ([string]::IsNullOrWhiteSpace($before) -or $before -match '^0+$') {
+            $aiChanged = $true
+            Write-Host "无法获取 before 基线(手动触发/首次),默认需要重建 AI"
+          } else {
+            $changed = git diff --name-only $before $after 2>$null
+            if ($LASTEXITCODE -ne 0) {
+              $aiChanged = $true
+              Write-Host "git diff 失败,默认需要重建 AI"
+            } else {
+              # AI 相关路径:服务本体、被依赖的 common 模块、父 POM、compose/env 配置
+              $aiPaths = @('backend/sparrow-ai/', 'backend/sparrow-common/', 'backend/pom.xml', '.env.example', 'docker-compose.yml')
+              foreach ($p in $changed) {
+                foreach ($ap in $aiPaths) {
+                  if ($p -like "$ap*") { $aiChanged = $true; break }
+                }
+                if ($aiChanged) { break }
+              }
+              Write-Host "本次变更文件:"
+              $changed | ForEach-Object { Write-Host "  $_" }
+            }
+          }
+          Write-Host "AI 相关改动: $aiChanged"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "ai_changed=$aiChanged"
+
       - name: Architecture guard
         shell: powershell
         run: |
@@ -57,6 +92,20 @@ jobs:
           # AI 层(ai/milvus/etcd/minio/sentinel)已移入 compose profile "ai",spider 在 profile "spider";
           # 不带 --profile 的 up -d 只拉起核心栈,避免在 16G 机器上过量提交内存把 Docker 引擎压崩。
           docker compose up -d
+
+      # 条件重建 AI 应用层:仅当检测到 AI 相关路径改动时才执行。
+      # --no-deps 关键:只重建 sparrow-ai 自身,不动 milvus/etcd/minio 等重依赖(它们 rarely 变,重启慢且吃内存)。
+      # sparrow-ai 在 profiles:["ai"] 里,必须带 --profile ai 才能 build/up。
+      - name: Rebuild sparrow-ai if changed
+        if: steps.detect.outputs.ai_changed == 'true'
+        shell: powershell
+        run: |
+          Set-Location $env:DEPLOY_DIR
+          Write-Host "检测到 AI 相关改动,重建 sparrow-ai..."
+          docker compose --profile ai build sparrow-ai
+          # --no-deps 不重启依赖;--force-recreate 强制重建容器(compose 看镜像没变会跳过)
+          docker compose --profile ai up -d --no-deps --force-recreate sparrow-ai
+          Write-Host "sparrow-ai 已重建"
 
       - name: Apply DB migrations (idempotent)
         shell: powershell
