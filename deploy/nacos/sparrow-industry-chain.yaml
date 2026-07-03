@@ -1,0 +1,20 @@
+# sparrow-industry-chain.yaml —— 产业链调研服务扩展配置
+sparrow:
+  events:
+    enabled: ${KAFKA_ENABLED:false}
+  industry-chain:
+    base-url: ${AI_BASE_URL:}
+    api-key: ${AI_API_KEY:}
+    chat-model: ${AI_CHAT_MODEL:glm-4.5-air}
+    research-free-per-day: ${CHAIN_RESEARCH_FREE_PER_DAY:1}
+    research-member-per-day: ${CHAIN_RESEARCH_MEMBER_PER_DAY:10}
+    search-url: ${CHAIN_RESEARCH_SEARCH_URL:https://m.sogou.com/web/searchList.jsp}
+
+spring:
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            connect-timeout: 3000
+            read-timeout: 30000
