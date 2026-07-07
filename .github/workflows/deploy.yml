@@ -52,10 +52,15 @@ jobs:
             $aiChanged = $true
             Write-Host "无法获取 before 基线(手动触发/首次),默认需要重建 AI"
           } else {
-            $changed = git diff --name-only $before $after 2>$null
-            if ($LASTEXITCODE -ne 0) {
+            # ⚠ PowerShell 5.1(runner 默认)会把原生命令(git)的 stderr 当致命异常抛出,
+            # 即使 2>$null 也不可靠(before commit 在本地不存在时 git 报错到 stderr → 脚本直接终止,
+            # $LASTEXITCODE 兜底根本没机会跑)。用 cmd /c 包一层:stderr 合并到 stdout,
+            # 让 PS 看到的只是普通文本输出,再用 $LASTEXITCODE 判断成败。
+            $changed = $(cmd /c "git diff --name-only $before $after 2>&1")
+            $rc = $LASTEXITCODE
+            if ($rc -ne 0) {
               $aiChanged = $true
-              Write-Host "git diff 失败,默认需要重建 AI"
+              Write-Host "git diff 失败(rc=$rc,常见原因:before 基线不在本地),默认需要重建 AI"
             } else {
               # AI 相关路径:服务本体、被依赖的 common 模块、父 POM、compose/env 配置
               $aiPaths = @('backend/sparrow-ai/', 'backend/sparrow-common/', 'backend/pom.xml', '.env.example', 'docker-compose.yml')
