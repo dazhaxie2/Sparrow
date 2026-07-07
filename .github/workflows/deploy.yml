@@ -82,29 +82,29 @@ jobs:
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          # 默认只构建核心栈;AI 镜像(sparrow-ai)仅在按需部署步骤里构建,省一次重 build、降内存峰值
-          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade sparrow-industry-chain
+          # AI 层是核心服务,已随核心栈默认构建(不再用 --profile ai 单独触发)
+          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade sparrow-industry-chain sparrow-ai
 
       - name: Deploy core stack (up -d)
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          # AI 层(ai/milvus/etcd/minio/sentinel)已移入 compose profile "ai",spider 在 profile "spider";
-          # 不带 --profile 的 up -d 只拉起核心栈,避免在 16G 机器上过量提交内存把 Docker 引擎压崩。
+          # AI 层(sparrow-ai/milvus/etcd/minio/sentinel)已从 profile 移出,随 up -d 默认全起;
+          # spider/layout 仍在独立 profile,不随核心栈启动。
           docker compose up -d
 
-      # 条件重建 AI 应用层:仅当检测到 AI 相关路径改动时才执行。
+      # 条件重建 AI 应用层:仅当检测到 AI 相关路径改动时才重建 sparrow-ai 单容器,
+      # 避免每次部署都全量 build。AI 层已在核心栈 up -d 里启动,这里只做"代码变了就刷新"。
       # --no-deps 关键:只重建 sparrow-ai 自身,不动 milvus/etcd/minio 等重依赖(它们 rarely 变,重启慢且吃内存)。
-      # sparrow-ai 在 profiles:["ai"] 里,必须带 --profile ai 才能 build/up。
       - name: Rebuild sparrow-ai if changed
         if: steps.detect.outputs.ai_changed == 'true'
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
           Write-Host "检测到 AI 相关改动,重建 sparrow-ai..."
-          docker compose --profile ai build sparrow-ai
+          docker compose build sparrow-ai
           # --no-deps 不重启依赖;--force-recreate 强制重建容器(compose 看镜像没变会跳过)
-          docker compose --profile ai up -d --no-deps --force-recreate sparrow-ai
+          docker compose up -d --no-deps --force-recreate sparrow-ai
           Write-Host "sparrow-ai 已重建"
 
       - name: Apply DB migrations (idempotent)
@@ -144,21 +144,24 @@ jobs:
         shell: powershell
         run: docker image prune -f
 
-      - name: Health check (gateway :8080)
+      - name: Health check (gateway :8080 + AI 注册 Nacos)
         shell: powershell
         run: |
+          # 1) 等 gateway 进程在 8080 监听(4xx/5xx 也算进程存活)
           $deadline = (Get-Date).AddMinutes(8)
+          $gatewayUp = $false
           while ((Get-Date) -lt $deadline) {
             try {
               $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://localhost:8080/
               Write-Host "Gateway up: HTTP $($r.StatusCode)"
-              exit 0
+              $gatewayUp = $true
+              break
             } catch [System.Net.WebException] {
-              # 4xx/5xx 也说明 gateway 进程已在监听 8080,视为存活
               if ($null -ne $_.Exception.Response) {
                 $code = [int]$_.Exception.Response.StatusCode
                 Write-Host "Gateway responded HTTP $code (treated as up)"
-                exit 0
+                $gatewayUp = $true
+                break
               }
               Write-Host "waiting for gateway... ($($_.Exception.Message))"
             } catch {
@@ -166,5 +169,24 @@ jobs:
             }
             Start-Sleep -Seconds 10
           }
-          Write-Host "Health check timed out after 8 min"
+          if (-not $gatewayUp) { Write-Host "Gateway health check timed out after 8 min"; exit 1 }
+
+          # 2) 等 sparrow-ai 注册到 Nacos(AI 是核心服务,没注册 = 部署未完成)
+          $aiDeadline = (Get-Date).AddMinutes(3)
+          while ((Get-Date) -lt $aiDeadline) {
+            try {
+              $resp = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=sparrow-ai"
+              $json = $resp.Content | ConvertFrom-Json
+              $healthy = $json.hosts | Where-Object { $_.healthy -eq $true }
+              if ($healthy) {
+                Write-Host "sparrow-ai registered & healthy in Nacos"
+                exit 0
+              }
+              Write-Host "sparrow-ai not yet healthy in Nacos, retrying..."
+            } catch {
+              Write-Host "Nacos query failed: $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 10
+          }
+          Write-Host "sparrow-ai did not register healthy in Nacos within 3 min after gateway up"
           exit 1

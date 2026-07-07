@@ -43,6 +43,9 @@ build/
 # 本地机密(LLM key 等)
 /.env
 
+# 本地降配 override(完整栈本地联调用，不提交)
+docker-compose.local.yml
+
 # 压测运行时产物:批量登录拿到的 token,不应入库
 backend/tokens.json
 

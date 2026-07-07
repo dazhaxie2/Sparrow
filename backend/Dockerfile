@@ -42,41 +42,41 @@ COPY frontend/ ./
 RUN npm ci && npm run build
 
 # ===== 6 个运行 stage =====
+# 堆上限统一压低,适配 16G 机器全栈同机部署(RSS≈堆×1.4,需留足元空间+off-heap 给容器 limit)。
 FROM eclipse-temurin:17-jre AS gateway-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-gateway/target/sparrow-gateway.jar app.jar
 COPY --from=frontend-build /build/dist /app/static
 EXPOSE 8080
-ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms256m","-Xmx512m","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS user-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-user/target/sparrow-user.jar app.jar
 EXPOSE 8081
-ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms256m","-Xmx512m","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS graph-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-graph/target/sparrow-graph.jar app.jar
 EXPOSE 8082
-# Tomcat max=50 线程 + -Xmx1024m:50 并发×500KB≈25MB 可控。
-# MALLOC_ARENA_MAX=2 + 4G 容器,JDK 镜像 off-heap ~500MB,总 RSS ~2G。
-ENTRYPOINT ["java","-Xms512m","-Xmx1024m","-jar","app.jar"]
+# Tomcat max=50 线程 + -Xmx768m:50 并发×500KB≈25MB 可控。容器限 1G,留 off-heap 余量。
+ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS ai-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-ai/target/sparrow-ai.jar app.jar
 EXPOSE 8083
-ENTRYPOINT ["java","-Xms512m","-Xmx1g","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS trade-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-trade/target/sparrow-trade.jar app.jar
 EXPOSE 8084
-ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms256m","-Xmx512m","-jar","app.jar"]
 
 FROM eclipse-temurin:17-jre AS industry-chain-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-industry-chain/target/sparrow-industry-chain.jar app.jar
 EXPOSE 8085
-ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms256m","-Xmx512m","-jar","app.jar"]

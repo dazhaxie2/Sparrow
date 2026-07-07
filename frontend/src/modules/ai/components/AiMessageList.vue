@@ -30,9 +30,15 @@
             <span>思考过程</span>
             <ChevronDown :size="13" class="chev" :class="{ flipped: thinkingOpen[i] !== false }" />
           </button>
-          <div v-if="thinkingOpen[i] !== false" class="thinking-content" v-html="renderMessage(msg.thinking)" />
+          <div v-if="thinkingOpen[i] !== false" class="thinking-content">
+            <!-- 流式期间用纯文本插值(每个 delta 都会重渲染,纯文本是 O(n);完成后才跑一次完整 markdown 解析)。 -->
+            <span v-if="msg.streaming">{{ msg.thinking }}</span>
+            <span v-else v-html="renderMessage(msg.thinking)" />
+          </div>
         </div>
-        <div class="msg-content" v-html="renderMessage(msg.content)" />
+        <!-- 同上:流式期间纯文本(避免每个 token 全量 markdown 重算 + v-html DOM 重建,O(n²)→O(n)),完成后切 markdown。 -->
+        <div v-if="msg.streaming" class="msg-content msg-content-streaming">{{ msg.content }}</div>
+        <div v-else class="msg-content" v-html="renderMessage(msg.content)" />
         <span v-if="msg.streaming" class="cursor" aria-hidden="true" />
         <div v-if="msg.role !== 'user' && msg.steps?.length" class="agent-steps">
           <span v-for="step in msg.steps" :key="step.key" :class="`step-${step.status}`">
@@ -192,6 +198,25 @@ function scrollToBottom() {
   }
 }
 
+// 节流滚动:流式 delta 高频到达时,每 120ms 最多滚一次,避免每个 token 都
+// scrollToBottom → syncActiveQuestion → querySelectorAll 强制布局(layout thrash)。
+let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
+let scrollThrottlePending = false
+function throttledScrollToBottom() {
+  if (scrollThrottleTimer) {
+    scrollThrottlePending = true
+    return
+  }
+  scrollThrottleTimer = setTimeout(() => {
+    scrollThrottleTimer = null
+    nextTick(() => scrollToBottom())
+    if (scrollThrottlePending) {
+      scrollThrottlePending = false
+      throttledScrollToBottom()
+    }
+  }, 120)
+}
+
 watch(() => props.messages.length, async () => {
   await nextTick()
   scrollToBottom()
@@ -199,9 +224,8 @@ watch(() => props.messages.length, async () => {
 
 watch(
   () => props.messages[props.messages.length - 1]?.content,
-  async () => {
-    await nextTick()
-    scrollToBottom()
+  () => {
+    throttledScrollToBottom()
   },
 )
 </script>
@@ -278,6 +302,12 @@ watch(
 .mode-pill {
   border-color: rgba(255, 87, 34, 0.38);
   color: var(--accent);
+}
+
+/* 流式渲染期间用纯文本插值:保留换行与空白,视觉上与 markdown 渲染后基本一致,
+   避免每个 token 都全量 markdown 解析 + v-html DOM 重建。完成后由 .msg-content 接管。 */
+.msg-content-streaming {
+  white-space: pre-wrap;
 }
 
 .msg-content :deep(h3),

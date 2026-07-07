@@ -134,20 +134,31 @@ Sparrow/
 
 ## 🚀 快速开始（Docker）
 
-默认启动完整链路（gateway / user / graph / industry-chain / trade + MySQL / Redis / Nacos / Kafka / Neo4j）：
+AI 层（含 Milvus / Sentinel / sparrow-ai）是项目核心，默认随核心栈一起启动：
 
 ```bash
 docker compose up -d --build
 ```
 
-> **注：通用 AI 层较重**（含 Milvus / Sentinel），默认不随 `up -d` 启动。需要 `/api/ai/ask` 的完整 RAG / Agent 能力时加 `--profile ai`：
+> **16G 及以下机器**请先用 `docker-compose.local.yml`（已 gitignore，仅本地用）叠加降配，否则全栈可能 OOM：
 > ```bash
-> docker compose --profile ai up -d --build
+> docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 > ```
 
-如果本机已经有 Phase 1 的 `mysql_data` 卷，初始化脚本不会重新执行。需要全新验证拆库结构时，先确认可以清空本地数据，再执行 `docker compose down -v`。
+**首次启动 / 从旧版升级**：MySQL 的 init SQL 只在首次建卷执行，存量卷需手动跑迁移脚本补齐新库（否则 `sparrow-industry-chain` 会因 `sparrow_industry_chain` 库缺失而崩溃）：
+```bash
+MYSQL_CID=$(docker compose ps -q mysql)
+for sql in backend/scripts/migrate-*.sql; do
+  docker cp "$sql" "${MYSQL_CID}:/tmp/migrate.sql"
+  docker exec "$MYSQL_CID" sh -c "mysql -uroot -proot123 --default-character-set=utf8mb4 < /tmp/migrate.sql"
+done
+```
+
+需要全新验证拆库结构时，先确认可以清空本地数据，再执行 `docker compose down -v`。
 
 全部就绪后访问 **http://localhost:8080**。线上预览地址：**https://dazhaxie75.top/**。
+
+> 📖 **完整的本地部署流程（WSL2 内存配置、国内镜像加速器、降配方案、故障排查表）见 [docs/本地部署手册.md](docs/本地部署手册.md)。**
 
 ## 🔧 源码启动指南
 

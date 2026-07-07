@@ -52,6 +52,34 @@ export function useChat() {
     let seenDelta = false
     let seenThinking = false
 
+    // delta/thinking 批处理:同一帧(浏览器刷新率 ~60fps)内的多个 token 合并为一次 reactive 更新,
+    // 避免 langchain4j 高频吐 token 时每个 token 都触发一次全量 markdown 重渲染 + DOM 重建(O(n²))。
+    let pendingDelta = ''
+    let pendingThinking = ''
+    let flushScheduled = false
+    const flush = () => {
+      flushScheduled = false
+      if (pendingDelta) {
+        placeholder.content += pendingDelta
+        pendingDelta = ''
+      }
+      if (pendingThinking) {
+        placeholder.thinking = (placeholder.thinking ?? '') + pendingThinking
+        pendingThinking = ''
+      }
+    }
+    const scheduleFlush = () => {
+      if (!flushScheduled) {
+        flushScheduled = true
+        // requestAnimationFrame 在隐藏标签页会被节流到 ~1fps;此时回退到 setTimeout 保底刷新。
+        if (typeof requestAnimationFrame !== 'undefined' && !document.hidden) {
+          requestAnimationFrame(flush)
+        } else {
+          setTimeout(flush, 100)
+        }
+      }
+    }
+
     return new Promise<{ quotaMsg?: string }>(resolve => {
       const abort = streamAsk(trimmed, {
         onMeta: (meta: StreamMeta) => {
@@ -70,16 +98,20 @@ export function useChat() {
             seenThinking = true
             phase.value = '正在思考'
           }
-          placeholder.thinking = (placeholder.thinking ?? '') + delta
+          pendingThinking += delta
+          scheduleFlush()
         },
         onDelta: delta => {
           if (!seenDelta) {
             seenDelta = true
             phase.value = '正在生成回答'
           }
-          placeholder.content += delta
+          pendingDelta += delta
+          scheduleFlush()
         },
         onDone: (_mode, _format) => {
+          // 收尾前把缓冲区残余 token 全部刷出,保证最终内容完整。
+          flush()
           placeholder.streaming = false
           // 空回答兜底,避免渲染空白气泡。
           if (!placeholder.content.trim()) {
@@ -90,6 +122,7 @@ export function useChat() {
           resolve({ quotaMsg: quotaMsg.value })
         },
         onError: message => {
+          flush()
           placeholder.streaming = false
           placeholder.mode = 'error'
           placeholder.format = 'markdown:v1'

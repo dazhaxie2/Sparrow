@@ -762,7 +762,12 @@ function handleResize() {
   graphChart.resize()
 }
 
+// window focus 时刷新登录态/会员状态,但限制 2 秒内不重复(切窗/DevTools 抖动会产生连串 focus 事件)。
+let lastProfileRefreshAt = 0
 function handleFocus() {
+  const now = Date.now()
+  if (now - lastProfileRefreshAt < 2000) return
+  lastProfileRefreshAt = now
   user.loadProfile()
 }
 
