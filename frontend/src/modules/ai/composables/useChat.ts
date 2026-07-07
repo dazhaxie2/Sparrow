@@ -36,6 +36,9 @@ export function useChat() {
     messages.value.push({ role: 'user', content: trimmed, timestamp: Date.now() })
 
     // 先占位一条空的 assistant 消息,流式中就地增量更新它的 content / thinking。
+    // ⚠ 必须用 push 后从响应式数组取回的代理对象,不能保留裸对象引用:
+    // Vue3 对数组的包装只代理"被访问到的元素",本地裸 placeholder 指向原始对象,
+    // 直接 mutate 它不会触发响应式更新(曾导致流式 token 不刷新)。
     const placeholder: ChatMessage = {
       role: 'assistant',
       content: '',
@@ -44,6 +47,8 @@ export function useChat() {
       timestamp: Date.now(),
     }
     messages.value.push(placeholder)
+    // 拿到 Vue 代理后的引用,后续所有就地更新都用这个。
+    const reactivePlaceholder = messages.value[messages.value.length - 1]
 
     loading.value = true
     phase.value = '正在检索图谱上下文'
@@ -60,11 +65,11 @@ export function useChat() {
     const flush = () => {
       flushScheduled = false
       if (pendingDelta) {
-        placeholder.content += pendingDelta
+        reactivePlaceholder.content += pendingDelta
         pendingDelta = ''
       }
       if (pendingThinking) {
-        placeholder.thinking = (placeholder.thinking ?? '') + pendingThinking
+        reactivePlaceholder.thinking = (reactivePlaceholder.thinking ?? '') + pendingThinking
         pendingThinking = ''
       }
     }
@@ -84,11 +89,11 @@ export function useChat() {
       const abort = streamAsk(trimmed, {
         onMeta: (meta: StreamMeta) => {
           // 来源/配额/步骤先到,就地回填占位消息。
-          placeholder.sources = meta.sources
-          placeholder.steps = meta.steps
-          placeholder.intent = meta.intent
-          placeholder.mode = meta.mode
-          placeholder.format = 'markdown:v1'
+          reactivePlaceholder.sources = meta.sources
+          reactivePlaceholder.steps = meta.steps
+          reactivePlaceholder.intent = meta.intent
+          reactivePlaceholder.mode = meta.mode
+          reactivePlaceholder.format = 'markdown:v1'
           if (meta.remainingQuota >= 0) {
             quotaMsg.value = `今日剩余免费次数: ${meta.remainingQuota}（会员不限次）`
           }
@@ -112,10 +117,10 @@ export function useChat() {
         onDone: (_mode, _format) => {
           // 收尾前把缓冲区残余 token 全部刷出,保证最终内容完整。
           flush()
-          placeholder.streaming = false
+          reactivePlaceholder.streaming = false
           // 空回答兜底,避免渲染空白气泡。
-          if (!placeholder.content.trim()) {
-            placeholder.content = '资料不足以生成可靠回答。'
+          if (!reactivePlaceholder.content.trim()) {
+            reactivePlaceholder.content = '资料不足以生成可靠回答。'
           }
           loading.value = false
           phase.value = ''
@@ -123,17 +128,17 @@ export function useChat() {
         },
         onError: message => {
           flush()
-          placeholder.streaming = false
-          placeholder.mode = 'error'
-          placeholder.format = 'markdown:v1'
-          placeholder.content = `### 结论\n${message}\n\n### 下一步\n- 请稍后重试，或换一个更具体的问题。`
+          reactivePlaceholder.streaming = false
+          reactivePlaceholder.mode = 'error'
+          reactivePlaceholder.format = 'markdown:v1'
+          reactivePlaceholder.content = `### 结论\n${message}\n\n### 下一步\n- 请稍后重试，或换一个更具体的问题。`
           loading.value = false
           phase.value = ''
           resolve({})
         },
       })
       // 把 abort 挂到占位消息上,便于组件卸载/切换时中断(可选,此处仅持有不强制)。
-      ;(placeholder as ChatMessage & { _abort?: () => void })._abort = abort
+      ;(reactivePlaceholder as ChatMessage & { _abort?: () => void })._abort = abort
     })
   }
 
