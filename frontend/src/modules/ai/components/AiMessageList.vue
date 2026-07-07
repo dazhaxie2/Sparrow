@@ -40,7 +40,7 @@
         <div v-if="msg.streaming" class="msg-content msg-content-streaming">{{ msg.content }}</div>
         <div v-else class="msg-content" v-html="renderMessage(msg.content)" />
         <span v-if="msg.streaming" class="cursor" aria-hidden="true" />
-        <div v-if="msg.role !== 'user' && msg.steps?.length" class="agent-steps">
+        <div v-if="msg.role !== 'user' && msg.thinking && msg.steps?.length" class="agent-steps">
           <span v-for="step in msg.steps" :key="step.key" :class="`step-${step.status}`">
             {{ step.label }}
           </span>

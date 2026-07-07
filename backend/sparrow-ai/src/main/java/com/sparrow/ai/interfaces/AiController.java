@@ -5,6 +5,10 @@ import com.alibaba.csp.sentinel.slots.block.BlockException;
 import com.sparrow.ai.application.AiService;
 import com.sparrow.ai.application.AiService.AskResult;
 import com.sparrow.ai.application.AiService.StreamSink;
+import com.sparrow.ai.application.chat.ChatHistoryService;
+import com.sparrow.ai.application.chat.ChatHistoryViews.CreateSessionResponse;
+import com.sparrow.ai.application.chat.ChatHistoryViews.MessageItem;
+import com.sparrow.ai.application.chat.ChatHistoryViews.SessionItem;
 import com.sparrow.ai.infrastructure.config.SentinelRuleConfig;
 import com.sparrow.ai.infrastructure.streaming.SseStreamSink;
 import com.sparrow.common.api.ApiResponse;
@@ -13,11 +17,16 @@ import com.sparrow.common.security.UserContext;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.List;
 
 /**
  * AI 问答接口控制器。
@@ -31,26 +40,28 @@ public class AiController {
     /**
      * 问答请求记录。
      *
-     * @param question 用户问题,非空且不超过 500 字符
+     * @param question  用户问题,非空且不超过 500 字符
+     * @param sessionId 会话 id,可选;非空时本次问答落库到该会话历史
      */
-    public record AskRequest(@NotBlank @Size(max = 500) String question) {
+    public record AskRequest(@NotBlank @Size(max = 500) String question, Long sessionId) {
+    }
+
+    /** 创建会话请求:title 由首问截断得来。 */
+    public record CreateSessionRequest(@NotBlank @Size(max = 500) String question) {
     }
 
     private final AiService aiService;
+    private final ChatHistoryService chatHistoryService;
 
-    /**
-     * 构造函数。
-     *
-     * @param aiService AI 服务
-     */
-    public AiController(AiService aiService) {
+    public AiController(AiService aiService, ChatHistoryService chatHistoryService) {
         this.aiService = aiService;
+        this.chatHistoryService = chatHistoryService;
     }
 
     @PostMapping("/ask")
     @SentinelResource(value = SentinelRuleConfig.RESOURCE_AI_ASK, blockHandler = "askBlocked")
     public ApiResponse<AskResult> ask(@RequestBody @Validated AskRequest req) {
-        return ApiResponse.ok(aiService.ask(UserContext.require(), req.question()));
+        return ApiResponse.ok(aiService.ask(UserContext.require(), req.question(), req.sessionId()));
     }
 
     /**
@@ -67,9 +78,40 @@ public class AiController {
         SseEmitter emitter = new SseEmitter(120_000L);
         StreamSink sink = new SseStreamSink(emitter);
         // 流式生成是异步的,不能阻塞请求线程;交由 AiService 内部线程推进。
-        aiService.askStream(UserContext.require(), req.question(), sink);
+        // sessionId 非空时, AiService 会在 done 处把本次问答落库到该会话。
+        aiService.askStream(UserContext.require(), req.question(), req.sessionId(), sink);
         return emitter;
     }
+
+    // ==================== 历史会话管理 ====================
+
+    /** 列出当前用户的所有会话(最近活跃在前)。 */
+    @GetMapping("/sessions")
+    public ApiResponse<List<SessionItem>> listSessions() {
+        return ApiResponse.ok(chatHistoryService.listSessions(UserContext.require()));
+    }
+
+    /** 创建新会话,title 由首问截断得来。返回新会话 id。 */
+    @PostMapping("/sessions")
+    public ApiResponse<CreateSessionResponse> createSession(@RequestBody @Validated CreateSessionRequest req) {
+        long id = chatHistoryService.createSession(UserContext.require(), req.question());
+        return ApiResponse.ok(new CreateSessionResponse(id));
+    }
+
+    /** 取会话的全部消息(历史回放)。 */
+    @GetMapping("/sessions/{id}/messages")
+    public ApiResponse<List<MessageItem>> getSessionMessages(@PathVariable long id) {
+        return ApiResponse.ok(chatHistoryService.getMessages(UserContext.require(), id));
+    }
+
+    /** 删除会话(级联删除消息)。 */
+    @DeleteMapping("/sessions/{id}")
+    public ApiResponse<Void> deleteSession(@PathVariable long id) {
+        chatHistoryService.deleteSession(UserContext.require(), id);
+        return ApiResponse.ok(null);
+    }
+
+    // ==================== 限流降级 ====================
 
     public ApiResponse<AskResult> askBlocked(AskRequest req, BlockException ex) {
         throw new BizException(429, "AI 问答请求过于频繁,请稍后再试");
@@ -87,3 +129,4 @@ public class AiController {
         return emitter;
     }
 }
+

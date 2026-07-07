@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import { streamAsk, type StreamMeta } from '../api/chat'
+import { streamAsk, type MessageItem, type StreamMeta } from '../api/chat'
+import { useChatStore } from '../store/chat'
 import type { ChatMessage } from '../types'
 
 const WELCOME: ChatMessage = {
@@ -11,10 +12,37 @@ const WELCOME: ChatMessage = {
 }
 
 export function useChat() {
+  const store = useChatStore()
   const messages = ref<ChatMessage[]>([{ ...WELCOME }])
   const loading = ref(false)
   const phase = ref('')
   const quotaMsg = ref<string | undefined>(undefined)
+
+  /**
+   * 加载指定会话的历史消息(切换会话时调用)。
+   * 失败或无消息时回到欢迎页;成功时用历史消息替换当前列表。
+   */
+  async function loadHistory(sessionId: number) {
+    const history = await store.openSession(sessionId)
+    if (history === null) {
+      // 加载失败:回到欢迎页,但保留激活态以便重试
+      messages.value = [{ ...WELCOME }]
+      return
+    }
+    if (history.length === 0) {
+      messages.value = [{ ...WELCOME }]
+      return
+    }
+    // 历史消息转 ChatMessage 渲染(均为已完成态,无 streaming/thinking)
+    messages.value = history.map((m: MessageItem) => ({
+      role: m.role as ChatMessage['role'],
+      content: m.content,
+      mode: m.mode ?? undefined,
+      format: 'markdown:v1',
+      id: m.id,
+      timestamp: new Date(m.createdAt).getTime(),
+    }))
+  }
 
   async function ask(question: string, isLoggedIn: boolean): Promise<{ quotaMsg?: string }> {
     const trimmed = question.trim()
@@ -31,6 +59,10 @@ export function useChat() {
       })
       return {}
     }
+
+    // 确保存在激活会话(首次提问自动创建),拿到 sessionId 供后端落库。
+    // 创建失败(未登录/网络)时 sessionId=null,问答正常进行但不落库。
+    const sessionId = await store.ensureSession(trimmed)
 
     // 用户消息入列。
     messages.value.push({ role: 'user', content: trimmed, timestamp: Date.now() })
@@ -86,6 +118,46 @@ export function useChat() {
     }
 
     return new Promise<{ quotaMsg?: string }>(resolve => {
+      // 统一收尾:保证 streaming=false、loading=false、phase 清空、残余 token 刷出、watchdog 清除。
+      // onDone / onError / watchdog 三条收尾路径共用,避免任一处漏清状态导致 UI 卡死。
+      // finishReason: 'complete'=收到业务 done,内容完整; 'interrupted'=连接断/超时/兜底收尾,内容可能不全。
+      let settled = false
+      let finishReason: 'complete' | 'interrupted' = 'interrupted'
+      const settle = (onError?: string) => {
+        if (settled) return
+        settled = true
+        if (watchdog) clearTimeout(watchdog)
+        flush()
+        reactivePlaceholder.streaming = false
+        const hasContent = reactivePlaceholder.content.trim().length > 0
+        if (onError) {
+          reactivePlaceholder.mode = 'error'
+          reactivePlaceholder.format = 'markdown:v1'
+          if (hasContent) {
+            // 已有部分内容时:不覆盖,保留已生成内容,末尾追加中断提示(避免突兀截断)。
+            // 用 markdown 引用块弱化提示语气,与正文区分但不喧宾夺主。
+            reactivePlaceholder.content += `\n\n> ⚠️ ${onError}（以上内容可能不完整）`
+          } else {
+            reactivePlaceholder.content = `### 结论\n${onError}\n\n### 下一步\n- 请稍后重试，或换一个更具体的问题。`
+          }
+        } else if (finishReason === 'interrupted' && hasContent) {
+          // 传输层 onDone 兜底(连接关闭但无业务 done):内容可能被截断,追加温和提示。
+          reactivePlaceholder.content += '\n\n> ⚠️ 回答被中断，以上内容可能不完整，可重新提问继续。'
+        } else if (!hasContent) {
+          // 空回答兜底,避免渲染空白气泡。
+          reactivePlaceholder.content = '资料不足以生成可靠回答。'
+        }
+        loading.value = false
+        phase.value = ''
+        resolve(onError ? {} : { quotaMsg: quotaMsg.value })
+      }
+
+      // 超时兜底:略大于后端 SseEmitter 120s 超时。若到此 loading 仍为 true
+      // (后端漏发 done/error,或网络中断未触发传输层 onDone),强制收尾,防止永久转圈。
+      let watchdog: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+        if (loading.value) settle('回答超时,请稍后重试。')
+      }, 130_000)
+
       const abort = streamAsk(trimmed, {
         onMeta: (meta: StreamMeta) => {
           // 来源/配额/步骤先到,就地回填占位消息。
@@ -114,37 +186,25 @@ export function useChat() {
           pendingDelta += delta
           scheduleFlush()
         },
-        onDone: (_mode, _format) => {
-          // 收尾前把缓冲区残余 token 全部刷出,保证最终内容完整。
-          flush()
-          reactivePlaceholder.streaming = false
-          // 空回答兜底,避免渲染空白气泡。
-          if (!reactivePlaceholder.content.trim()) {
-            reactivePlaceholder.content = '资料不足以生成可靠回答。'
-          }
-          loading.value = false
-          phase.value = ''
-          resolve({ quotaMsg: quotaMsg.value })
+        onDone: () => {
+          // 收到业务 done=正常完整收尾,标记 complete 让 settle 走"内容完整"路径。
+          finishReason = 'complete'
+          // 成功收尾:本会话消息数 +2(user+assistant),仅在有 session 时
+          if (sessionId !== null) store.bumpMessageCount(sessionId, 2)
+          settle()
         },
-        onError: message => {
-          flush()
-          reactivePlaceholder.streaming = false
-          reactivePlaceholder.mode = 'error'
-          reactivePlaceholder.format = 'markdown:v1'
-          reactivePlaceholder.content = `### 结论\n${message}\n\n### 下一步\n- 请稍后重试，或换一个更具体的问题。`
-          loading.value = false
-          phase.value = ''
-          resolve({})
-        },
-      })
+        onError: message => settle(message),
+      }, sessionId)
       // 把 abort 挂到占位消息上,便于组件卸载/切换时中断(可选,此处仅持有不强制)。
       ;(reactivePlaceholder as ChatMessage & { _abort?: () => void })._abort = abort
     })
   }
 
+  /** 新建对话:清空消息回到欢迎页 + 重置激活会话(下次提问建新会话)。 */
   function clearMessages() {
+    store.startNewSession()
     messages.value = [{ ...WELCOME }]
   }
 
-  return { messages, loading, phase, ask, clearMessages }
+  return { messages, loading, phase, ask, clearMessages, loadHistory, store }
 }

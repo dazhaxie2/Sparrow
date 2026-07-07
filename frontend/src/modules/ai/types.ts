@@ -23,6 +23,8 @@ export interface ChatMessage {
   sources?: SourceRef[]
   steps?: AgentStep[]
   timestamp?: number
+  /** 后端历史消息的 id(前端临时消息无此字段)。 */
+  id?: number
 }
 
 export interface AskResult {
@@ -36,8 +38,12 @@ export interface AskResult {
 }
 
 export interface ChatSession {
-  id: string
+  /** 后端会话主键(自增 id)。 */
+  id: number
   title: string
-  messages: ChatMessage[]
+  /** 消息列表,仅在打开该会话时按需加载(列表视图只看元数据,不含消息)。 */
+  messages?: ChatMessage[]
   createdAt: number
+  updatedAt?: number
+  messageCount?: number
 }

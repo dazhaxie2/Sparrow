@@ -10,6 +10,14 @@
     <header class="rail-head">
       <span><Sparkles :size="14" /> AI 对话</span>
       <div class="head-actions">
+        <button
+          v-if="user.isLoggedIn()"
+          type="button"
+          title="历史对话"
+          @click="chatStore.historyOpen = true"
+        >
+          <History :size="14" />
+        </button>
         <button type="button" title="清空对话" @click="clearMessages"><Trash2 :size="14" /></button>
         <button type="button" title="收起" @click="$emit('toggle')"><PanelRightClose :size="15" /></button>
       </div>
@@ -22,16 +30,21 @@
     <AiMessageList :messages="messages" :loading="loading" :phase="phase" />
 
     <AiComposer :context-node="contextNode" :loading="loading" @submit="handleSubmit" />
+
+    <!-- 历史对话抽屉(绝对定位浮层,覆盖在面板上) -->
+    <ChatHistoryDrawer @select="handleHistorySelect" />
   </section>
 </template>
 
 <script setup lang="ts">
-import { PanelRightClose, Sparkles, Trash2, Bot } from '@lucide/vue'
+import { onMounted } from 'vue'
+import { History, PanelRightClose, Sparkles, Trash2, Bot } from '@lucide/vue'
 import { useUserStore } from '../../user/store'
 import { useChat } from '../composables/useChat'
 import type { NodeBrief } from '../../graph/types'
 import AiMessageList from './AiMessageList.vue'
 import AiComposer from './AiComposer.vue'
+import ChatHistoryDrawer from './ChatHistoryDrawer.vue'
 
 const props = defineProps<{
   /** 当前上下文节点(科技树节点 / 产业链标题伪节点)，提问会自动带前缀；null 表示无上下文。 */
@@ -43,7 +56,14 @@ const props = defineProps<{
 defineEmits<{ (e: 'toggle'): void }>()
 
 const user = useUserStore()
-const { messages, loading, phase, ask, clearMessages } = useChat()
+const { messages, loading, phase, ask, clearMessages, loadHistory, store: chatStore } = useChat()
+
+// 登录后预加载会话列表(填充历史抽屉)。未登录 loadSessions 内部会静默清空。
+onMounted(() => {
+  if (user.isLoggedIn()) {
+    chatStore.loadSessions()
+  }
+})
 
 /** 提交一个问题：带上当前节点上下文，交给真 AI。 */
 async function handleSubmit(text: string) {
@@ -53,6 +73,19 @@ async function handleSubmit(text: string) {
     ? `围绕「${props.contextNode.name}」回答：${question}`
     : question
   await ask(contextualQuestion, user.isLoggedIn())
+}
+
+/**
+ * 历史抽屉 select 事件:用户点了某个会话或"新建对话"或"删除了当前会话"。
+ * 切换/删除当前会话时,本地消息要同步刷新(loadHistory 会处理:有 session 加载历史,无则回欢迎页)。
+ */
+async function handleHistorySelect() {
+  if (chatStore.activeSessionId !== null) {
+    await loadHistory(chatStore.activeSessionId)
+  } else {
+    // 无激活会话(新建对话/删除了当前):回到欢迎页
+    clearMessages()
+  }
 }
 </script>
 

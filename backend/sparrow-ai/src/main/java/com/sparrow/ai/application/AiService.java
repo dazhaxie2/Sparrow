@@ -7,6 +7,7 @@ import com.sparrow.ai.infrastructure.client.GraphViews.NodeDetail;
 import com.sparrow.ai.infrastructure.client.GraphViews.Tree;
 import com.sparrow.ai.infrastructure.client.UserClient;
 import com.sparrow.ai.infrastructure.config.AiProperties;
+import com.sparrow.ai.infrastructure.persistence.ChatHistoryRepository;
 import com.sparrow.ai.infrastructure.rag.MilvusStore;
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
@@ -121,6 +122,7 @@ public class AiService {
     private final UserClient userClient;
     private final StringRedisTemplate redis;
     private final ObjectProvider<TechTreeAgent> agentProvider;
+    private final ChatHistoryRepository chatHistory;
 
     /**
      * 构造函数。
@@ -138,7 +140,7 @@ public class AiService {
     public AiService(AiProperties props, ChatModel chatModel, StreamingChatModel streamingChatModel,
                      EmbeddingModel embeddingModel, MilvusStore milvus, GraphClient graphClient,
                      UserClient userClient, StringRedisTemplate redis,
-                     ObjectProvider<TechTreeAgent> agentProvider) {
+                     ObjectProvider<TechTreeAgent> agentProvider, ChatHistoryRepository chatHistory) {
         this.props = props;
         this.chatModel = chatModel;
         this.streamingChatModel = streamingChatModel;
@@ -148,6 +150,7 @@ public class AiService {
         this.userClient = userClient;
         this.redis = redis;
         this.agentProvider = agentProvider;
+        this.chatHistory = chatHistory;
     }
 
     /**
@@ -168,11 +171,12 @@ public class AiService {
      * 执行 AI 问答。
      * 按优先级尝试三种模式: Agent → RAG → 规则引擎,任一模式失败自动降级。
      *
-     * @param userId   用户 ID
-     * @param question 用户问题
+     * @param userId    用户 ID
+     * @param question  用户问题
+     * @param sessionId 会话 id,可选;非空时本次问答落库到该会话历史
      * @return 问答结果
      */
-    public AskResult ask(Long userId, String question) {
+    public AskResult ask(Long userId, String question, Long sessionId) {
         long remaining = consumeQuota(userId);
         String intent = classifyIntent(question);
 
@@ -182,9 +186,9 @@ public class AiService {
                 Retrieved retrieved = retrieve(question);
                 List<SourceRef> sources = buildSources(retrieved);
                 String answer = agent.chat(String.valueOf(userId), agentUserMessage(question, intent));
-                return result(answer, "agent", intent, sources,
+                return persist(userId, sessionId, question, result(answer, "agent", intent, sources,
                         buildSteps(intent, "检索图谱与知识库上下文", "Agent 工具链生成回答", sources.isEmpty()),
-                        remaining);
+                        remaining));
             } catch (Exception e) {
                 log.warn("Agent 调用失败,降级为 RAG: {}", e.getMessage());
             }
@@ -195,9 +199,9 @@ public class AiService {
                 List<SourceRef> sources = buildSources(retrieved);
                 String answer = chatModel.chat(systemPrompt() + "\n\n"
                         + ragUserMessage(question, retrieved.nodes(), retrieved.chunks()));
-                return result(answer, "rag", intent, sources,
+                return persist(userId, sessionId, question, result(answer, "rag", intent, sources,
                         buildSteps(intent, "检索图谱与知识库上下文", "RAG 生成统一回答", sources.isEmpty()),
-                        remaining);
+                        remaining));
             } catch (Exception e) {
                 log.warn("LLM 调用失败,降级为规则问答: {}", e.getMessage());
             }
@@ -205,9 +209,26 @@ public class AiService {
 
         Retrieved retrieved = retrieve(question);
         List<SourceRef> sources = buildSources(retrieved);
-        return result(rulesAnswer(question, retrieved.nodes()), "rules", intent, sources,
+        return persist(userId, sessionId, question, result(rulesAnswer(question, retrieved.nodes()), "rules", intent, sources,
                 buildSteps(intent, "关键词匹配图谱上下文", "规则引擎生成统一回答", sources.isEmpty()),
-                remaining);
+                remaining));
+    }
+
+    /**
+     * 落库本次问答(仅在 sessionId 非空时)。存 user 问题 + assistant 回答,不存 thinking。
+     * 落库失败不影响主流程(历史是辅助功能,问答本身已成功),仅记日志。
+     */
+    private AskResult persist(long userId, Long sessionId, String question, AskResult r) {
+        if (sessionId == null) {
+            return r;
+        }
+        try {
+            chatHistory.addMessage(userId, sessionId, "user", question, null);
+            chatHistory.addMessage(userId, sessionId, "assistant", r.answer(), r.mode());
+        } catch (Exception e) {
+            log.warn("聊天历史落库失败 [userId={} sessionId={}]: {}", userId, sessionId, e.getMessage());
+        }
+        return r;
     }
 
     /**
@@ -224,10 +245,10 @@ public class AiService {
      * @param question 用户问题
      * @param sink     流式输出端口
      */
-    public void askStream(Long userId, String question, StreamSink sink) {
+    public void askStream(Long userId, String question, Long sessionId, StreamSink sink) {
         CompletableFuture.runAsync(() -> {
             try {
-                askStreamInternal(userId, question, sink);
+                askStreamInternal(userId, question, sessionId, sink);
             } catch (BizException e) {
                 sink.emit("error", Map.of("message", e.getMessage()));
                 sink.complete();
@@ -238,9 +259,18 @@ public class AiService {
         });
     }
 
-    private void askStreamInternal(Long userId, String question, StreamSink sink) {
+    private void askStreamInternal(Long userId, String question, Long sessionId, StreamSink sink) {
         long remaining = consumeQuota(userId);
         String intent = classifyIntent(question);
+
+        // 会话历史:先存 user 问题(若提供 sessionId)。失败不阻断问答。
+        if (sessionId != null) {
+            try {
+                chatHistory.addMessage(userId, sessionId, "user", question, null);
+            } catch (Exception e) {
+                log.warn("存 user 消息失败 [userId={} sessionId={}]: {}", userId, sessionId, e.getMessage());
+            }
+        }
 
         // 检索上下文(三种模式共用),来源/步骤先于正文推给前端,UI 可先渲染来源卡片。
         Retrieved retrieved = retrieve(question);
@@ -259,6 +289,7 @@ public class AiService {
             if (streamAgent(agent, String.valueOf(userId),
                     agentUserMessage(question, intent), sink, answer, thinking)) {
                 sink.emit("done", Map.of("mode", "agent", "format", "markdown:v1"));
+                persistStream(userId, sessionId, question, answer.toString(), "agent");
                 sink.complete();
                 return;
             }
@@ -275,6 +306,7 @@ public class AiService {
             StringBuilder thinking = new StringBuilder();
             if (streamRag(question, retrieved, sink, answer, thinking)) {
                 sink.emit("done", Map.of("mode", "rag", "format", "markdown:v1"));
+                persistStream(userId, sessionId, question, answer.toString(), "rag");
                 sink.complete();
                 return;
             }
@@ -289,7 +321,24 @@ public class AiService {
         sink.emit("meta", meta);
         sink.emit("delta", Map.of("text", cleanupAnswer(answer)));
         sink.emit("done", Map.of("mode", "rules", "format", "markdown:v1"));
+        persistStream(userId, sessionId, question, cleanupAnswer(answer), "rules");
         sink.complete();
+    }
+
+    /**
+     * 流式落库 assistant 回答。user 消息已在 askStreamInternal 开头存过,这里只存 assistant。
+     * 注:agent/rag 降级时,上级已吐出的 delta 不会撤回,assistant 消息只存最终成功那段的内容,
+     * 与前端看到的拼接内容可能有细微差异,这是降级的固有代价,可接受。
+     */
+    private void persistStream(long userId, Long sessionId, String question, String answer, String mode) {
+        if (sessionId == null) {
+            return;
+        }
+        try {
+            chatHistory.addMessage(userId, sessionId, "assistant", answer, mode);
+        } catch (Exception e) {
+            log.warn("存 assistant 消息失败 [userId={} sessionId={}]: {}", userId, sessionId, e.getMessage());
+        }
     }
 
     /** 用流式模型直接生成 RAG 回答;逐 token 推 delta,reasoning 推 thinking。返回 true=成功,false=降级。 */
@@ -372,8 +421,10 @@ public class AiService {
     /** 等待流式结束,带超时兜底,防止 provider 不回调导致 SSE 悬挂。 */
     private boolean awaitStream(CountDownLatch latch, AtomicReference<Throwable> error, String tag) {
         try {
-            if (!latch.await(90, TimeUnit.SECONDS)) {
-                log.warn("{} 流式超时(90s),降级", tag);
+            // 单级 55s:保证降级链 agent(55)+rag(55)+rules 兜底(合计 ~110s)在 SseEmitter
+            // 120s 超时前完成,避免两级连续悬挂导致 done/error 都发不出、前端永久转圈。
+            if (!latch.await(55, TimeUnit.SECONDS)) {
+                log.warn("{} 流式超时(55s),降级", tag);
                 return false;
             }
         } catch (InterruptedException e) {

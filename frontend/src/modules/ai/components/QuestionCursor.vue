@@ -80,25 +80,25 @@ defineEmits<{
   top: 50%;
   transform: translateY(-50%);
   z-index: 20;
-  max-width: 220px;
-  padding: 6px 9px;
+  max-width: 320px;
+  padding: 8px 11px;
   border-radius: 6px;
   background: var(--ink);
   color: #fff;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 13.5px;
+  line-height: 1.6;
   font-weight: 500;
   white-space: normal;
-  /* 截断到两行，超长问题也能克制 */
+  /* 截断到四行，长问题也能看清主体内容 */
   display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
   /* 避免气泡顶端贴着圆点边缘，留一点呼吸感 */
   word-break: break-word;
 }
