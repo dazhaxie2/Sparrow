@@ -26,9 +26,12 @@ public class ResearchConversationService {
     public MessageReply message(long userId, long cardId, String content) {
         CardRow card = owned(userId, cardId);
         if (repository.activeRun(userId, cardId).isPresent()) throw new BizException(409, "调研运行中，请等待完成后继续对话");
-        long userMessageId = repository.addMessage(userId, cardId, "user", null, content.trim());
+        String trimmed = content.trim();
+        // 先基于已有历史生成回复，成功后再成对落库 user + assistant。
+        // 避免 LLM 调用失败时只留下孤儿 user 消息(下次对话历史会多一条无回复的 user 轮次)。
         List<MessageRow> history = repository.messages(userId, cardId);
-        String reply = orchestrator.reply(card.title(), card.brief(), history, content.trim());
+        String reply = orchestrator.reply(card.title(), card.brief(), history, trimmed);
+        long userMessageId = repository.addMessage(userId, cardId, "user", null, trimmed);
         long assistantId = repository.addMessage(userId, cardId, "assistant", "planner", reply);
         List<MessageRow> next = repository.messages(userId, cardId);
         MessageRow userRow = next.stream().filter(item -> item.id() == userMessageId).findFirst().orElseThrow();

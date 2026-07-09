@@ -1,6 +1,8 @@
 package com.sparrow.industrychain.infrastructure.llm;
 
 import dev.langchain4j.model.chat.ChatModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -11,6 +13,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ChatModelProvider {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatModelProvider.class);
 
     private final ChatModel chatModel;
 
@@ -31,10 +35,20 @@ public class ChatModelProvider {
         return chatModel.chat(prompt);
     }
 
-    /** 模型不可用时返回 fallback，否则同步对话。用于规划 Agent 等需要软降级的场景。 */
+    /**
+     * 软降级对话：模型未配置 <em>或调用失败</em>(限流/超时/网络异常)时返回 fallback。
+     *
+     * <p>用于规划 Agent 等面向用户的同步路径——云端 LLM 触发速率限制(HttpException 1302)
+     * 不应冒泡成 HTTP 500,而应降级为可控的提示文案,与 {@code ResearchRunner} 的兜底风格一致。
+     */
     public String chatOr(String prompt, String fallback) {
         if (chatModel == null) return fallback;
-        return chatModel.chat(prompt);
+        try {
+            return chatModel.chat(prompt);
+        } catch (Exception error) {
+            log.warn("ChatModel 调用失败,返回 fallback: {}", error.toString());
+            return fallback;
+        }
     }
 
     /** 暴露底层模型，供需要工具/流式等高级特性的组件使用。 */
@@ -42,5 +56,6 @@ public class ChatModelProvider {
         return chatModel;
     }
 }
+
 
 

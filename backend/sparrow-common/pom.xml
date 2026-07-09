@@ -25,6 +25,12 @@
             <artifactId>spring-boot-starter-validation</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!-- test scope:spring-boot-starter-test 传递 JUnit5 + Mockito + AssertJ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

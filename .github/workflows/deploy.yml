@@ -52,16 +52,28 @@ jobs:
             $aiChanged = $true
             Write-Host "无法获取 before 基线(手动触发/首次),默认需要重建 AI"
           } else {
-            # ⚠ PowerShell 5.1(runner 默认)会把原生命令(git)的 stderr 当致命异常抛出,
-            # 即使 2>$null 也不可靠(before commit 在本地不存在时 git 报错到 stderr → 脚本直接终止,
-            # $LASTEXITCODE 兜底根本没机会跑)。用 cmd /c 包一层:stderr 合并到 stdout,
-            # 让 PS 看到的只是普通文本输出,再用 $LASTEXITCODE 判断成败。
-            $changed = $(cmd /c "git diff --name-only $before $after 2>&1")
-            $rc = $LASTEXITCODE
+            # ⚠ PowerShell 5.1(runner 默认)对原生命令(git)的非零退出码极度敏感:
+            #   $() 子表达式捕获、2>&1 重定向、2>$null 在 PS 5.1 下均不可靠——before commit
+            #   不在本地时 git 写 stderr 并返回 rc=1,即便逻辑上想兜底,$() 仍可能把它转成
+            #   终止错误使脚本直接 exit 1(CI 实测复现)。
+            # 鲁棒做法:用 Start-Process 同步运行 cmd /c git diff,显式把 stdout/stderr 都
+            #   重定向到临时文件,再用 $LASTEXITCODE 判断成败——全程不经过 PS 的原生命令错误管道。
+            $outFile = [System.IO.Path]::GetTempFileName()
+            $errFile = [System.IO.Path]::GetTempFileName()
+            try {
+              $p = Start-Process -FilePath cmd.exe -ArgumentList "/c git diff --name-only $before $after" `
+                    -NoNewWindow -Wait -PassThru `
+                    -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+              $rc = $p.ExitCode
+            } catch {
+              $rc = 1
+            }
             if ($rc -ne 0) {
               $aiChanged = $true
               Write-Host "git diff 失败(rc=$rc,常见原因:before 基线不在本地),默认需要重建 AI"
+              Write-Host "stderr: $((Get-Content $errFile -Raw) -replace "`n",' ')"
             } else {
+              $changed = Get-Content $outFile | Where-Object { $_.Trim() -ne '' }
               # AI 相关路径:服务本体、被依赖的 common 模块、父 POM、compose/env 配置
               $aiPaths = @('backend/sparrow-ai/', 'backend/sparrow-common/', 'backend/pom.xml', '.env.example', 'docker-compose.yml')
               foreach ($p in $changed) {
@@ -73,6 +85,7 @@ jobs:
               Write-Host "本次变更文件:"
               $changed | ForEach-Object { Write-Host "  $_" }
             }
+            Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
           }
           Write-Host "AI 相关改动: $aiChanged"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "ai_changed=$aiChanged"
