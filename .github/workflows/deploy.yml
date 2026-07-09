@@ -37,27 +37,29 @@ jobs:
           git reset --hard origin/main
           git log -1 --oneline
 
-      # 路径检测:本次 push 是否触及 AI 相关代码。改了才在后续步骤重建 sparrow-ai,
-      # 没改就跳过 —— 省 build 时间、避免 16G 机器重复构建大镜像压垮内存。
-      # workflow_dispatch(手动触发)无 before/after,默认按"有改动"处理,交给原 Deploy AI tier 开关控制。
+      # Path detection: did this push touch AI-related code? Rebuild sparrow-ai only if so,
+      # otherwise skip - saves build time and avoids repeated large-image builds on a 16G machine.
+      # workflow_dispatch (manual) has no before/after; defaults to "changed", gated by the Deploy AI tier toggle.
       - name: Detect AI changes
         id: detect
         shell: powershell
         run: |
+          # NOTE: all log/comment text below is ASCII-only on purpose.
+          # The self-hosted Windows runner defaults to PowerShell 5.1, which reads a BOM-less
+          # .ps1 as the system ANSI codepage (GBK on zh-CN). UTF-8 CJK bytes get mis-decoded,
+          # corrupting string terminators inside "..." and causing ParseException.
+          # YAML-level fields (name/description/top-level # comments) are fine; only this
+          # run block is fed to PS, so it must stay ASCII.
           $before = '${{ github.event.before }}'
           $after  = '${{ github.event.after }}'
           $aiChanged = $false
-          # before 为空或全零(首次推送/force-push/手动触发)→ 无法 diff,默认按有改动处理(宁可多重建也不漏)
           if ([string]::IsNullOrWhiteSpace($before) -or $before -match '^0+$') {
             $aiChanged = $true
-            Write-Host "无法获取 before 基线(手动触发/首次),默认需要重建 AI"
+            Write-Host "no before baseline (manual/first push), will rebuild AI"
           } else {
-            # ⚠ PowerShell 5.1(runner 默认)对原生命令(git)的非零退出码极度敏感:
-            #   $() 子表达式捕获、2>&1 重定向、2>$null 在 PS 5.1 下均不可靠——before commit
-            #   不在本地时 git 写 stderr 并返回 rc=1,即便逻辑上想兜底,$() 仍可能把它转成
-            #   终止错误使脚本直接 exit 1(CI 实测复现)。
-            # 鲁棒做法:用 Start-Process 同步运行 cmd /c git diff,显式把 stdout/stderr 都
-            #   重定向到临时文件,再用 $LASTEXITCODE 判断成败——全程不经过 PS 的原生命令错误管道。
+            # PS 5.1 treats a native command's non-zero exit as fatal even with 2>&1 / 2>$null,
+            # so $() capture can abort before $LASTEXITCODE fallback runs. Start-Process redirects
+            # stdout/stderr to files, keeping PS away from git's error stream entirely.
             $outFile = [System.IO.Path]::GetTempFileName()
             $errFile = [System.IO.Path]::GetTempFileName()
             try {
@@ -70,11 +72,11 @@ jobs:
             }
             if ($rc -ne 0) {
               $aiChanged = $true
-              Write-Host "git diff 失败(rc=$rc,常见原因:before 基线不在本地),默认需要重建 AI"
+              Write-Host "git diff failed (rc=$rc, likely before baseline missing locally), will rebuild AI"
               Write-Host "stderr: $((Get-Content $errFile -Raw) -replace "`n",' ')"
             } else {
               $changed = Get-Content $outFile | Where-Object { $_.Trim() -ne '' }
-              # AI 相关路径:服务本体、被依赖的 common 模块、父 POM、compose/env 配置
+              # AI-related paths: the service itself, the shared common module, parent POM, compose/env config
               $aiPaths = @('backend/sparrow-ai/', 'backend/sparrow-common/', 'backend/pom.xml', '.env.example', 'docker-compose.yml')
               foreach ($p in $changed) {
                 foreach ($ap in $aiPaths) {
@@ -82,12 +84,12 @@ jobs:
                 }
                 if ($aiChanged) { break }
               }
-              Write-Host "本次变更文件:"
+              Write-Host "changed files:"
               $changed | ForEach-Object { Write-Host "  $_" }
             }
             Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
           }
-          Write-Host "AI 相关改动: $aiChanged"
+          Write-Host "AI changed: $aiChanged"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "ai_changed=$aiChanged"
 
       - name: Architecture guard
@@ -100,41 +102,41 @@ jobs:
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          # AI 层是核心服务,已随核心栈默认构建(不再用 --profile ai 单独触发)
+          # AI tier is core, built with the core stack (no separate --profile ai trigger)
           docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade sparrow-industry-chain sparrow-ai
 
       - name: Deploy core stack (up -d)
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          # AI 层(sparrow-ai/milvus/etcd/minio/sentinel)已从 profile 移出,随 up -d 默认全起;
-          # spider/layout 仍在独立 profile,不随核心栈启动。
+          # AI tier (sparrow-ai/milvus/etcd/minio/sentinel) starts with up -d by default;
+          # spider/layout stay in their own profile and are not started here.
           docker compose up -d
 
-      # 条件重建 AI 应用层:仅当检测到 AI 相关路径改动时才重建 sparrow-ai 单容器,
-      # 避免每次部署都全量 build。AI 层已在核心栈 up -d 里启动,这里只做"代码变了就刷新"。
-      # --no-deps 关键:只重建 sparrow-ai 自身,不动 milvus/etcd/minio 等重依赖(它们 rarely 变,重启慢且吃内存)。
+      # Conditional AI app-tier rebuild: only when AI-related paths changed, rebuild the sparrow-ai container.
+      # Avoids a full build on every deploy. The AI tier already started in the core up -d; this only refreshes when code changed.
+      # --no-deps: rebuilds only sparrow-ai, leaves milvus/etcd/minio untouched (rarely change, slow & memory-heavy to restart).
       - name: Rebuild sparrow-ai if changed
         if: steps.detect.outputs.ai_changed == 'true'
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          Write-Host "检测到 AI 相关改动,重建 sparrow-ai..."
+          Write-Host "AI changes detected, rebuilding sparrow-ai..."
           docker compose build sparrow-ai
-          # --no-deps 不重启依赖;--force-recreate 强制重建容器(compose 看镜像没变会跳过)
+          # --no-deps keeps deps untouched; --force-recreate forces a new container
           docker compose up -d --no-deps --force-recreate sparrow-ai
-          Write-Host "sparrow-ai 已重建"
+          Write-Host "sparrow-ai rebuilt"
 
       - name: Apply DB migrations (idempotent)
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          # compose 的 init SQL 只在首次建卷执行;存量库靠 backend/scripts/migrate-*.sql
-          # 幂等补齐新库/表/列(2026-06 图谱 schema 漂移、产业链缺库两次"系统繁忙"皆因漏迁移)。
-          # 只跑 migrate-*.sql;seed-*.sql 是样例数据,不能在生产部署时执行。
-          # 必须 docker cp + 容器内重定向:Get-Content|docker exec 管道会按控制台码页重编码,
-          # 含中文的迁移(migrate-chain 的 4 条种子)会被压成 '?';docker cp 原样保字节。
-          # 上一步 up -d 已因 depends_on service_healthy 等到 mysql 健康,此处可直接 exec。
+          # compose init SQL runs only on first volume creation; existing DBs are patched by
+          # backend/scripts/migrate-*.sql (idempotent new DB/table/column adds).
+          # Only migrate-*.sql runs; seed-*.sql is sample data, never on deploy.
+          # docker cp + container-side redirect preserves bytes: Get-Content|docker exec re-encodes
+          # by console codepage, turning CJK migration rows into '?'.
+          # up -d above already waited for mysql healthy via depends_on service_healthy.
           $mysql = (docker compose ps -q mysql | Select-Object -First 1)
           if (-not $mysql) { throw "mysql container not found" }
           Get-ChildItem "$env:DEPLOY_DIR\backend\scripts\migrate-*.sql" | Sort-Object Name | ForEach-Object {
@@ -145,12 +147,12 @@ jobs:
           }
           Write-Host "All migrations applied."
 
-      - name: Deploy AI tier (按需,仅 workflow_dispatch 勾选 deploy_ai)
+      - name: Deploy AI tier (optional, only when workflow_dispatch deploy_ai is checked)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_ai }}
         shell: powershell
         run: |
           Set-Location $env:DEPLOY_DIR
-          # 显式带 --profile ai 构建并拉起 AI 层(与核心栈共存,内存吃紧,按需开启)
+          # build and start the AI tier with --profile ai alongside the core stack
           docker compose --profile ai build sparrow-ai
           docker compose --profile ai up -d
 
@@ -162,10 +164,10 @@ jobs:
         shell: powershell
         run: docker image prune -f
 
-      - name: Health check (gateway :8080 + AI 注册 Nacos)
+      - name: Health check (gateway :8080 + AI registered in Nacos)
         shell: powershell
         run: |
-          # 1) 等 gateway 进程在 8080 监听(4xx/5xx 也算进程存活)
+          # 1) wait for gateway to listen on 8080 (4xx/5xx still counts as process alive)
           $deadline = (Get-Date).AddMinutes(8)
           $gatewayUp = $false
           while ((Get-Date) -lt $deadline) {
@@ -189,7 +191,7 @@ jobs:
           }
           if (-not $gatewayUp) { Write-Host "Gateway health check timed out after 8 min"; exit 1 }
 
-          # 2) 等 sparrow-ai 注册到 Nacos(AI 是核心服务,没注册 = 部署未完成)
+          # 2) wait for sparrow-ai to register to Nacos (AI is core; not registered = deploy incomplete)
           $aiDeadline = (Get-Date).AddMinutes(3)
           while ((Get-Date) -lt $aiDeadline) {
             try {
