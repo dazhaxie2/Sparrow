@@ -13,6 +13,12 @@
           </button>
 
           <div v-if="store.sessionsLoading" class="empty">加载中…</div>
+          <div v-else-if="store.sessionsError" class="empty error-state">
+            <span>{{ store.sessionsError }}</span>
+            <button type="button" class="retry-btn" @click="store.loadSessions()">
+              <RefreshCw :size="12" /> 重试
+            </button>
+          </div>
           <div v-else-if="!store.sessions.length" class="empty">还没有历史对话</div>
 
           <ul v-else class="session-list">
@@ -45,12 +51,15 @@
 
         <!-- 删除确认 -->
         <transition name="dialog-fade">
-          <div v-if="pendingDelete" class="confirm-mask" @click.self="pendingDelete = null">
+          <div v-if="pendingDelete" class="confirm-mask" @click.self="!deleting && (pendingDelete = null)">
             <div class="confirm-dialog">
               <p class="confirm-text">删除这个对话?删除后无法恢复。</p>
+              <div v-if="deleteError" class="confirm-error">{{ deleteError }}</div>
               <div class="confirm-actions">
-                <button type="button" class="btn-ghost" @click="pendingDelete = null">取消</button>
-                <button type="button" class="btn-danger" @click="confirmDelete">删除</button>
+                <button type="button" class="btn-ghost" :disabled="deleting" @click="pendingDelete = null">取消</button>
+                <button type="button" class="btn-danger" :disabled="deleting" @click="confirmDelete">
+                  {{ deleting ? '删除中…' : '删除' }}
+                </button>
               </div>
             </div>
           </div>
@@ -62,7 +71,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { History, Plus, Trash2, X } from '@lucide/vue'
+import { History, Plus, RefreshCw, Trash2, X } from '@lucide/vue'
 import type { ChatSession } from '../types'
 import { useChatStore } from '../store/chat'
 
@@ -70,6 +79,11 @@ const store = useChatStore()
 const emit = defineEmits<{ (e: 'select'): void }>()
 
 const pendingDelete = ref<ChatSession | null>(null)
+/** 删除请求进行中(防重复点击 + 控制按钮禁用态)。 */
+const deleting = ref(false)
+/** 删除失败提示文案(在确认弹窗内联显示,3.6s 后自动清除)。 */
+const deleteError = ref<string | null>(null)
+let deleteErrorTimer: ReturnType<typeof setTimeout> | null = null
 
 function close() {
   store.historyOpen = false
@@ -98,15 +112,26 @@ function select(id: number) {
 
 function askDelete(s: ChatSession) {
   pendingDelete.value = s
+  deleteError.value = null
 }
 
 async function confirmDelete() {
   const target = pendingDelete.value
-  pendingDelete.value = null
-  if (!target) return
+  if (!target || deleting.value) return
+  deleting.value = true
+  deleteError.value = null
   const ok = await store.removeSession(target.id)
-  // 删除的是当前激活会话:清回欢迎页
-  if (ok) emit('select')
+  deleting.value = false
+  if (ok) {
+    pendingDelete.value = null
+    // 删除的是当前激活会话:清回欢迎页
+    emit('select')
+  } else {
+    // 删除失败:保留弹窗,内联提示失败原因,不关弹窗(让用户可重试或取消)。
+    deleteError.value = '删除失败，请稍后重试。'
+    if (deleteErrorTimer) clearTimeout(deleteErrorTimer)
+    deleteErrorTimer = setTimeout(() => { deleteError.value = null }, 3600)
+  }
 }
 
 /** 相对时间格式化:N 分钟前 / N 小时前 / N 天前 / 超过一周显示日期。 */
@@ -222,6 +247,33 @@ function relativeTime(ts: number): string {
   font-size: 12px;
 }
 
+/* 加载失败态:错误文案 + 重试按钮,区分"加载失败"和"确实为空" */
+.empty.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--danger);
+}
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease;
+}
+.retry-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .session-list {
   list-style: none;
   margin: 0;
@@ -322,6 +374,17 @@ function relativeTime(ts: number): string {
   color: var(--ink);
   line-height: 1.5;
 }
+/* 删除失败内联提示:复用错误态配色,引导用户重试或取消。 */
+.confirm-error {
+  margin: -6px 0 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: rgba(220, 38, 38, 0.06);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
@@ -350,6 +413,15 @@ function relativeTime(ts: number): string {
 .btn-danger:hover {
   background: var(--danger);
   color: var(--bg);
+}
+.btn-ghost:disabled,
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-danger:disabled:hover {
+  background: transparent;
+  color: var(--danger);
 }
 
 /* 过渡动画 */

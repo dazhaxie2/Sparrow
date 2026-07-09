@@ -37,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { History, PanelRightClose, Sparkles, Trash2, Bot } from '@lucide/vue'
 import { useUserStore } from '../../user/store'
 import { useChat } from '../composables/useChat'
@@ -58,12 +58,21 @@ defineEmits<{ (e: 'toggle'): void }>()
 const user = useUserStore()
 const { messages, loading, phase, ask, clearMessages, loadHistory, store: chatStore } = useChat()
 
-// 登录后预加载会话列表(填充历史抽屉)。未登录 loadSessions 内部会静默清空。
+// 本组件被 <keep-alive> 缓存,onMounted 只在首次挂载触发一次。
+// 因此登录态变化(重新登录/换号)需靠 watch 驱动,不能只依赖 onMounted。
 onMounted(() => {
-  if (user.isLoggedIn()) {
-    chatStore.loadSessions()
-  }
+  if (user.isLoggedIn()) chatStore.loadSessions()
 })
+
+// 监听登录态:登录(false→true)刷新历史;登出(true→false)清屏回欢迎页。
+// 登出时 chatStore.reset() 已清会话列表,这里再清当前消息,让界面立即归零。
+watch(
+  () => user.isLoggedIn(),
+  (loggedIn, wasLoggedIn) => {
+    if (loggedIn && !wasLoggedIn) chatStore.loadSessions()
+    if (!loggedIn && wasLoggedIn) clearMessages()
+  },
+)
 
 /** 提交一个问题：带上当前节点上下文，交给真 AI。 */
 async function handleSubmit(text: string) {

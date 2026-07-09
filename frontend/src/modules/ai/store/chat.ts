@@ -27,10 +27,13 @@ export const useChatStore = defineStore('chat', () => {
   const historyOpen = ref(false)
   /** 会话列表加载中。 */
   const sessionsLoading = ref(false)
+  /** 会话列表加载失败原因(null=未加载/成功;非空=失败原因)。区分"加载失败"和"确实为空"。 */
+  const sessionsError = ref<string | null>(null)
 
-  /** 拉取会话列表(登录后调用)。失败静默(未登录等场景)。 */
+  /** 拉取会话列表(登录后调用)。失败时记录错误,不静默吞掉——让 UI 能区分"加载失败"和"确实为空"。 */
   async function loadSessions() {
     sessionsLoading.value = true
+    sessionsError.value = null
     try {
       const items = await chatApi.listSessions()
       sessions.value = items.map(item => ({
@@ -40,9 +43,9 @@ export const useChatStore = defineStore('chat', () => {
         updatedAt: new Date(item.updatedAt).getTime(),
         messageCount: item.messageCount,
       }))
-    } catch {
-      // 未登录或网络错误:保持空列表,不阻塞 UI
-      sessions.value = []
+    } catch (e) {
+      // 网络错误/服务不可用:记录原因,保留已有列表不清空(避免把已加载的数据冲掉)
+      sessionsError.value = e instanceof Error ? e.message : '加载历史对话失败'
     } finally {
       sessionsLoading.value = false
     }
@@ -109,6 +112,17 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * 重置全部状态:清空会话列表、激活会话、错误态。
+   * 退出登录时调用,避免上个账号的历史会话残留到下一个账号(本地数据不入库,但 UI 会误显示)。
+   */
+  function reset() {
+    sessions.value = []
+    activeSessionId.value = null
+    historyOpen.value = false
+    sessionsError.value = null
+  }
+
   /** 更新本地会话的 messageCount(提问后调用)。 */
   function bumpMessageCount(id: number, delta: number) {
     const s = sessions.value.find(x => x.id === id)
@@ -123,6 +137,7 @@ export const useChatStore = defineStore('chat', () => {
     activeSessionId,
     historyOpen,
     sessionsLoading,
+    sessionsError,
     loadSessions,
     ensureSession,
     openSession,
@@ -130,6 +145,7 @@ export const useChatStore = defineStore('chat', () => {
     startNewSession,
     removeSession,
     bumpMessageCount,
+    reset,
   }
 })
 

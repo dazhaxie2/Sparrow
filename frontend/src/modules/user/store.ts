@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import type { Profile } from './types'
 import { fetchMe } from './api'
 import { login as apiLogin, register as apiRegister } from './api'
+import { useChatStore } from '../ai/store/chat'
 
 export const useUserStore = defineStore('user', () => {
   const profile = ref<Profile | null>(null)
@@ -37,6 +38,8 @@ export const useUserStore = defineStore('user', () => {
     token.value = null
     profile.value = null
     localStorage.removeItem('sparrow_token')
+    // 清空 AI 聊天历史:会话列表是本地缓存的前一个账号数据,不清空会残留到下次登录。
+    useChatStore().reset()
   }
 
   const isLoggedIn = () => !!token.value

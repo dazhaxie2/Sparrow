@@ -25,8 +25,18 @@ export function useChat() {
   async function loadHistory(sessionId: number) {
     const history = await store.openSession(sessionId)
     if (history === null) {
-      // 加载失败:回到欢迎页,但保留激活态以便重试
-      messages.value = [{ ...WELCOME }]
+      // 加载失败:不静默跳回欢迎页,而是给出可见提示,让用户知道是"加载失败"而非"会话为空"。
+      // 保留激活态以便用户重试(再次点击该会话)。
+      messages.value = [
+        { ...WELCOME },
+        {
+          role: 'assistant',
+          content: '### 结论\n加载该对话失败。\n\n### 下一步\n- 请稍后重试，或在历史列表中重新选择。',
+          mode: 'error',
+          format: 'markdown:v1',
+          timestamp: Date.now(),
+        },
+      ]
       return
     }
     if (history.length === 0) {
