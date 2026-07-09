@@ -91,6 +91,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 640M
     networks: [sparrow_net]
 
   seata-server:
@@ -107,6 +112,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     depends_on:
       nacos: { condition: service_healthy }
     networks: [sparrow_net]
@@ -159,6 +169,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 768M
     networks: [sparrow_net]
 
   etcd:                       # AI 层依赖(milvus 元数据存储),随核心栈默认启动
@@ -227,6 +242,7 @@ services:
     environment:
       NACOS_ADDR: nacos:8848
       REDIS_HOST: redis
+      MALLOC_ARENA_MAX: "2"
     ports:
       - "8080:8080"
     deploy:
@@ -254,6 +270,7 @@ services:
       SEATA_SERVER: seata-server:8091
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MALLOC_ARENA_MAX: "2"
     expose: ["8081"]
     deploy:
       resources:
@@ -315,6 +332,7 @@ services:
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       TRADE_FAIL_AFTER_MEMBERSHIP_GRANT: ${TRADE_FAIL_AFTER_MEMBERSHIP_GRANT:-false}
+      MALLOC_ARENA_MAX: "2"
     expose: ["8084"]
     deploy:
       resources:
@@ -344,6 +362,7 @@ services:
       CHAIN_RESEARCH_FREE_PER_DAY: ${CHAIN_RESEARCH_FREE_PER_DAY:-1}
       CHAIN_RESEARCH_MEMBER_PER_DAY: ${CHAIN_RESEARCH_MEMBER_PER_DAY:-10}
       CHAIN_RESEARCH_SEARCH_URL: ${CHAIN_RESEARCH_SEARCH_URL:-https://m.sogou.com/web/searchList.jsp}
+      MALLOC_ARENA_MAX: "2"
     expose: ["8085"]
     deploy:
       resources:
@@ -376,6 +395,7 @@ services:
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
       SPARROW_SENTINEL_LOCAL_FALLBACK: "false"
       SPARROW_SENTINEL_WRITE_BACK: "true"
+      MALLOC_ARENA_MAX: "2"
     expose: ["8083"]
     deploy:
       resources:

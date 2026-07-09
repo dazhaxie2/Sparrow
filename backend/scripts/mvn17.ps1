@@ -1,4 +1,4 @@
-# Runs backend Maven commands with Java 17 without depending on the host JDK.
+# Runs backend Maven commands with Java 21 without depending on the host JDK.
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/mvn17.ps1 test
 #   powershell -ExecutionPolicy Bypass -File scripts/mvn17.ps1 -pl sparrow-ai -am compile
@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $backendRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$image = "maven:3.9-eclipse-temurin-17"
+$image = "maven:3.9-eclipse-temurin-21"
 $cacheVolume = "sparrow_m2"
 
 $commonArgs = @(

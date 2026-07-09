@@ -1,8 +1,14 @@
-# sparrow-common.yaml —— 共享配置(所有 5 个服务都 import)
+# sparrow-common.yaml —— 共享配置(所有 6 个服务都 import)
 # Phase 3 抬升:HikariCP 30→50、Lettuce 50→100,支撑 10k QPS 包络。
 # 单实例天花板:5 服务 ×50 = 250 连接 < MySQL max_connections=1500,余量充足。
 
 spring:
+  # 虚拟线程(JDK 21):Tomcat 请求线程、applicationTaskExecutor、@Async、StreamingResponseBody、
+  # SseEmitter 外层自动切虚拟线程。SSE 长连接(AI 流式问答)收益最大——每个流占一个极轻量虚拟线程
+  # 而非 Tomcat 平台线程,可支撑成百上千并发流。对 WebFlux 服务(gateway)无效(本就非阻塞),无副作用。
+  threads:
+    virtual:
+      enabled: true
   datasource:
     hikari:
       maximum-pool-size: ${HIKARI_MAX_POOL:50}

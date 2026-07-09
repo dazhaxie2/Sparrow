@@ -37,6 +37,8 @@ import java.util.Set;
 import java.util.HashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -246,6 +248,12 @@ public class AiService {
      * @param sink     流式输出端口
      */
     public void askStream(Long userId, String question, Long sessionId, StreamSink sink) {
+        // ⭐ 用虚拟线程跑 LLM 推理,而非 CompletableFuture 默认的 ForkJoinPool.commonPool(平台线程)。
+        // spring.threads.virtual.enabled 接管的是 Tomcat 请求线程,但本方法立即把阻塞工作甩给 runAsync,
+        // commonPool 仍是平台线程 → LLM 的数十秒阻塞仍占用平台线程,虚拟线程开关对这里零收益。
+        // 改用 newVirtualThreadPerTaskExecutor 后,每个流式问答占一个极轻量虚拟线程(几 KB 栈),
+        // 可支撑成百上千并发 SSE 流。executor 在 task 完成后随虚拟线程结束自动回收。
+        ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
         CompletableFuture.runAsync(() -> {
             try {
                 askStreamInternal(userId, question, sessionId, sink);
@@ -256,7 +264,7 @@ public class AiService {
                 log.warn("流式问答失败 [userId={}]: {}", userId, e.toString());
                 sink.completeWithError(e);
             }
-        });
+        }, virtualExecutor);
     }
 
     private void askStreamInternal(Long userId, String question, Long sessionId, StreamSink sink) {

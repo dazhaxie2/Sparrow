@@ -1,9 +1,11 @@
 server:
   port: 8082
   tomcat:
+    # ⚠️ 开启虚拟线程后(spring.threads.virtual.enabled=true in sparrow-common.yaml),
+    # threads.max 失效——Tomcat 用无界虚拟线程处理请求。保留此配置无害,留作回退参考。
     threads:
       max: 150
-    max-connections: 500
+    max-connections: 500   # 虚拟线程模式下仍生效,限制并发连接数
 
 spring:
   application:

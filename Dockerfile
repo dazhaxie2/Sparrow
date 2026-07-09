@@ -1,5 +1,7 @@
+# ⚠️ 废弃:Phase 1 单体 Dockerfile(backend/src 已不存在,项目已拆为多模块)。
+#    生产用 backend/Dockerfile(多模块)。此处仅同步 JDK 版本以防误用。
 # ---------- 后端构建阶段 ----------
-FROM maven:3.9-eclipse-temurin-17 AS backend-build
+FROM maven:3.9-eclipse-temurin-21 AS backend-build
 WORKDIR /build
 COPY backend/docker/maven-settings.xml /root/.m2/settings.xml
 COPY backend/pom.xml .
@@ -16,7 +18,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---------- 运行阶段 ----------
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=backend-build /build/target/sparrow.jar app.jar
 COPY --from=frontend-build /build/dist /app/resources/static

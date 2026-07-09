@@ -1,6 +1,6 @@
 ﻿# 共享 build stage:一次性下载依赖 + 编译全部模块。
 # 通过 docker compose 的 build.target 选择最终运行 stage。
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
 COPY backend/docker/maven-settings.xml /root/.m2/settings.xml
 
@@ -42,41 +42,42 @@ COPY frontend/ ./
 RUN npm ci && npm run build
 
 # ===== 6 个运行 stage =====
-# 堆上限统一压低,适配 16G 机器全栈同机部署(RSS≈堆×1.4,需留足元空间+off-heap 给容器 limit)。
-FROM eclipse-temurin:17-jre AS gateway-runtime
+# JDK 21 + G1GC(默认)。堆上限统一压低,适配 16G 机器全栈同机部署(RSS≈堆×1.4,需留足元空间+off-heap 给容器 limit)。
+# 每个服务开 GC 日志(写 /app/gc.log,2 个文件轮转各 10M),便于排查 Full GC / 内存压力。
+FROM eclipse-temurin:21-jre AS gateway-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-gateway/target/sparrow-gateway.jar app.jar
 COPY --from=frontend-build /build/dist /app/static
 EXPOSE 8080
-ENTRYPOINT ["java","-Xms256m","-Xmx512m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms256m","-Xmx512m","-Xlog:gc*:file=/app/gc.log:time,uptime,level,tags:filecount=2,filesize=10m","-jar","app.jar"]
 
-FROM eclipse-temurin:17-jre AS user-runtime
+FROM eclipse-temurin:21-jre AS user-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-user/target/sparrow-user.jar app.jar
 EXPOSE 8081
-ENTRYPOINT ["java","-Xms256m","-Xmx512m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms256m","-Xmx512m","-Xlog:gc*:file=/app/gc.log:time,uptime,level,tags:filecount=2,filesize=10m","-jar","app.jar"]
 
-FROM eclipse-temurin:17-jre AS graph-runtime
+FROM eclipse-temurin:21-jre AS graph-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-graph/target/sparrow-graph.jar app.jar
 EXPOSE 8082
-# Tomcat max=50 线程 + -Xmx768m:50 并发×500KB≈25MB 可控。容器限 1G,留 off-heap 余量。
-ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
+# -Xmx768m:容器限 1G,留 off-heap 余量。Tomcat threads.max 在开虚拟线程后失效(spring.threads.virtual.enabled)。
+ENTRYPOINT ["java","-Xms384m","-Xmx768m","-Xlog:gc*:file=/app/gc.log:time,uptime,level,tags:filecount=2,filesize=10m","-jar","app.jar"]
 
-FROM eclipse-temurin:17-jre AS ai-runtime
+FROM eclipse-temurin:21-jre AS ai-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-ai/target/sparrow-ai.jar app.jar
 EXPOSE 8083
-ENTRYPOINT ["java","-Xms384m","-Xmx768m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms384m","-Xmx768m","-Xlog:gc*:file=/app/gc.log:time,uptime,level,tags:filecount=2,filesize=10m","-jar","app.jar"]
 
-FROM eclipse-temurin:17-jre AS trade-runtime
+FROM eclipse-temurin:21-jre AS trade-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-trade/target/sparrow-trade.jar app.jar
 EXPOSE 8084
-ENTRYPOINT ["java","-Xms256m","-Xmx512m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms256m","-Xmx512m","-Xlog:gc*:file=/app/gc.log:time,uptime,level,tags:filecount=2,filesize=10m","-jar","app.jar"]
 
-FROM eclipse-temurin:17-jre AS industry-chain-runtime
+FROM eclipse-temurin:21-jre AS industry-chain-runtime
 WORKDIR /app
 COPY --from=build /build/sparrow-industry-chain/target/sparrow-industry-chain.jar app.jar
 EXPOSE 8085
-ENTRYPOINT ["java","-Xms256m","-Xmx512m","-jar","app.jar"]
+ENTRYPOINT ["java","-Xms256m","-Xmx512m","-Xlog:gc*:file=/app/gc.log:time,uptime,level,tags:filecount=2,filesize=10m","-jar","app.jar"]
