@@ -3,18 +3,12 @@ package com.sparrow.user.application;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.user.domain.model.User;
+import com.sparrow.user.infrastructure.mail.MailSenderAdapter;
 import com.sparrow.user.infrastructure.persistence.UserMapper;
-import jakarta.mail.Session;
-import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-import org.springframework.mail.javamail.JavaMailSender;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
 
 import java.lang.reflect.Field;
 
@@ -40,7 +34,7 @@ class UserServiceEmailLoginTest {
     private UserMapper userMapper;
     private StringRedisTemplate redis;
     private ValueOperations<String, String> valueOps;
-    private JavaMailSender mailSender;
+    private MailSenderAdapter mailSender;
     private UserService service;
 
     @BeforeEach
@@ -50,11 +44,8 @@ class UserServiceEmailLoginTest {
         redis = mock(StringRedisTemplate.class);
         valueOps = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(valueOps);
-        mailSender = mock(JavaMailSender.class);
-        when(mailSender.createMimeMessage()).thenReturn(
-                new MimeMessage(Session.getInstance(new Properties())));
-        service = new UserService(userMapper, redis, mailSender,
-                7, 5, 60, "Sparrow 科技图");
+        mailSender = mock(MailSenderAdapter.class);
+        service = new UserService(userMapper, redis, mailSender, 7, 60);
     }
 
     // ── sendEmailCode ──
@@ -66,7 +57,7 @@ class UserServiceEmailLoginTest {
         assertThatThrownBy(() -> service.sendEmailCode("a@b.com"))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("频繁");
-        verify(mailSender, never()).createMimeMessage();
+        verify(mailSender, never()).sendVerificationCode(anyString(), anyString());
     }
 
     /** 非法邮箱格式直接拒绝(不进入冷却)。 */

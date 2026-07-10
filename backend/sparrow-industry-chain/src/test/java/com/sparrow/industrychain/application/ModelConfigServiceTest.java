@@ -8,7 +8,6 @@ import com.sparrow.industrychain.application.ModelConfigService.TestResult;
 import com.sparrow.industrychain.infrastructure.client.UserClient;
 import com.sparrow.industrychain.infrastructure.config.IndustryChainAiConfig;
 import com.sparrow.industrychain.infrastructure.config.ModelConfig;
-import com.sparrow.industrychain.infrastructure.config.ModelConfigBroadcaster;
 import com.sparrow.industrychain.infrastructure.llm.ChatModelProvider;
 import com.sparrow.industrychain.infrastructure.persistence.ModelConfigRepository;
 import com.sparrow.industrychain.infrastructure.persistence.ModelConfigRepository.AuditRow;
@@ -39,7 +38,6 @@ class ModelConfigServiceTest {
     private ModelConfigRepository repository;
     private ChatModelProvider provider;
     private IndustryChainAiConfig aiConfig;
-    private ModelConfigBroadcaster broadcaster;
     private UserClient userClient;
     private ModelConfigService service;
 
@@ -51,9 +49,8 @@ class ModelConfigServiceTest {
         repository = mock(ModelConfigRepository.class);
         provider = mock(ChatModelProvider.class);
         aiConfig = mock(IndustryChainAiConfig.class);
-        broadcaster = mock(ModelConfigBroadcaster.class);
         userClient = mock(UserClient.class);
-        service = new ModelConfigService(repository, provider, aiConfig, broadcaster, userClient);
+        service = new ModelConfigService(repository, provider, aiConfig, userClient);
     }
 
     private void asAdmin(long userId) {
@@ -98,7 +95,6 @@ class ModelConfigServiceTest {
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("不存在");
         verify(provider, never()).swap(any());
-        verify(broadcaster, never()).publishReload();
     }
 
     /** 缺 API Key → 抛异常,不切换。 */
@@ -112,7 +108,7 @@ class ModelConfigServiceTest {
                 .hasMessageContaining("API Key");
     }
 
-    /** 正常激活:建模型成功 → setActive → swap → 广播 → 审计。 */
+    /** 正常激活:建模型成功 → setActive → 审计 → 提交后 swap。 */
     @Test
     void activateSwapsAndBroadcastsOnSuccess() {
         asAdmin(ADMIN_ID);
@@ -125,7 +121,6 @@ class ModelConfigServiceTest {
 
         verify(repository, times(1)).setActive(5L);
         verify(provider, times(1)).swap(built);
-        verify(broadcaster, times(1)).publishReload();
         verify(repository, times(1)).audit(eq(5L), any(), eq(ADMIN_ID), eq("ACTIVATE"), any(), any());
     }
 
@@ -202,26 +197,6 @@ class ModelConfigServiceTest {
 
         verify(repository, times(1)).update(eq(8L), eq("n2"), eq("http://u2"), eq("m2"),
                 eq(null), eq(4000), eq(120), eq(1));
-    }
-
-    // ── applyActiveConfig(广播重载) ──
-
-    /** 无激活配置时 apply 不动当前模型(避免广播把实例打成无模型)。 */
-    @Test
-    void applyActiveConfigNoopWhenNoActive() {
-        when(repository.findActiveDecrypted()).thenReturn(Optional.empty());
-        service.applyActiveConfig();
-        verify(provider, never()).swap(any());
-    }
-
-    /** 构建失败时 apply 不 swap,保持现状。 */
-    @Test
-    void applyActiveConfigKeepsCurrentOnBuildFailure() {
-        ModelConfig cfg = ModelConfig.decrypted(1L, "n", "http://u", "m", "sk", 3000, 180, 2, true);
-        when(repository.findActiveDecrypted()).thenReturn(Optional.of(cfg));
-        when(aiConfig.buildFrom(cfg)).thenThrow(new RuntimeException("down"));
-        service.applyActiveConfig();
-        verify(provider, never()).swap(any());
     }
 
     // ── 脱敏 ──

@@ -51,3 +51,10 @@ export interface TestResult {
   message: string
   reply: string | null
 }
+
+/** 审计动作类型(与后端 ModelConfigService.AuditAction 约定一致)。 */
+export const MODEL_CONFIG_ACTION = {
+  TEST: 'TEST',
+  SAVE: 'SAVE',
+  ACTIVATE: 'ACTIVATE',
+} as const

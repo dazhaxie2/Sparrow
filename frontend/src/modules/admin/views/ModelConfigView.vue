@@ -120,6 +120,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { AlertTriangle, LoaderCircle, Pencil, Plug, Plus, Power } from '@lucide/vue'
 import AppHeader from '../../../app/components/AppHeader.vue'
+import { useToast } from '../../../shared/composables/useCommon'
 import {
   activateModelConfig,
   listAudits,
@@ -128,6 +129,7 @@ import {
   testModelConfig,
 } from '../api'
 import type { ModelConfig, ModelConfigAudit, SaveConfigPayload, TestConfigPayload } from '../types'
+import { MODEL_CONFIG_ACTION } from '../types'
 
 const configs = ref<ModelConfig[]>([])
 const audits = ref<ModelConfigAudit[]>([])
@@ -143,20 +145,9 @@ const saving = ref(false)
 const editorError = ref('')
 const editorInfo = ref('')
 
-// toast
-const toast = reactive<{ visible: boolean; text: string; kind: 'ok' | 'err' }>({
-  visible: false,
-  text: '',
-  kind: 'ok',
-})
-let toastTimer: ReturnType<typeof setTimeout> | null = null
-function showToast(text: string, kind: 'ok' | 'err' = 'ok') {
-  toast.text = text
-  toast.kind = kind
-  toast.visible = true
-  if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { toast.visible = false }, 3000)
-}
+// toast(复用公共 useToast)
+const toast = useToast()
+const showToast = (text: string, kind: 'ok' | 'err' = 'ok') => toast.show(text, kind, 3000)
 
 interface EditState {
   id: number | null
@@ -310,8 +301,8 @@ async function handleActivate(c: ModelConfig) {
 }
 
 function actionClass(action: string) {
-  if (action === 'ACTIVATE') return 'act-activate'
-  if (action === 'TEST') return 'act-test'
+  if (action === MODEL_CONFIG_ACTION.ACTIVATE) return 'act-activate'
+  if (action === MODEL_CONFIG_ACTION.TEST) return 'act-test'
   return 'act-save'
 }
 

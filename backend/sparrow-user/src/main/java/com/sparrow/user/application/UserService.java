@@ -5,19 +5,14 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.common.security.TokenKeys;
 import com.sparrow.user.domain.model.User;
+import com.sparrow.user.infrastructure.mail.MailSenderAdapter;
 import com.sparrow.user.infrastructure.persistence.UserMapper;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.InternetAddress;
-import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,26 +34,20 @@ public class UserService {
 
     private final UserMapper userMapper;
     private final StringRedisTemplate redis;
-    private final JavaMailSender mailSender;
+    private final MailSenderAdapter mailSender;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
     private final int tokenTtlDays;
-    private final int codeTtlMinutes;
     private final int resendCooldownSeconds;
-    private final String fromPersonal;
 
     @Autowired
-    public UserService(UserMapper userMapper, StringRedisTemplate redis, JavaMailSender mailSender,
+    public UserService(UserMapper userMapper, StringRedisTemplate redis, MailSenderAdapter mailSender,
                        @Value("${sparrow.auth.token-ttl-days:7}") int tokenTtlDays,
-                       @Value("${sparrow.mail.code-ttl-minutes:5}") int codeTtlMinutes,
-                       @Value("${sparrow.mail.resend-cooldown-seconds:60}") int resendCooldownSeconds,
-                       @Value("${sparrow.mail.from-personal:Sparrow 科技图}") String fromPersonal) {
+                       @Value("${sparrow.mail.resend-cooldown-seconds:60}") int resendCooldownSeconds) {
         this.userMapper = userMapper;
         this.redis = redis;
         this.mailSender = mailSender;
         this.tokenTtlDays = tokenTtlDays;
-        this.codeTtlMinutes = codeTtlMinutes;
         this.resendCooldownSeconds = resendCooldownSeconds;
-        this.fromPersonal = fromPersonal;
     }
 
     @Transactional
@@ -103,8 +92,8 @@ public class UserService {
             throw new BizException("发送过于频繁,请稍后再试");
         }
         String code = randomCode();
-        redis.opsForValue().set(EMAIL_CODE_KEY + lowerEmail, code, Duration.ofMinutes(codeTtlMinutes));
-        sendCodeMailAsync(lowerEmail, code);
+        redis.opsForValue().set(EMAIL_CODE_KEY + lowerEmail, code, Duration.ofMinutes(5));
+        mailSender.sendVerificationCode(lowerEmail, code);
     }
 
     /**
@@ -200,26 +189,5 @@ public class UserService {
 
     private static String randomCode() {
         return String.format("%06d", new Random().nextInt(1_000_000));
-    }
-
-    @Async
-    void sendCodeMailAsync(String to, String code) {
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
-            helper.setFrom(new InternetAddress("noreply@sparrow.tech", fromPersonal));
-            helper.setTo(to);
-            helper.setSubject("【Sparrow 科技图】登录验证码");
-            helper.setText("您正在登录 Sparrow 科技图。验证码：<b>" + code + "</b>，"
-                    + codeTtlMinutes + " 分钟内有效。如非本人操作请忽略本邮件。", true);
-            mailSender.send(message);
-        } catch (MessagingException e) {
-            log.error("验证码邮件构建失败 to={}: {}", to, e.getMessage());
-            throw new BizException("验证码邮件发送失败");
-        } catch (Exception e) {
-            // SMTP 未配置/凭证错误等:不把堆栈冒泡成 500,给出可读提示
-            log.error("验证码邮件发送失败 to={}: {}", to, e.getMessage());
-            throw new BizException("验证码邮件发送失败,请稍后重试或联系管理员");
-        }
     }
 }

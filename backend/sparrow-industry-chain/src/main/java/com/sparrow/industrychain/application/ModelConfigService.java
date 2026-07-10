@@ -4,7 +4,6 @@ import com.sparrow.common.security.AdminGuard;
 import com.sparrow.industrychain.infrastructure.client.UserClient;
 import com.sparrow.industrychain.infrastructure.config.IndustryChainAiConfig;
 import com.sparrow.industrychain.infrastructure.config.ModelConfig;
-import com.sparrow.industrychain.infrastructure.config.ModelConfigBroadcaster;
 import com.sparrow.industrychain.infrastructure.llm.ChatModelProvider;
 import com.sparrow.industrychain.infrastructure.persistence.ModelConfigRepository;
 import com.sparrow.industrychain.infrastructure.persistence.ModelConfigRepository.AuditRow;
@@ -16,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.util.List;
@@ -24,8 +25,9 @@ import java.util.Map;
 /**
  * 模型配置管理:列表(脱敏)/测试连接/保存/原子激活 + 审计。
  *
- * <p>激活流程:{@link #activate} 事务内切换 active 标记 → 用新配置构建模型 →
- * {@link ChatModelProvider#swap} 原子替换 → {@link ModelConfigBroadcaster#publishReload} 通知其它实例。
+ * <p>激活流程:{@link #activate} 事务内切换 active 标记 → 写审计 → 提交后用新配置构建模型并
+ * {@link ChatModelProvider#swap} 原子替换。当前为单实例部署,本机 swap 即完成热切换;
+ * 若将来多实例,可在此处接入广播(Nacos 配置写回或 Redis Pub/Sub)。
  * 进行中的调研不受影响(启动时已快照旧模型引用)。
  */
 @Service
@@ -36,16 +38,13 @@ public class ModelConfigService {
     private final ModelConfigRepository repository;
     private final ChatModelProvider chatModelProvider;
     private final IndustryChainAiConfig aiConfig;
-    private final ModelConfigBroadcaster broadcaster;
     private final UserClient userClient;
 
     public ModelConfigService(ModelConfigRepository repository, ChatModelProvider chatModelProvider,
-                              IndustryChainAiConfig aiConfig, ModelConfigBroadcaster broadcaster,
-                              UserClient userClient) {
+                              IndustryChainAiConfig aiConfig, UserClient userClient) {
         this.repository = repository;
         this.chatModelProvider = chatModelProvider;
         this.aiConfig = aiConfig;
-        this.broadcaster = broadcaster;
         this.userClient = userClient;
     }
 
@@ -114,7 +113,7 @@ public class ModelConfigService {
 
     /** 保存审计。 */
     public void recordTest(long operatorId, TestConfig req, TestResult result) {
-        repository.audit(null, req.name(), operatorId, "TEST",
+        repository.audit(null, req.name(), operatorId, AuditAction.TEST,
                 "模型:" + req.modelName() + " url:" + req.baseUrl() + " → " + result.message(),
                 result.ok());
     }
@@ -135,17 +134,26 @@ public class ModelConfigService {
                     : repository.encryptApiKey(req.apiKey());
             repository.update(req.id(), req.name(), req.baseUrl(), req.modelName(),
                     encKey, req.maxTokens(), req.timeoutSeconds(), req.maxRetries());
-            repository.audit(req.id(), req.name(), operatorId, "SAVE", "更新配置", null);
+            repository.audit(req.id(), req.name(), operatorId, AuditAction.SAVE, "更新配置", null);
             return req.id();
         }
         long id = repository.insert(req.name(), req.baseUrl(), req.modelName(),
                 repository.encryptApiKey(req.apiKey()), req.maxTokens(),
                 req.timeoutSeconds(), req.maxRetries(), operatorId);
-        repository.audit(id, req.name(), operatorId, "SAVE", "新增配置", null);
+        repository.audit(id, req.name(), operatorId, AuditAction.SAVE, "新增配置", null);
         return id;
     }
 
-    /** 原子激活:切换 active → 建模型 → swap → 广播。 */
+    /**
+     * 原子激活:DB 切换 active + 审计在事务内;内存 swap + Redis 广播延迟到事务提交后。
+     *
+     * <p>为何 swap 必须在 afterCommit:它是不可回滚的内存状态变更。若放在事务体内且 DB 提交失败
+     * 回滚,内存里的模型已切但 DB active 标记回滚,状态不一致。放 afterCommit 则只有 DB 真正提交
+     * 成功后才切换。
+     *
+     * <p>测试环境无真实事务时(直接 new Service),isSynchronizationActive() 为 false,
+     * 回退为立即执行,保证行为可测。
+     */
     @Transactional
     public void activate(long configId, long operatorId) {
         requireAdmin(operatorId);
@@ -154,7 +162,7 @@ public class ModelConfigService {
         if (config.apiKeyPlain() == null || config.apiKeyPlain().isBlank()) {
             throw new BizException("该配置缺少 API Key,无法激活");
         }
-        // 先建模型(失败则不切换,保证不破坏当前可用模型)
+        // 先建模型(失败则不切换,保证不破坏当前可用模型)。模型对象在 afterCommit 时使用。
         ChatModel newModel;
         try {
             newModel = aiConfig.buildFrom(config);
@@ -162,27 +170,20 @@ public class ModelConfigService {
             throw new BizException("新配置构建模型失败,未切换: " + e.getMessage());
         }
         repository.setActive(configId);
-        chatModelProvider.swap(newModel);
-        repository.audit(configId, config.name(), operatorId, "ACTIVATE",
+        repository.audit(configId, config.name(), operatorId, AuditAction.ACTIVATE,
                 "激活配置 base:" + config.baseUrl() + " model:" + config.modelName(), null);
-        broadcaster.publishReload();
-    }
-
-    /**
-     * 应用当前数据库里的激活配置(供启动后 + 广播收到时重新构建并 swap)。
-     * 失败时回退到环境变量配置,避免广播把所有实例打成"无模型"。
-     */
-    public void applyActiveConfig() {
-        ModelConfig active = repository.findActiveDecrypted().orElse(null);
-        if (active == null || active.apiKeyPlain() == null || active.apiKeyPlain().isBlank()) {
-            return; // 无激活配置,保持现状
-        }
-        try {
-            ChatModel model = aiConfig.buildFrom(active);
-            chatModelProvider.swap(model);
-            log.info("已按广播重载激活配置: {} ({})", active.name(), active.modelName());
-        } catch (Exception e) {
-            log.warn("广播重载激活配置失败,保持当前模型: {}", e.getMessage());
+        // 内存 swap 放事务提交后,避免 DB 回滚导致内存/DB 状态分裂
+        Runnable afterCommit = () -> chatModelProvider.swap(newModel);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    afterCommit.run();
+                }
+            });
+        } else {
+            // 无事务上下文(如单测直接调用):立即执行
+            afterCommit.run();
         }
     }
 
@@ -204,6 +205,15 @@ public class ModelConfigService {
     private static String truncate(String s) {
         if (s == null) return null;
         return s.length() > 200 ? s.substring(0, 200) + "…" : s;
+    }
+
+    /** 审计动作类型常量(避免裸字符串散落,前后端约定)。 */
+    public static final class AuditAction {
+        public static final String TEST = "TEST";
+        public static final String SAVE = "SAVE";
+        public static final String ACTIVATE = "ACTIVATE";
+        private AuditAction() {
+        }
     }
 
     public record TestConfig(String name, String baseUrl, String modelName, String apiKey,
