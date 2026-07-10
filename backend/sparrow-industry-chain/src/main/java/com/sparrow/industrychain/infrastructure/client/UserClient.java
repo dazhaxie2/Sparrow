@@ -22,5 +22,9 @@ public interface UserClient {
      */
     @GetMapping("/{userId}/membership")
     ApiResponse<Map<String, Object>> membership(@PathVariable("userId") Long userId);
+
+    /** 查询用户基础资料(含 role),供下游做管理端鉴权。 */
+    @GetMapping("/{userId}/profile")
+    ApiResponse<Map<String, Object>> profile(@PathVariable("userId") Long userId);
 }
 

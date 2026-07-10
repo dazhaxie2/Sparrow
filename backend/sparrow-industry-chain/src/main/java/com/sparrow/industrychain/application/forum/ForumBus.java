@@ -2,6 +2,7 @@ package com.sparrow.industrychain.application.forum;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparrow.industrychain.infrastructure.event.IndustryChainEventHub;
+import com.sparrow.industrychain.infrastructure.llm.ChatModelProvider;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository;
 import dev.langchain4j.model.chat.ChatModel;
 import org.slf4j.Logger;
@@ -9,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +42,9 @@ public class ForumBus {
 
     private final IndustryChainRepository repository;
     private final IndustryChainEventHub events;
-    private final ChatModel chatModel;
+    // 通过门面按需取当前模型,使管理端热切换后主持人发言也用新模型
+    // (旧实现构造时捕获 ChatModel 永不更新)。
+    private final ChatModelProvider chatModelProvider;
     private final ObjectMapper objectMapper;
 
     /** 每次运行的事件缓冲(供主持人读取最近发言)与未结算计数器。 */
@@ -49,10 +53,10 @@ public class ForumBus {
     private final Map<Long, AtomicBoolean> hostGenerating = new ConcurrentHashMap<>();
 
     public ForumBus(IndustryChainRepository repository, IndustryChainEventHub events,
-                         ChatModel chatModel, ObjectMapper objectMapper) {
+                    ChatModelProvider chatModelProvider, ObjectMapper objectMapper) {
         this.repository = repository;
         this.events = events;
-        this.chatModel = chatModel;
+        this.chatModelProvider = chatModelProvider;
         this.objectMapper = objectMapper;
     }
 
@@ -87,8 +91,8 @@ public class ForumBus {
     public List<ForumEvent> history(long cardId, long runId) {
         return repository.forumEvents(cardId, runId).stream()
                 .map(row -> new ForumEvent(row.cardId(), row.runId(), row.source(), row.content(),
-                        row.createdAt() == null ? "" : row.createdAt().atZone(CHINA_ZONE)
-                                .toOffsetDateTime().toString()))
+                        row.createdAt() == null ? "" : row.createdAt().atOffset(ZoneOffset.UTC)
+                                .atZoneSameInstant(CHINA_ZONE).toOffsetDateTime().toString()))
                 .toList();
     }
 
@@ -125,6 +129,7 @@ public class ForumBus {
 
     /** 主持人 LLM：基于最近一批 Agent 发言生成四段式总结(时间线/观点整合/分歧/引导问题)。 */
     private String generateHostSpeech(List<ForumEvent> speeches) {
+        ChatModel chatModel = chatModelProvider.model();
         if (chatModel == null) return null;
         StringBuilder sb = new StringBuilder();
         for (ForumEvent s : speeches) {

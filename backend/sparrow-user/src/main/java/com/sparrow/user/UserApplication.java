@@ -5,10 +5,12 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.scheduling.annotation.EnableAsync;
 
 @SpringBootApplication
 @ConfigurationPropertiesScan
 @EnableDiscoveryClient
+@EnableAsync
 @ComponentScan({"com.sparrow.user", "com.sparrow.common"})
 public class UserApplication {
 

@@ -10,6 +10,7 @@
     <nav class="top-nav" aria-label="Primary">
       <button class="nav-item" :class="{ active: $route.path === '/' && graphMode === 'map' }" type="button" @click="activate('graph')">图谱</button>
       <router-link class="nav-item" :class="{ active: $route.path.startsWith('/chains') }" to="/chains">产业链</router-link>
+      <router-link v-if="user.isAdmin()" class="nav-item" :class="{ active: $route.path.startsWith('/admin') }" to="/admin/models">模型配置</router-link>
       <button class="nav-item" type="button" @click="activate('member')">会员</button>
     </nav>
 

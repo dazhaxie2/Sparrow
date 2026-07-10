@@ -19,6 +19,11 @@ public class User {
     @TableField("password_hash")
     private String passwordHash;
 
+    private String email;
+
+    /** 角色：user(默认) / admin。决定能否访问管理端。 */
+    private String role;
+
     @TableField("member_expire_at")
     private LocalDateTime memberExpireAt;
 
@@ -45,6 +50,22 @@ public class User {
         this.passwordHash = passwordHash;
     }
 
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
     public LocalDateTime getMemberExpireAt() {
         return memberExpireAt;
     }
@@ -59,5 +80,10 @@ public class User {
 
     public boolean memberActive() {
         return memberExpireAt != null && memberExpireAt.isAfter(LocalDateTime.now());
+    }
+
+    /** role 兼容老数据(NULL 视作普通用户)。 */
+    public String effectiveRole() {
+        return role == null || role.isBlank() ? "user" : role;
     }
 }

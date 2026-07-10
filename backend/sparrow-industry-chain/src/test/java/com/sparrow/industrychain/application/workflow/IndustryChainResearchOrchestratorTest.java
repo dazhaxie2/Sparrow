@@ -63,10 +63,12 @@ class IndustryChainResearchOrchestratorTest {
         graphExtractor = mock(ResearchGraphExtractor.class);
         reportBuilder = mock(ResearchReportBuilder.class);
 
-        // ForumBus 用真实实现 + mock ChatModel(主持人发言) + mock 仓储/事件
+        // ForumBus 用真实实现 + mock ChatModel(主持人发言) + mock 仓储/事件。
+        // ChatModelProvider 用真实实例持有 mock 模型(ForumBus 经 provider.model() 取主持人模型)。
         IndustryChainRepository repo = mock(IndustryChainRepository.class);
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
-        forum = new ForumBus(repo, hub, chatModel, MAPPER);
+        ChatModelProvider forumProvider = new ChatModelProvider(chatModel);
+        forum = new ForumBus(repo, hub, forumProvider, MAPPER);
 
         orchestrator = new IndustryChainResearchOrchestrator(chat, MAPPER, webSearch, forum,
                 graphExtractor, reportBuilder, syncExecutor);

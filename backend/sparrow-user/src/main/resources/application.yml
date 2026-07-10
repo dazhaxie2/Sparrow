@@ -37,6 +37,25 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+  mail:
+    # 邮箱验证码登录的发件邮箱(QQ SMTP)。
+    # 授权码走 MAIL_PASSWORD 环境变量 / Nacos,不进 git。
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:3267044027@qq.com}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+          socketFactory:
+            class: javax.net.ssl.SSLSocketFactory
+          starttls:
+            enable: false
+        debug: false
 
 mybatis-plus:
   configuration:
@@ -50,6 +69,11 @@ sparrow:
     token-ttl-days: 7
   events:
     enabled: ${KAFKA_ENABLED:false}
+  mail:
+    # 验证码 TTL(分钟)与同一邮箱再次发送的冷却秒数
+    code-ttl-minutes: ${MAIL_CODE_TTL_MINUTES:5}
+    resend-cooldown-seconds: ${MAIL_RESEND_COOLDOWN_SECONDS:60}
+    from-personal: ${MAIL_FROM_PERSONAL:Sparrow 科技图}
 
 logging:
   level:

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Profile } from './types'
 import { fetchMe } from './api'
-import { login as apiLogin, register as apiRegister } from './api'
+import { login as apiLogin, register as apiRegister, loginByEmail as apiLoginByEmail } from './api'
 import { useChatStore } from '../ai/store/chat'
 
 export const useUserStore = defineStore('user', () => {
@@ -34,6 +34,14 @@ export const useUserStore = defineStore('user', () => {
     await loadProfile()
   }
 
+  /** 邮箱验证码登录:先发送验证码,再用验证码登录。 */
+  async function loginByEmail(email: string, code: string) {
+    const res = await apiLoginByEmail(email, code)
+    token.value = res.token
+    localStorage.setItem('sparrow_token', res.token)
+    await loadProfile()
+  }
+
   function logout() {
     token.value = null
     profile.value = null
@@ -43,6 +51,7 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const isLoggedIn = () => !!token.value
+  const isAdmin = () => profile.value?.role === 'admin'
 
-  return { profile, token, loadProfile, login, register, logout, isLoggedIn }
+  return { profile, token, loadProfile, login, register, loginByEmail, logout, isLoggedIn, isAdmin }
 })

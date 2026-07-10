@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparrow.industrychain.application.forum.ForumBus;
 import com.sparrow.industrychain.application.forum.ForumEvent;
 import com.sparrow.industrychain.infrastructure.event.IndustryChainEventHub;
+import com.sparrow.industrychain.infrastructure.llm.ChatModelProvider;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository;
 import dev.langchain4j.model.chat.ChatModel;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,12 @@ class ForumBusTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    private ChatModelProvider providerWith(ChatModel model) {
+        ChatModelProvider p = new ChatModelProvider();
+        p.init(model);
+        return p;
+    }
+
     /** 攒够 5 条 Agent 发言 → 触发一次主持人发言；再多 5 条 → 第二次。 */
     @Test
     void triggersHostAfterEveryFiveAgentSpeeches() {
@@ -35,7 +42,7 @@ class ForumBusTest {
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyString())).thenReturn("主持人总结");
-        ForumBus bus = new ForumBus(repo, hub, model, MAPPER);
+        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER);
 
         for (int i = 0; i < 5; i++) bus.publish(1, 10, 1, ForumEvent.INDUSTRY, "发言 " + i);
         verify(model, times(1)).chat(anyString());
@@ -51,7 +58,7 @@ class ForumBusTest {
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyString())).thenReturn("最新主持人引导");
-        ForumBus bus = new ForumBus(repo, hub, model, MAPPER);
+        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER);
 
         assertThat(bus.latestHostSpeech(10)).isEmpty();
         for (int i = 0; i < 5; i++) bus.publish(1, 10, 1, ForumEvent.INDUSTRY, "发言 " + i);
@@ -64,7 +71,7 @@ class ForumBusTest {
         IndustryChainRepository repo = mock(IndustryChainRepository.class);
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
         ChatModel model = mock(ChatModel.class);
-        ForumBus bus = new ForumBus(repo, hub, model, MAPPER);
+        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER);
 
         for (int i = 0; i < 6; i++) bus.publish(1, 10, 1, ForumEvent.SYSTEM, "系统 " + i);
         verify(model, times(0)).chat(anyString());
@@ -77,7 +84,7 @@ class ForumBusTest {
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyString())).thenReturn("host 内容");
-        ForumBus bus = new ForumBus(repo, hub, model, MAPPER);
+        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER);
 
         for (int i = 0; i < 5; i++) bus.publish(1, 10, 1, ForumEvent.INSIGHT, "i" + i);
         // 6 条落库(5 Agent + 1 Host)，全部广播

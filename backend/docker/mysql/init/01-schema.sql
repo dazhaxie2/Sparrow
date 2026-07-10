@@ -28,10 +28,13 @@ CREATE TABLE IF NOT EXISTS t_user (
     id               BIGINT       NOT NULL AUTO_INCREMENT,
     username         VARCHAR(64)  NOT NULL,
     password_hash    VARCHAR(100) NOT NULL,
+    email            VARCHAR(128) NULL,
+    role             VARCHAR(16)  NOT NULL DEFAULT 'user',
     member_expire_at DATETIME     NULL,
     created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_username (username)
+    UNIQUE KEY uk_username (username),
+    UNIQUE KEY uk_email (email)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 -- M3 订单支付事件审计流水:消费 sparrow.trade.order-paid,order_no 唯一键天然幂等。

@@ -11,14 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
 @Repository
 public class IndustryChainRepository {
-
-    private static final ZoneId CHINA_ZONE = ZoneId.of("Asia/Shanghai");
 
     /** 调研卡片行数据：基本信息、状态、图谱与报告内容。 */
     public record CardRow(Long id, Long userId, String title, String brief, String status,
@@ -111,6 +109,32 @@ public class IndustryChainRepository {
         // 平滑升级：老库补 report_ir 列
         addColumnIfMissing("research_card", "report_ir", "LONGTEXT NULL AFTER report_md");
         addColumnIfMissing("research_run", "checkpoint_json", "LONGTEXT NULL AFTER error_message");
+        // 模型配置管理：支持网页热切换 LLM 配置,无需重启
+        jdbc.execute("CREATE TABLE IF NOT EXISTS model_config ("
+                + "id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,"
+                + "name VARCHAR(64) NOT NULL,"
+                + "base_url VARCHAR(255) NOT NULL,"
+                + "model_name VARCHAR(128) NOT NULL,"
+                + "api_key_encrypted VARCHAR(700) NOT NULL,"
+                + "max_tokens INT NOT NULL DEFAULT 3000,"
+                + "timeout_seconds INT NOT NULL DEFAULT 180,"
+                + "max_retries INT NOT NULL DEFAULT 2,"
+                + "active TINYINT NOT NULL DEFAULT 0,"
+                + "created_by BIGINT NULL,"
+                + "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                + "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        jdbc.execute("CREATE TABLE IF NOT EXISTS model_config_audit ("
+                + "id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,"
+                + "config_id BIGINT NULL,"
+                + "config_name VARCHAR(64) NULL,"
+                + "operator_id BIGINT NULL,"
+                + "action VARCHAR(16) NOT NULL,"
+                + "summary VARCHAR(1000) NULL,"
+                + "test_ok TINYINT NULL,"
+                + "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                + "KEY idx_model_config_audit_config(config_id)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     }
 
     /** 幂等加列：列已存在时忽略异常。 */
@@ -379,7 +403,7 @@ public class IndustryChainRepository {
     public void addForumEvent(long userId, long cardId, long runId, String source, String content) {
         jdbc.update("INSERT INTO research_forum(card_id,user_id,run_id,source,content,created_at) "
                         + "VALUES(?,?,?,?,?,?)",
-                cardId, userId, runId, source, content, LocalDateTime.now(CHINA_ZONE));
+                cardId, userId, runId, source, content, LocalDateTime.now(ZoneOffset.UTC));
     }
 
     /** 查询某次运行的论坛事件(按时间顺序)，用于工作台初次加载还原协作流。 */

@@ -19,6 +19,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 
 /**
  * 产业链深度调研应用服务。
@@ -111,7 +112,8 @@ public class ResearchCardService {
         return repository.forumEvents(cardId, runId).stream()
                 .map(event -> new ForumEventView(event.id(), event.source(), sourceText(event.source()),
                         event.content(), event.createdAt() == null ? null : event.createdAt()
-                                .atZone(CHINA_ZONE).toOffsetDateTime().toString()))
+                                .atOffset(ZoneOffset.UTC).atZoneSameInstant(CHINA_ZONE)
+                                .toOffsetDateTime().toString()))
                 .toList();
     }
 

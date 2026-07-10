@@ -44,7 +44,17 @@ const props = defineProps<{ researching: boolean; events: ForumEventView[]; erro
 const stream = ref<HTMLElement | null>(null)
 
 function formatChinaTime(value: string) {
-  const parsed = new Date(value)
+  const legacyTime = /^(\d{2}):(\d{2}):(\d{2})$/.exec(value)
+  const parsed = legacyTime
+    ? new Date(Date.UTC(
+        new Date().getUTCFullYear(),
+        new Date().getUTCMonth(),
+        new Date().getUTCDate(),
+        Number(legacyTime[1]),
+        Number(legacyTime[2]),
+        Number(legacyTime[3]),
+      ))
+    : new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai',

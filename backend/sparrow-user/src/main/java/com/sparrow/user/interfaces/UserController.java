@@ -29,7 +29,17 @@ public class UserController {
                               @NotBlank @Size(min = 6, max = 64) String password) {
     }
 
-    public record Profile(Long id, String username, boolean member, LocalDateTime memberExpireAt) {
+    public record EmailCodeRequest(@NotBlank
+                                   @Pattern(regexp = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+                                           message = "邮箱格式不正确")
+                                   String email) {
+    }
+
+    public record EmailLoginRequest(@NotBlank String email, @NotBlank String code) {
+    }
+
+    public record Profile(Long id, String username, String email, String role,
+                          boolean member, LocalDateTime memberExpireAt) {
     }
 
     private final UserService userService;
@@ -48,10 +58,23 @@ public class UserController {
         return ApiResponse.ok(Map.of("token", userService.login(req.username(), req.password())));
     }
 
+    /** 发送邮箱验证码。 */
+    @PostMapping("/send-email-code")
+    public ApiResponse<Map<String, Object>> sendEmailCode(@RequestBody @Validated EmailCodeRequest req) {
+        userService.sendEmailCode(req.email());
+        return ApiResponse.ok(Map.of("ok", true));
+    }
+
+    /** 邮箱验证码登录(邮箱未注册时自动注册)。 */
+    @PostMapping("/login-by-email")
+    public ApiResponse<Map<String, String>> loginByEmail(@RequestBody @Validated EmailLoginRequest req) {
+        return ApiResponse.ok(Map.of("token", userService.loginByEmail(req.email(), req.code())));
+    }
+
     @GetMapping("/me")
     public ApiResponse<Profile> me() {
         User user = userService.getById(UserContext.require());
-        return ApiResponse.ok(new Profile(user.getId(), user.getUsername(),
-                user.memberActive(), user.getMemberExpireAt()));
+        return ApiResponse.ok(new Profile(user.getId(), user.getUsername(), user.getEmail(),
+                user.effectiveRole(), user.memberActive(), user.getMemberExpireAt()));
     }
 }

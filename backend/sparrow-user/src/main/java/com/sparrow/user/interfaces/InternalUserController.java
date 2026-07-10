@@ -36,6 +36,17 @@ public class InternalUserController {
         return ApiResponse.ok(Map.of("member", userService.isMember(userId)));
     }
 
+    /** 内部接口:查询用户基础资料(含 role),供下游服务做管理端鉴权。 */
+    @GetMapping("/{userId}/profile")
+    public ApiResponse<Map<String, Object>> profile(@PathVariable Long userId) {
+        com.sparrow.user.domain.model.User user = userService.getById(userId);
+        return ApiResponse.ok(Map.of(
+                "id", user.getId(),
+                "username", user.getUsername(),
+                "role", user.effectiveRole(),
+                "member", user.memberActive()));
+    }
+
     @PostMapping("/{userId}/membership/grant")
     public ApiResponse<Map<String, Object>> grant(@PathVariable Long userId,
                                                   @RequestBody @Validated GrantRequest req) {
