@@ -7,7 +7,7 @@
       @select="scrollToQuestion"
     />
 
-    <div ref="scrollRef" class="ai-messages" @scroll="syncActiveQuestion">
+    <div ref="scrollRef" class="ai-messages" @scroll="onContainerScroll">
       <div
         v-for="(msg, i) in messages"
         :key="i"
@@ -31,14 +31,12 @@
             <ChevronDown :size="13" class="chev" :class="{ flipped: thinkingOpen[i] !== false }" />
           </button>
           <div v-if="thinkingOpen[i] !== false" class="thinking-content">
-            <!-- 流式期间用纯文本插值(每个 delta 都会重渲染,纯文本是 O(n);完成后才跑一次完整 markdown 解析)。 -->
-            <span v-if="msg.streaming">{{ msg.thinking }}</span>
-            <span v-else v-html="renderMessage(msg.thinking)" />
+            <span v-html="renderMessage(msg.thinking)" />
           </div>
         </div>
-        <!-- 同上:流式期间纯文本(避免每个 token 全量 markdown 重算 + v-html DOM 重建,O(n²)→O(n)),完成后切 markdown。 -->
-        <div v-if="msg.streaming" class="msg-content msg-content-streaming">{{ msg.content }}</div>
-        <div v-else class="msg-content" v-html="renderMessage(msg.content)" />
+        <!-- 流式与完成态都走 markdown 渲染:token 已在 useChat 里按帧批处理(rAF/100ms),
+             每个 delta 只触发一次重渲染,markdown 解析不会成为瓶颈。 -->
+        <div class="msg-content" :class="{ 'msg-content-streaming': msg.streaming }" v-html="renderMessage(msg.content)" />
         <span v-if="msg.streaming" class="cursor" aria-hidden="true" />
         <div v-if="msg.role !== 'user' && msg.thinking && msg.steps?.length" class="agent-steps">
           <span v-for="step in msg.steps" :key="step.key" :class="`step-${step.status}`">
@@ -164,6 +162,13 @@ function compactLabel(value: string) {
   return text.length <= 80 ? text : `${text.slice(0, 80)}...`
 }
 
+function onContainerScroll() {
+  // 用户主动滚动是阅读意图的唯一信号:一旦离开底部区域,就标记"正在阅读上方",
+  // 流式 token 到达时不再强制拉回底部,直到用户重新滚到底部。
+  userScrolledAway = !isNearBottom()
+  syncActiveQuestion()
+}
+
 function syncActiveQuestion() {
   const container = scrollRef.value
   if (!container || !questionItems.value.length) {
@@ -191,15 +196,29 @@ async function scrollToQuestion(index: number) {
 }
 
 // 新消息到达或流式内容增长时,自动滚动到底部。
-function scrollToBottom() {
-  if (scrollRef.value) {
-    scrollRef.value.scrollTop = scrollRef.value.scrollHeight
-    syncActiveQuestion()
-  }
+// 仅当用户已经停留在底部附近(未主动向上阅读)时才自动滚动,
+// 否则保持用户当前阅读位置,避免生成过程中视图被反复拉到底部。
+const STICK_TO_BOTTOM_PX = 80
+let userScrolledAway = false
+
+function isNearBottom() {
+  const el = scrollRef.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_PX
+}
+
+function scrollToBottom(force = false) {
+  if (!scrollRef.value) return
+  // 非强制滚动时,用户已向上阅读则不打扰。
+  if (!force && userScrolledAway) return
+  scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+  userScrolledAway = false
+  syncActiveQuestion()
 }
 
 // 节流滚动:流式 delta 高频到达时,每 120ms 最多滚一次,避免每个 token 都
 // scrollToBottom → syncActiveQuestion → querySelectorAll 强制布局(layout thrash)。
+// scrollToBottom 内部会判断 userScrolledAway,用户向上阅读时整体静默。
 let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null
 let scrollThrottlePending = false
 function throttledScrollToBottom() {
@@ -218,8 +237,9 @@ function throttledScrollToBottom() {
 }
 
 watch(() => props.messages.length, async () => {
+  // 新消息(用户提问 / 新 assistant 占位)总是滚到底部:这是用户的主动操作,不属于"干扰阅读"。
   await nextTick()
-  scrollToBottom()
+  scrollToBottom(true)
 })
 
 watch(

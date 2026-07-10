@@ -3,7 +3,9 @@ package com.sparrow.industrychain.infrastructure.config;
 import com.sparrow.industrychain.infrastructure.llm.ChatModelProvider;
 import com.sparrow.industrychain.infrastructure.persistence.ModelConfigRepository;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -45,6 +47,7 @@ public class IndustryChainAiConfig {
         if (active != null && active.apiKeyPlain() != null && !active.apiKeyPlain().isBlank()) {
             try {
                 chatModelProvider.init(buildFrom(active));
+                chatModelProvider.initStreaming(buildStreamingFrom(active));
                 log.info("LLM 初始化自数据库激活配置: {} ({})", active.name(), active.modelName());
                 return;
             } catch (Exception e) {
@@ -54,6 +57,7 @@ public class IndustryChainAiConfig {
         // 2) 数据库无配置且环境变量已配置:用 env/Nacos 配置
         if (props.llmConfigured()) {
             chatModelProvider.init(buildFromProps());
+            chatModelProvider.initStreaming(buildStreamingFromProps());
             log.info("LLM 初始化自环境变量/Nacos: {} ({})", props.baseUrl(), props.chatModel());
         } else {
             log.warn("LLM 未配置(sparrow.industry-chain.* 与 model_config 均无有效配置),AI 功能将不可用");
@@ -79,6 +83,30 @@ public class IndustryChainAiConfig {
                 .maxTokens(config.maxTokens())
                 .timeout(Duration.ofSeconds(config.timeoutSeconds()))
                 .maxRetries(config.maxRetries())
+                .build();
+    }
+
+    /**
+     * 流式模型(环境变量配置):供 Agent 总结/反思等文本生成路径逐 token 推送。
+     * 流式模型不需要 maxRetries(失败由调用方回退到阻塞模型),timeout 与阻塞模型对齐。
+     */
+    public StreamingChatModel buildStreamingFromProps() {
+        return OpenAiStreamingChatModel.builder()
+                .baseUrl(props.baseUrl())
+                .apiKey(props.apiKey())
+                .modelName(props.chatModel())
+                .maxTokens(3000)
+                .timeout(Duration.ofSeconds(props.effectiveRequestTimeoutSeconds()))
+                .build();
+    }
+
+    public StreamingChatModel buildStreamingFrom(ModelConfig config) {
+        return OpenAiStreamingChatModel.builder()
+                .baseUrl(config.baseUrl())
+                .apiKey(config.apiKeyPlain())
+                .modelName(config.modelName())
+                .maxTokens(config.maxTokens())
+                .timeout(Duration.ofSeconds(config.timeoutSeconds()))
                 .build();
     }
 }

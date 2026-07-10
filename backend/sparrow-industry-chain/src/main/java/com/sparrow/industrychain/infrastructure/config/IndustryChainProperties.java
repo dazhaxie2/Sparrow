@@ -21,10 +21,10 @@ public record IndustryChainProperties(
     }
 
     public int effectiveRequestTimeoutSeconds() {
-        return requestTimeoutSeconds != null && requestTimeoutSeconds > 0 ? requestTimeoutSeconds : 180;
+        return requestTimeoutSeconds != null && requestTimeoutSeconds > 0 ? requestTimeoutSeconds : 45;
     }
 
     public int effectiveMaxRetries() {
-        return maxRetries != null && maxRetries >= 0 ? maxRetries : 2;
+        return maxRetries != null && maxRetries >= 0 ? maxRetries : 1;
     }
 }

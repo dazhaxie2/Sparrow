@@ -87,6 +87,24 @@ public class ForumBus {
         return latest == null ? "" : latest.content();
     }
 
+    /**
+     * 推送细粒度思考进度(转发到 EventHub 的 thinking 事件)。
+     * 供编排器/Agent 在各子步骤开始时调用,让前端实时显示「谁正在做什么」。
+     * 与 publish() 不同:不落库、不触发主持人、不占发言计数,纯瞬时进度提示。
+     */
+    public void thinking(long cardId, long runId, String source, String message) {
+        events.thinking(cardId, runId, source, message);
+    }
+
+    /**
+     * 推送流式 token(转发到 EventHub 的 stream 事件)。
+     * Agent 逐 token 生成时调用,前端按 streamId 幂等更新同一条气泡(打字机效果)。
+     * 不落库:完整结果由轮次结束后的 forum 发言(publish)持久化。
+     */
+    public void stream(long cardId, long runId, String streamId, String source, String text) {
+        events.stream(cardId, runId, streamId, source, text);
+    }
+
     /** 加载历史论坛记录(工作台初次进入时还原流)。按 cardId+runId 检索，归属由调用方保证。 */
     public List<ForumEvent> history(long cardId, long runId) {
         return repository.forumEvents(cardId, runId).stream()

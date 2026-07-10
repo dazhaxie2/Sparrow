@@ -811,7 +811,6 @@ public class AiService {
         } else {
             sb.append("- 可以追问它为什么重要,或让 AI 继续补齐可学习的前置技术。\n");
         }
-        sb.append("- 当前为图谱规则问答;部署时配置 AI_API_KEY 可启用大模型深度问答。");
         return sb.toString();
     }
 

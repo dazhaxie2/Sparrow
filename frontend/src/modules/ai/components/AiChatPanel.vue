@@ -58,10 +58,17 @@ defineEmits<{ (e: 'toggle'): void }>()
 const user = useUserStore()
 const { messages, loading, phase, ask, clearMessages, loadHistory, store: chatStore } = useChat()
 
-// 本组件被 <keep-alive> 缓存,onMounted 只在首次挂载触发一次。
-// 因此登录态变化(重新登录/换号)需靠 watch 驱动,不能只依赖 onMounted。
-onMounted(() => {
-  if (user.isLoggedIn()) chatStore.loadSessions()
+// 注意:本组件并未被 <keep-alive> 缓存(keep-alive 只包 <router-view>),
+// 父组件用 v-if 控制可见性时会销毁/重建本组件,导致 useChat 的 messages 本地
+// ref 重置为欢迎页。因此重新挂载时,若单例 store 仍有激活会话,需从后端拉回
+// 历史消息恢复对话,避免"收起再展开后历史消失"。
+onMounted(async () => {
+  if (!user.isLoggedIn()) return
+  chatStore.loadSessions()
+  // 重新挂载(收起侧栏、切换 tab)时 activeSessionId 仍在 store 里,重新拉回该会话消息。
+  if (chatStore.activeSessionId !== null) {
+    await loadHistory(chatStore.activeSessionId)
+  }
 })
 
 // 监听登录态:登录(false→true)刷新历史;登出(true→false)清屏回欢迎页。

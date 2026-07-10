@@ -77,8 +77,8 @@ public class UserService {
 
     /**
      * 发送邮箱验证码。
-     * <p>同一邮箱 {@link #resendCooldownSeconds} 秒内不可重发(Redis 冷却键),验证码 TTL {@link #codeTtlMinutes} 分钟。
-     * 邮件发送异步执行,不阻塞请求。
+     * <p>同一邮箱 {@link #resendCooldownSeconds} 秒内不可重发(Redis 冷却键),验证码 TTL 由 {@link MailSenderAdapter#getCodeTtlMinutes()} 提供。
+     * 邮件发送异步执行,不阻塞请求。TTL 从 MailSenderAdapter 获取,保持邮件文案与 Redis 过期一致。
      */
     public void sendEmailCode(String email) {
         if (email == null || !email.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) {
@@ -92,7 +92,7 @@ public class UserService {
             throw new BizException("发送过于频繁,请稍后再试");
         }
         String code = randomCode();
-        redis.opsForValue().set(EMAIL_CODE_KEY + lowerEmail, code, Duration.ofMinutes(5));
+        redis.opsForValue().set(EMAIL_CODE_KEY + lowerEmail, code, Duration.ofMinutes(mailSender.getCodeTtlMinutes()));
         mailSender.sendVerificationCode(lowerEmail, code);
     }
 

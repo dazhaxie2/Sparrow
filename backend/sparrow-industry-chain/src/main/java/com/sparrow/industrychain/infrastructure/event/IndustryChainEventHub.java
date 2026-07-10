@@ -48,6 +48,35 @@ public class IndustryChainEventHub {
         emit(cardId, "failed", Map.of("runId", runId, "message", message));
     }
 
+    /**
+     * 流式 token 事件:Agent 逐 token 生成时推送累积全文。
+     * 与 thinking(瞬时状态)不同:stream 携带 streamId,前端按 streamId 幂等更新同一条气泡,
+     * 实现「打字机」效果。不落库(完整结果由 forum 发言在轮次结束后持久化)。
+     *
+     * @param streamId 幂等 key:同一轮生成的多次推送用相同 streamId,前端据此更新同一条气泡
+     * @param source   发言方(INDUSTRY/QUERY/INSIGHT)
+     * @param text     当前累积的完整文本(每次推送替换前一次)
+     */
+    public void stream(long cardId, long runId, String streamId, String source, String text) {
+        emit(cardId, "stream", Map.of(
+                "runId", runId,
+                "streamId", streamId,
+                "source", source,
+                "text", text));
+    }
+
+    /**
+     * 细粒度思考事件：在 Agent/编排器执行各子步骤(检索、总结、反思、阶段切换)前推送,
+     * 让前端实时显示「谁正在做什么」,填补两个 progress 节点之间的空白。
+     * 与 forum 事件不同:thinking 是瞬时进度提示,不落库、不触发主持人,前端展示为「当前活动」而非持久气泡。
+     */
+    public void thinking(long cardId, long runId, String source, String message) {
+        emit(cardId, "thinking", Map.of(
+                "runId", runId,
+                "source", source,
+                "message", message));
+    }
+
     /** 定时发送心跳，避免长时调研的事件流被网关或反向代理按空闲连接断开。 */
     @Scheduled(fixedRateString = "${sparrow.industry-chain.sse-heartbeat-millis:15000}")
     public void heartbeat() {

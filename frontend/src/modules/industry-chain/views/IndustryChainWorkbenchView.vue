@@ -82,6 +82,8 @@
             v-else-if="tab === 'forum'"
             :researching="researching"
             :events="forumEvents"
+            :live-thinking="liveThinking"
+            :stream-bubbles="streamBubbles"
             :error="detail.card.status === 'FAILED' ? detail.card.lastError : null"
           />
           <div v-else-if="tab === 'sources'" class="source-list">
@@ -185,7 +187,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { AlertTriangle, ArrowLeft, BookOpenCheck, Bot, BrainCircuit, ExternalLink, FileDown, FileText, LoaderCircle, MessagesSquare, Network, PanelRightClose, Plus, SearchCheck, Upload } from '@lucide/vue'
 import AppHeader from '../../../app/components/AppHeader.vue'
@@ -222,6 +224,10 @@ const railMode = ref<RailMode>('ask')
 const railModeTouched = ref(false)
 const chainRailCollapsed = ref(localStorage.getItem('industry_chain_ai_rail_collapsed') === '1')
 const forumEvents = ref<ForumEventView[]>([])
+/** 当前活跃子步骤的思考提示(thinking 事件)。瞬时态:只保留最新一条,展示「谁正在做什么」。 */
+const liveThinking = ref<string | null>(null)
+/** 流式 token 气泡:按 streamId 幂等更新,呈现打字机效果。key=streamId,value={source, text}。 */
+const streamBubbles = ref<Record<string, { source: string; sourceText: string; text: string }>>({})
 const richReportRef = ref<ComponentPublicInstance | null>(null)
 const exporting = ref(false)
 let streamController: AbortController | null = null
@@ -470,8 +476,36 @@ function connectEvents() {
       appendForumEvent(data as unknown as ForumSsePayload)
       return
     }
+    if (event === 'thinking') {
+      // 细粒度思考进度:瞬时态,只保留最新一条,展示「谁正在做什么」。
+      if (typeof data.message === 'string') liveThinking.value = data.message
+      return
+    }
+    if (event === 'stream') {
+      // 流式 token:按 streamId 幂等更新累积文本(打字机效果)。
+      if (typeof data.streamId === 'string') {
+        const source = typeof data.source === 'string' ? data.source : ''
+        streamBubbles.value = {
+          ...streamBubbles.value,
+          [data.streamId]: {
+            source,
+            sourceText: ({
+              INDUSTRY: '行业 Agent',
+              QUERY: '检索 Agent',
+              INSIGHT: '洞察 Agent',
+              HOST: '论坛主持人',
+              SYSTEM: '系统',
+            } as Record<string, string>)[source] || source,
+            text: typeof data.text === 'string' ? data.text : '',
+          },
+        }
+      }
+      return
+    }
     applyProgress(data)
     if (event === 'completed' || event === 'failed') {
+      liveThinking.value = null
+      streamBubbles.value = {}
       stopEvents()
       await load(true)
       if (event === 'completed') tab.value = 'report'
@@ -487,6 +521,12 @@ function connectEvents() {
 
 function appendForumEvent(payload: ForumSsePayload) {
   const event = payload.event
+  // 论坛发言是该角色本轮的最终结论,落库后移除同来源的流式气泡,避免与持久气泡重复显示。
+  const remaining: typeof streamBubbles.value = {}
+  for (const [id, bubble] of Object.entries(streamBubbles.value)) {
+    if (bubble.source !== event.source) remaining[id] = bubble
+  }
+  streamBubbles.value = remaining
   forumEvents.value.push({
     id: Date.now() + Math.random(),
     source: event.source,
@@ -563,6 +603,22 @@ watch(() => props.id, () => {
   void load()
 })
 onMounted(() => void load())
+// keep-alive 下,切换到其它路由(如图谱页)时 onUnmounted 不会触发,组件只是被缓存。
+// 此时 SSE fetch 流变成游离态(浏览器可能断开空闲连接),且返回时没有钩子重连。
+// 因此用 onActivated/onDeactivated 接管 SSE 生命周期:
+//  - 离开(deactivate):断开事件流 + 停轮询,避免游离连接;
+//  - 返回(activate):若仍在调研则重连事件流,否则在 detail 缺失时重新拉取。
+onActivated(() => {
+  if (researching.value) {
+    // 先清理可能已失效的旧流,再重连,确保拿到最新进度。
+    stopEvents()
+    connectEvents()
+  } else if (!detail.value) {
+    // 实例被驱逐后 detail 归空:重新加载恢复界面。
+    void load()
+  }
+})
+onDeactivated(stopEvents)
 onUnmounted(stopEvents)
 </script>
 

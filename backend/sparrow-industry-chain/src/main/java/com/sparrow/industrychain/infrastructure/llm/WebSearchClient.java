@@ -15,6 +15,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Component
 public class WebSearchClient {
@@ -24,6 +27,20 @@ public class WebSearchClient {
 
     private static final String MOBILE_UA = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
             + "Chrome/124.0 Mobile Safari/537.36 SparrowResearch/1.0";
+
+    /**
+     * 联网检索/富化专用的有界线程池。这些是阻塞 IO(搜狗搜索页抓取 + 各来源页正文下载),
+     * 不应占用调研主执行器(industryChainResearchExecutor,负责 LLM 调用)。
+     * 限并发以兼顾速度与搜索引擎反爬:同一 host 瞬时并发过高易被限流。
+     */
+    private static final int SEARCH_CONCURRENCY = 3;
+    private static final ExecutorService IO_EXECUTOR =
+            Executors.newFixedThreadPool(SEARCH_CONCURRENCY, r -> {
+                Thread t = new Thread(r, "industry-chain-websearch-");
+                t.setDaemon(true);
+                return t;
+            });
+
     private final IndustryChainProperties props;
 
     public WebSearchClient(IndustryChainProperties props) {
@@ -55,19 +72,43 @@ public class WebSearchClient {
             }
         }
 
-        Map<String, Candidate> deduplicated = new LinkedHashMap<>();
+        // 多查询并行检索(限并发 SEARCH_CONCURRENCY 路,避免触发搜索引擎反爬限流),
+        // 去重后再并行富化各候选来源,把「串行 N×(检索+富化)」压缩为接近单次往返。
+        List<CompletableFuture<List<Candidate>>> searchFutures = new ArrayList<>();
         for (String query : queries) {
-            for (Candidate candidate : searchOne(query)) {
-                deduplicated.putIfAbsent(candidate.url(), candidate);
-                if (deduplicated.size() >= 15) break;
-            }
-            if (deduplicated.size() >= 15) break;
+            searchFutures.add(CompletableFuture.supplyAsync(() -> searchOne(query), IO_EXECUTOR));
         }
+        Map<String, Candidate> deduplicated = new LinkedHashMap<>();
+        int remaining = 15;
+        for (CompletableFuture<List<Candidate>> future : searchFutures) {
+            List<Candidate> candidates;
+            try {
+                candidates = future.join();
+            } catch (Exception ignored) {
+                continue;
+            }
+            for (Candidate candidate : candidates) {
+                deduplicated.putIfAbsent(candidate.url(), candidate);
+                if (--remaining <= 0) break;
+            }
+            if (remaining <= 0) break;
+        }
+
+        // 并行富化(同样限并发),失败的单条回退到未富化候选(见 enrich 内部 catch)。
+        List<Candidate> toEnrich = new ArrayList<>(deduplicated.values());
+        List<CompletableFuture<Candidate>> enrichFutures = toEnrich.stream()
+                .map(candidate -> CompletableFuture.supplyAsync(() -> enrich(candidate), IO_EXECUTOR))
+                .toList();
 
         List<SearchSource> sources = new ArrayList<>();
         int index = startRefIndex + 1;
-        for (Candidate candidate : deduplicated.values()) {
-            Candidate enriched = enrich(candidate);
+        for (CompletableFuture<Candidate> future : enrichFutures) {
+            Candidate enriched;
+            try {
+                enriched = future.join();
+            } catch (Exception ignored) {
+                continue;
+            }
             sources.add(new SearchSource("S" + index++, compact(enriched.title(), 300),
                     compact(enriched.url(), 1200), compact(enriched.publisher(), 160),
                     compact(enriched.snippet(), 1200)));

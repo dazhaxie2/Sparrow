@@ -127,6 +127,7 @@ public class IndustryChainResearchOrchestrator {
         List<String> planQueries = current.planQueries() == null ? List.of() : current.planQueries();
         if (!hasText(plan)) {
             listener.update("planning", 8, "规划 Agent 正在拆解调研范围");
+            forum.thinking(cardId, runId, "SYSTEM", "规划 Agent · 拆解调研范围");
             plan = chat.chat(planningPrompt(title, brief, provided, history));
             planQueries = extractQueries(plan);
             current = new ResearchCheckpoint(plan, planQueries, List.of(), null, null, null, null, null);
@@ -138,21 +139,27 @@ public class IndustryChainResearchOrchestrator {
         List<SearchSource> merged = current.sources() == null ? List.of() : current.sources();
         if (merged.isEmpty()) {
             listener.update("searching", 24, "行业 / 检索 / 洞察 Agent 正在并行联网调研");
+        // 共享首轮检索:三角色 Agent 关注的默认查询词相同,统一检索一次后共享给各 Agent,
+        // 避免三个 Agent 各自重复跑同一组默认查询(此前是 3× 冗余网络开销)。
+        List<SearchSource> sharedFirstBatch = webSearch.search(title, brief, planQueries, provided.size());
+        // 思考进度回调:Agent 各子步骤经此推送 thinking 事件,前端实时展示 Agent 当前在做什么。
+        java.util.function.BiConsumer<String, String> thinkingSink =
+                (source, message) -> forum.thinking(cardId, runId, source, message);
         // 三角色并行反思循环；用户资料优先编号 S1..Sk，联网结果接续
         IndustryChainResearchAgent industryAgent = new IndustryChainResearchAgent(ForumEvent.INDUSTRY, "行业 Agent",
-                "你是产业链「行业结构」调研 Agent，专注上中下游环节、核心企业与竞争格局。", chat.model(), webSearch, forum);
+                "你是产业链「行业结构」调研 Agent，专注上中下游环节、核心企业与竞争格局。", chat.model(), webSearch, forum, thinkingSink, chat);
         IndustryChainResearchAgent queryAgent = new IndustryChainResearchAgent(ForumEvent.QUERY, "检索 Agent",
-                "你是产业链「权威检索」调研 Agent，侧重权威报告、市场份额、政策与技术趋势的精准检索。", chat.model(), webSearch, forum);
+                "你是产业链「权威检索」调研 Agent，侧重权威报告、市场份额、政策与技术趋势的精准检索。", chat.model(), webSearch, forum, thinkingSink, chat);
         IndustryChainResearchAgent insightAgent = new IndustryChainResearchAgent(ForumEvent.INSIGHT, "洞察 Agent",
-                "你是产业链「纵深洞察」调研 Agent，侧重供应风险、依赖关系与潜在断点。", chat.model(), webSearch, forum);
+                "你是产业链「纵深洞察」调研 Agent，侧重供应风险、依赖关系与潜在断点。", chat.model(), webSearch, forum, thinkingSink, chat);
         IndustryChainResearchAgent.PublishContext ctx = new IndustryChainResearchAgent.PublishContext(cardId, runId, userId);
 
         CompletableFuture<IndustryChainResearchAgent.AgentResult> industryFuture =
-                supply(industryAgent, title, brief, planQueries, provided.size(), ctx);
+                supply(industryAgent, title, brief, provided.size(), ctx, sharedFirstBatch);
         CompletableFuture<IndustryChainResearchAgent.AgentResult> queryFuture =
-                supply(queryAgent, title, brief, planQueries, provided.size(), ctx);
+                supply(queryAgent, title, brief, provided.size(), ctx, sharedFirstBatch);
         CompletableFuture<IndustryChainResearchAgent.AgentResult> insightFuture =
-                supply(insightAgent, title, brief, planQueries, provided.size(), ctx);
+                supply(insightAgent, title, brief, provided.size(), ctx, sharedFirstBatch);
         CompletableFuture.allOf(industryFuture, queryFuture, insightFuture).join();
 
         IndustryChainResearchAgent.AgentResult industry = industryFuture.join();
@@ -174,6 +181,7 @@ public class IndustryChainResearchOrchestrator {
         String evidence = current.evidence();
         if (!hasText(evidence)) {
             listener.update("verifying", 58, "证据 Agent 正在交叉核验来源");
+            forum.thinking(cardId, runId, "SYSTEM", "证据 Agent · 交叉核验来源");
             evidence = chat.chat(evidencePrompt(plan, merged, forumDigest));
             current = new ResearchCheckpoint(plan, planQueries, merged, forumDigest,
                     evidence, null, null, null);
@@ -184,6 +192,7 @@ public class IndustryChainResearchOrchestrator {
         JsonNode graph;
         if (!hasText(graphJson)) {
             listener.update("mapping", 74, "产业链 Agent 正在构建节点与关系");
+            forum.thinking(cardId, runId, "SYSTEM", "图谱 Agent · 构建节点与关系");
             graph = graphExtractor.extract(title, evidence, merged);
             graphJson = writeJson(graph);
             current = new ResearchCheckpoint(plan, planQueries, merged, forumDigest,
@@ -196,6 +205,7 @@ public class IndustryChainResearchOrchestrator {
         ResearchReportBuilder.ReportResult report;
         if (!hasText(current.reportIrJson()) || !hasText(current.reportMarkdown())) {
             listener.update("writing", 88, "报告 Agent 正在生成带引用的深度报告");
+            forum.thinking(cardId, runId, "SYSTEM", "报告 Agent · 生成深度报告");
             report = reportBuilder.build(title, evidence, graph, merged, forumDigest);
             current = new ResearchCheckpoint(plan, planQueries, merged, forumDigest,
                     evidence, graphJson, report.irJson(), report.markdown());
@@ -210,11 +220,11 @@ public class IndustryChainResearchOrchestrator {
     }
 
     private CompletableFuture<IndustryChainResearchAgent.AgentResult> supply(IndustryChainResearchAgent agent, String title,
-                                                                     String brief, List<String> planQueries,
-                                                                     int startRefIndex,
-                                                                     IndustryChainResearchAgent.PublishContext ctx) {
+                                                                     String brief, int startRefIndex,
+                                                                     IndustryChainResearchAgent.PublishContext ctx,
+                                                                     List<SearchSource> sharedFirstBatch) {
         return CompletableFuture.supplyAsync(
-                () -> agent.research(title, brief, planQueries, startRefIndex, ctx), executor);
+                () -> agent.research(title, brief, List.of(), startRefIndex, ctx, sharedFirstBatch), executor);
     }
 
     /** 合并来源：用户资料优先编号 S1..Sk；联网来源按 URL 去重后接续 S(k+1)..Sn。 */

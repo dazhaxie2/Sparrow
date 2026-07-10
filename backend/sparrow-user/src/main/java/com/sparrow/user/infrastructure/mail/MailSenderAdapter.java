@@ -39,6 +39,11 @@ public class MailSenderAdapter {
         this.codeTtlMinutes = codeTtlMinutes;
     }
 
+    /** 验证码 TTL(分钟),供 UserService 写 Redis 过期时间用,保持两端一致。 */
+    public int getCodeTtlMinutes() {
+        return codeTtlMinutes;
+    }
+
     /**
      * 异步发送验证码邮件。跨 Bean 调用本方法时 @Async 生效,SMTP 阻塞不拖累 HTTP 线程。
      * 失败仅记录日志,不抛异常——验证码已存 Redis,用户可在有效期内重发或换密码登录。

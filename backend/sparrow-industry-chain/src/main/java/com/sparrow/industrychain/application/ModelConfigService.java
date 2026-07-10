@@ -164,8 +164,10 @@ public class ModelConfigService {
         }
         // 先建模型(失败则不切换,保证不破坏当前可用模型)。模型对象在 afterCommit 时使用。
         ChatModel newModel;
+        ChatModel streamingModel;
         try {
             newModel = aiConfig.buildFrom(config);
+            streamingModel = aiConfig.buildStreamingFrom(config);
         } catch (Exception e) {
             throw new BizException("新配置构建模型失败,未切换: " + e.getMessage());
         }
@@ -173,7 +175,10 @@ public class ModelConfigService {
         repository.audit(configId, config.name(), operatorId, AuditAction.ACTIVATE,
                 "激活配置 base:" + config.baseUrl() + " model:" + config.modelName(), null);
         // 内存 swap 放事务提交后,避免 DB 回滚导致内存/DB 状态分裂
-        Runnable afterCommit = () -> chatModelProvider.swap(newModel);
+        Runnable afterCommit = () -> {
+            chatModelProvider.swap(newModel);
+            chatModelProvider.swapStreaming(streamingModel);
+        };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override

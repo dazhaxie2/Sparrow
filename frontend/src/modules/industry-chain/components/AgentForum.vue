@@ -2,7 +2,8 @@
   <div class="agent-forum">
     <div v-if="researching" class="forum-status">
       <LoaderCircle class="spin" :size="14" />
-      <span>行业 / 检索 / 洞察 Agent 正在并行调研，论坛主持人定期汇总观点与分歧</span>
+      <span v-if="liveThinking" class="forum-live">{{ liveThinking }}</span>
+      <span v-else>行业 / 检索 / 洞察 Agent 正在并行调研，论坛主持人定期汇总观点与分歧</span>
     </div>
 
     <div v-if="error && !researching" class="forum-error">
@@ -31,6 +32,21 @@
           <div class="bubble-body">{{ event.content }}</div>
         </div>
       </li>
+      <!-- 流式 token 气泡:逐 token 增长(打字机),论坛发言到达后由父组件移除避免重复 -->
+      <li
+        v-for="(bubble, streamId) in streamBubbles"
+        :key="`stream-${streamId}`"
+        class="forum-item forum-streaming"
+        :class="`src-${bubble.source.toLowerCase()}`"
+      >
+        <div class="bubble">
+          <div class="bubble-head">
+            <span class="bubble-source">{{ bubble.sourceText || bubble.source }}</span>
+            <span class="streaming-tag">输入中…</span>
+          </div>
+          <div class="bubble-body">{{ bubble.text }}<span class="cursor" /></div>
+        </div>
+      </li>
     </ol>
   </div>
 </template>
@@ -40,7 +56,13 @@ import { nextTick, ref, watch } from 'vue'
 import { AlertTriangle, LoaderCircle, MessagesSquare } from '@lucide/vue'
 import type { ForumEventView } from '../model/types'
 
-const props = defineProps<{ researching: boolean; events: ForumEventView[]; error?: string | null }>()
+const props = defineProps<{
+  researching: boolean
+  events: ForumEventView[]
+  error?: string | null
+  liveThinking?: string | null
+  streamBubbles?: Record<string, { source: string; sourceText: string; text: string }>
+}>()
 const stream = ref<HTMLElement | null>(null)
 
 function formatChinaTime(value: string) {
@@ -72,11 +94,18 @@ function scrollBottom() {
 }
 
 watch(() => props.events.length, () => void scrollBottom(), { immediate: true })
+
+// 流式 token 增长时跟随滚动到底部(打字机效果)。
+watch(
+  () => Object.values(props.streamBubbles ?? {}).map(b => b.text).join(''),
+  () => void scrollBottom(),
+)
 </script>
 
 <style scoped>
 .agent-forum { height: 100%; min-height: 360px; display: flex; flex-direction: column; background: var(--surface); overflow: hidden; }
 .forum-status { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-bottom: 1px solid var(--line); background: #fff3e9; color: #e65100; font-size: 12px; }
+.forum-live { font-weight: 700; }
 .forum-error { display: flex; gap: 9px; padding: 10px 16px; border-bottom: 1px solid #ffd4cc; background: #fff5f2; color: var(--danger); }
 .forum-error div { display: grid; gap: 2px; }
 .forum-error strong { font-size: 12px; }
@@ -100,6 +129,11 @@ watch(() => props.events.length, () => void scrollBottom(), { immediate: true })
 .src-host .bubble-source { color: var(--ink); }
 .bubble-head time { margin-left: auto; color: var(--muted); font-size: 10px; }
 .bubble-body { color: var(--ink-2); font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.streaming-tag { margin-left: auto; color: var(--accent); font-size: 10px; font-weight: 700; }
+.forum-streaming .bubble { animation: pulse-border 1.4s ease-in-out infinite; }
+.forum-streaming .cursor { display: inline-block; width: 6px; height: 13px; margin-left: 2px; vertical-align: text-bottom; background: var(--accent); animation: blink 0.9s steps(2, start) infinite; }
+@keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+@keyframes pulse-border { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,87,34,0); } 50% { box-shadow: 0 0 0 2px rgba(255,87,34,0.18); } }
 .spin { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
