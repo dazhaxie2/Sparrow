@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "replace-task-id",
+  "title": "Replace with a concise task title",
+  "status": "draft",
+  "objective": "",
+  "scope": {
+    "in": [],
+    "out": []
+  },
+  "acceptanceCriteria": [],
+  "steps": [],
+  "decisions": [],
+  "blockers": [],
+  "verification": {
+    "lastRunAt": null,
+    "commands": []
+  },
+  "nextAction": "Define objective, scope and observable acceptance criteria",
+  "createdAt": "2000-01-01T00:00:00.000Z",
+  "updatedAt": "2000-01-01T00:00:00.000Z"
+}
+

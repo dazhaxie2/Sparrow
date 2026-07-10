@@ -7,6 +7,8 @@ frontend/dist/
 !**/src/main/**/target/
 !**/src/test/**/target/
 docs/*
+!docs/harness/
+!docs/harness/**
 .claude/
 .codex-logs/*
 .opencode/*

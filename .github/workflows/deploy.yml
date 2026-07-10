@@ -22,7 +22,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Validate changed scope
+        if: github.event_name == 'push'
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: node tools/harness.mjs changed --base "$BASE_SHA"
+      - name: Full validation for manual deploy
+        if: github.event_name == 'workflow_dispatch'
+        run: node tools/harness.mjs full
+
   deploy:
+    needs: verify
     runs-on: [self-hosted, windows]
     env:
       # 固定部署目录:.env 与具名卷(COMPOSE_PROJECT_NAME=sparrow)稳定,

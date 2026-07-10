@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "project": "sparrow",
+  "toolchain": {
+    "java": 21,
+    "node": 20,
+    "maven": "3.8",
+    "python": "3.10"
+  },
+  "requiredDocuments": [
+    "AGENTS.md",
+    "backend/AGENTS.md",
+    "frontend/AGENTS.md",
+    "docs/harness/README.md",
+    "docs/harness/architecture.md",
+    "docs/harness/verification.md",
+    "docs/harness/long-running-tasks.md",
+    "docs/harness/failure-playbook.md"
+  ],
+  "backend": {
+    "root": "backend",
+    "sharedModule": "sparrow-common",
+    "services": [
+      {
+        "name": "sparrow-common",
+        "path": "backend/sparrow-common",
+        "packagePrefix": "com.sparrow.common",
+        "applicationConfigRequired": false,
+        "allowedInternalDependencies": []
+      },
+      {
+        "name": "sparrow-gateway",
+        "path": "backend/sparrow-gateway",
+        "packagePrefix": "com.sparrow.gateway",
+        "applicationConfigRequired": true,
+        "allowedInternalDependencies": ["sparrow-common"]
+      },
+      {
+        "name": "sparrow-user",
+        "path": "backend/sparrow-user",
+        "packagePrefix": "com.sparrow.user",
+        "applicationConfigRequired": true,
+        "allowedInternalDependencies": ["sparrow-common"]
+      },
+      {
+        "name": "sparrow-graph",
+        "path": "backend/sparrow-graph",
+        "packagePrefix": "com.sparrow.graph",
+        "applicationConfigRequired": true,
+        "allowedInternalDependencies": ["sparrow-common"]
+      },
+      {
+        "name": "sparrow-trade",
+        "path": "backend/sparrow-trade",
+        "packagePrefix": "com.sparrow.trade",
+        "applicationConfigRequired": true,
+        "allowedInternalDependencies": ["sparrow-common"]
+      },
+      {
+        "name": "sparrow-ai",
+        "path": "backend/sparrow-ai",
+        "packagePrefix": "com.sparrow.ai",
+        "applicationConfigRequired": true,
+        "allowedInternalDependencies": ["sparrow-common"]
+      },
+      {
+        "name": "sparrow-industry-chain",
+        "path": "backend/sparrow-industry-chain",
+        "packagePrefix": "com.sparrow.industrychain",
+        "applicationConfigRequired": true,
+        "allowedInternalDependencies": ["sparrow-common"]
+      }
+    ]
+  },
+  "frontend": {
+    "root": "frontend",
+    "businessModulesPath": "frontend/src/modules",
+    "businessModules": [
+      "admin",
+      "ai",
+      "graph",
+      "industry-chain",
+      "trade",
+      "user"
+    ]
+  },
+  "pythonTools": [
+    {
+      "name": "sparrow-spider",
+      "path": "tools/sparrow-spider"
+    },
+    {
+      "name": "sparrow-layout",
+      "path": "tools/sparrow-layout"
+    }
+  ],
+  "taskState": {
+    "directory": ".harness/tasks",
+    "schema": ".harness/task.schema.json",
+    "statuses": ["draft", "planned", "in_progress", "blocked", "completed"]
+  },
+  "protectedLocalFiles": [
+    ".env",
+    "docker-compose.local.yml",
+    "backend/tokens.json"
+  ]
+}

@@ -106,7 +106,7 @@ Sparrow/
 │   ├── sparrow-trade/                     # 商品、订单、支付、沙箱回调(Seata AT 全局事务)
 │   ├── docker/                            # 中间件配置:mysql my.cnf / redis.conf / 初始化脚本
 │   ├── scripts/                           # 运维与验证脚本
-│   │   ├── mvn17.ps1                      # Java 17 构建/测试入口
+│   │   ├── mvn17.ps1                      # Java 21 构建/测试入口(保留旧文件名)
 │   │   ├── smoke.ps1                      # 端到端冒烟(注册/浏览/AI/下单/回调幂等)
 │   │   ├── load.ps1 / k6-load.ps1         # k6 压测
 │   │   ├── phase2-rollback-check.ps1      # Seata AT 全局事务回滚回归
@@ -165,14 +165,14 @@ done
 ### 环境要求
 
 - **操作系统**: Windows / Linux / MacOS
-- **JDK**: 17
-- **Node.js**: 18+（前端构建）
+- **JDK**: 21
+- **Node.js**: 20+（前端构建）
 - **数据库**: MySQL 8（推荐，已按拆库结构初始化）
 - **中间件**: Redis / Nacos / Kafka / Neo4j（AI 层还需 Milvus）
 
 ### 1. 启动中间件与后端
 
-通过 `docker-compose.yml` 拉起中间件，再用 Maven 构建并启动各业务服务。Java 17 构建入口：
+通过 `docker-compose.yml` 拉起中间件，再用 Maven 构建并启动各业务服务。Java 21 构建入口（脚本为兼容保留旧文件名）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File backend/scripts/mvn17.ps1 test
@@ -259,7 +259,7 @@ POST /api/ai/ask               AI 问答 {question}(需登录)
 ## 🧪 本地验证
 
 ```powershell
-# Java 17 构建/测试
+# Java 21 构建/测试
 powershell -ExecutionPolicy Bypass -File backend/scripts/mvn17.ps1 test
 docker build -f backend/Dockerfile --target gateway-runtime -t sparrow-gateway:phase2-check .
 
@@ -279,6 +279,20 @@ powershell -ExecutionPolicy Bypass -File backend/scripts/phase2-rollback-check.p
 ```
 
 若未配置模型，AI 会走规则降级或部分模型能力不可用。
+
+## 🤖 Agent Harness
+
+仓库内置了面向编码 Agent 的控制层：项目地图、服务边界守卫、按改动范围执行的验证、长任务检查点和失败恢复手册。入口是 [AGENTS.md](AGENTS.md)，详细说明位于 [docs/harness/](docs/harness/)：
+
+```bash
+node tools/harness.mjs doctor               # 检查本机工具链
+node tools/harness.mjs guard                # 秒级确定性架构/安全规则
+node tools/harness.mjs changed              # 仅验证当前改动影响的模块
+node tools/harness.mjs full                 # 全量后端测试 + 前端构建
+node tools/harness.mjs task:init <id> <标题> # 创建可跨会话续接的任务状态
+```
+
+当 Agent、评审或线上故障暴露出重复问题时，应优先把反馈沉淀为测试、守卫规则、诊断命令或 `docs/harness/failure-playbook.md` 条目，而不是只增加一段提示词。
 
 ## 🤝 贡献指南
 

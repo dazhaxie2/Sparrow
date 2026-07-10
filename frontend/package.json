@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "guard:architecture": "node ../tools/architecture-guard.mjs"
+    "guard:architecture": "node ../tools/architecture-guard.mjs",
+    "guard:harness": "node ../tools/harness-guard.mjs"
   },
   "devDependencies": {
     "@types/d3-force": "^3.0.10",

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sparrow.local/schemas/harness-task.json",
+  "title": "Sparrow resumable agent task",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "title",
+    "status",
+    "objective",
+    "scope",
+    "acceptanceCriteria",
+    "steps",
+    "decisions",
+    "blockers",
+    "verification",
+    "nextAction",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["draft", "planned", "in_progress", "blocked", "completed"]
+    },
+    "objective": { "type": "string" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["in", "out"],
+      "properties": {
+        "in": { "type": "array", "items": { "type": "string" } },
+        "out": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "acceptanceCriteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "status", "evidence"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC-[0-9]+$" },
+          "description": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["pending", "passed", "failed", "blocked"] },
+          "evidence": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "status", "verification"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^S-[0-9]+$" },
+          "description": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["pending", "in_progress", "completed", "blocked"] },
+          "verification": { "type": "string" }
+        }
+      }
+    },
+    "decisions": { "type": "array", "items": { "type": "string" } },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lastRunAt", "commands"],
+      "properties": {
+        "lastRunAt": { "type": ["string", "null"], "format": "date-time" },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command", "result"],
+            "properties": {
+              "command": { "type": "string", "minLength": 1 },
+              "result": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "nextAction": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}
+
