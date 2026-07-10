@@ -27,20 +27,17 @@
 <script setup lang="ts">
 // 按需引入 echarts:仅注册力导向关系图所需的图表/组件/渲染器,
 // 避免 `import * as echarts from 'echarts'` 把整个库(~1MB)打进 bundle。
-import * as echarts from 'echarts/core'
-import { GraphChart } from 'echarts/charts'
-import { TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Network, X } from '@lucide/vue'
 import type { ResearchGraph, ResearchSource } from '../model/types'
 
-echarts.use([GraphChart, TooltipComponent, CanvasRenderer])
-
 const props = defineProps<{ graph: ResearchGraph | null; sources: ResearchSource[] }>()
 const canvasRef = ref<HTMLElement | null>(null)
 const selectedId = ref<string | null>(null)
-let chart: ReturnType<typeof echarts.init> | null = null
+type EchartsCore = typeof import('echarts/core')
+type EchartsInstance = ReturnType<EchartsCore['init']>
+let chart: EchartsInstance | null = null
+let echartsReady: Promise<EchartsCore> | null = null
 
 const sourceByRef = computed(() => new Map(props.sources.map(source => [source.sourceRef, source])))
 const selectedNode = computed(() => props.graph?.nodes.find(node => node.id === selectedId.value) ?? null)
@@ -56,7 +53,22 @@ const colors: Record<string, string> = {
   应用市场: '#c62828',
 }
 
-function render() {
+function loadEcharts() {
+  echartsReady ??= Promise.all([
+    import('echarts/core'),
+    import('echarts/lib/chart/graph'),
+    import('echarts/lib/component/tooltip'),
+    import('echarts/renderers'),
+  ]).then(([echarts, _graphChart, _tooltipComponent, { CanvasRenderer }]) => {
+    echarts.use([CanvasRenderer])
+    return echarts
+  })
+  return echartsReady
+}
+
+async function render() {
+  if (!canvasRef.value || !props.graph?.nodes.length) return
+  const echarts = await loadEcharts()
   if (!canvasRef.value || !props.graph?.nodes.length) return
   if (!chart) {
     chart = echarts.init(canvasRef.value, undefined, { renderer: 'canvas' })
@@ -104,7 +116,7 @@ async function refresh() {
     chart = null
     return
   }
-  render()
+  await render()
 }
 
 function resize() { chart?.resize() }

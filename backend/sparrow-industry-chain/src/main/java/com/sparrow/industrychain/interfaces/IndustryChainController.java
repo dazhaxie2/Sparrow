@@ -95,6 +95,12 @@ public class IndustryChainController {
         return ApiResponse.ok(service.start(UserContext.require(), cardId));
     }
 
+    /** 从最近失败任务的检查点继续，复用原 runId。 */
+    @PostMapping("/cards/{cardId}/runs/resume")
+    public ApiResponse<ResumeRunResult> resume(@PathVariable long cardId) {
+        return ApiResponse.ok(service.resume(UserContext.require(), cardId));
+    }
+
     /** 查询调研任务运行状态。 */
     @GetMapping("/cards/{cardId}/runs/{runId}")
     public ApiResponse<RunView> run(@PathVariable long cardId, @PathVariable long runId) {

@@ -5,6 +5,11 @@
       <span>行业 / 检索 / 洞察 Agent 正在并行调研，论坛主持人定期汇总观点与分歧</span>
     </div>
 
+    <div v-if="error && !researching" class="forum-error">
+      <AlertTriangle :size="15" />
+      <div><strong>本轮调研未完成</strong><span>{{ error }} 已完成的过程记录仍保留在下方。</span></div>
+    </div>
+
     <div v-if="!events.length && !researching" class="forum-empty">
       <MessagesSquare :size="30" />
       <strong>调研过程将在这里实时呈现</strong>
@@ -12,11 +17,16 @@
     </div>
 
     <ol v-else ref="stream" class="forum-stream">
-      <li v-for="(event, index) in events" :key="`${event.id}-${index}`" class="forum-item" :class="`src-${event.source.toLowerCase()}`">
+      <li
+        v-for="(event, index) in events"
+        :key="`${event.id}-${index}`"
+        class="forum-item"
+        :class="`src-${event.source.toLowerCase()}`"
+      >
         <div class="bubble">
           <div class="bubble-head">
             <span class="bubble-source">{{ event.sourceText || event.source }}</span>
-            <time v-if="event.createdAt">{{ event.createdAt }}</time>
+            <time v-if="event.createdAt">{{ formatChinaTime(event.createdAt) }}</time>
           </div>
           <div class="bubble-body">{{ event.content }}</div>
         </div>
@@ -26,35 +36,23 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
-import { LoaderCircle, MessagesSquare } from '@lucide/vue'
-import type { ForumEventView, ForumSsePayload } from '../model/types'
+import { nextTick, ref, watch } from 'vue'
+import { AlertTriangle, LoaderCircle, MessagesSquare } from '@lucide/vue'
+import type { ForumEventView } from '../model/types'
 
-const props = defineProps<{ researching: boolean }>()
-const events = ref<ForumEventView[]>([])
+const props = defineProps<{ researching: boolean; events: ForumEventView[]; error?: string | null }>()
 const stream = ref<HTMLElement | null>(null)
 
-/** 用初始历史事件初始化(工作台初次加载还原协作流)。 */
-function setHistory(history: ForumEventView[]) {
-  events.value = [...history]
-  void scrollBottom()
-}
-
-/** 追加一条 SSE 实时事件。 */
-function append(payload: ForumSsePayload) {
-  const e = payload.event
-  events.value.push({
-    id: Date.now() + Math.random(),
-    source: e.source,
-    sourceText: sourceText(e.source),
-    content: e.content,
-    createdAt: e.createdAt,
-  })
-  void scrollBottom()
-}
-
-function sourceText(source: string) {
-  return ({ INDUSTRY: '行业 Agent', QUERY: '检索 Agent', INSIGHT: '洞察 Agent', HOST: '论坛主持人', SYSTEM: '系统' } as Record<string, string>)[source] || source
+function formatChinaTime(value: string) {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(parsed)
 }
 
 function scrollBottom() {
@@ -63,12 +61,16 @@ function scrollBottom() {
   })
 }
 
-defineExpose({ setHistory, append })
+watch(() => props.events.length, () => void scrollBottom(), { immediate: true })
 </script>
 
 <style scoped>
 .agent-forum { height: 100%; min-height: 360px; display: flex; flex-direction: column; background: var(--surface); overflow: hidden; }
 .forum-status { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-bottom: 1px solid var(--line); background: #fff3e9; color: #e65100; font-size: 12px; }
+.forum-error { display: flex; gap: 9px; padding: 10px 16px; border-bottom: 1px solid #ffd4cc; background: #fff5f2; color: var(--danger); }
+.forum-error div { display: grid; gap: 2px; }
+.forum-error strong { font-size: 12px; }
+.forum-error span { color: var(--ink-2); font-size: 11px; }
 .forum-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 9px; color: var(--muted); text-align: center; }
 .forum-empty svg { color: var(--accent); }
 .forum-empty strong { color: var(--ink); font-size: 16px; }

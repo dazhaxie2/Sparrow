@@ -249,6 +249,7 @@ CREATE TABLE IF NOT EXISTS research_run (
     current_stage VARCHAR(32) NULL,
     progress      INT         NOT NULL DEFAULT 0,
     error_message VARCHAR(1000) NULL,
+    checkpoint_json LONGTEXT  NULL,
     started_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at   DATETIME    NULL,
     PRIMARY KEY (id),

@@ -1,6 +1,7 @@
 package com.sparrow.industrychain.infrastructure.event;
 
 import org.springframework.stereotype.Component;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -45,6 +46,14 @@ public class IndustryChainEventHub {
 
     public void failed(long cardId, long runId, String message) {
         emit(cardId, "failed", Map.of("runId", runId, "message", message));
+    }
+
+    /** 定时发送心跳，避免长时调研的事件流被网关或反向代理按空闲连接断开。 */
+    @Scheduled(fixedRateString = "${sparrow.industry-chain.sse-heartbeat-millis:15000}")
+    public void heartbeat() {
+        for (Long cardId : emitters.keySet()) {
+            emit(cardId, "heartbeat", Map.of("timestamp", System.currentTimeMillis()));
+        }
     }
 
     private void emit(long cardId, String name, Object payload) {

@@ -23,7 +23,8 @@ public class IndustryChainAiConfig {
                 .apiKey(props.apiKey())
                 .modelName(props.chatModel())
                 .maxTokens(3000)
-                .timeout(Duration.ofSeconds(60))
+                .timeout(Duration.ofSeconds(props.effectiveRequestTimeoutSeconds()))
+                .maxRetries(props.effectiveMaxRetries())
                 .build();
     }
 }

@@ -6,6 +6,7 @@ import type {
   ResearchCardSummary,
   ResearchMessageReply,
   ResearchRun,
+  ResearchResumeResult,
   ResearchStartResult,
 } from './model/types'
 
@@ -45,6 +46,10 @@ export function sendResearchMessage(id: number, content: string) {
 
 export function startResearchRun(id: number) {
   return post<ResearchStartResult>(`${ROOT}/${id}/runs`, {})
+}
+
+export function resumeResearchRun(id: number) {
+  return post<ResearchResumeResult>(`${ROOT}/${id}/runs/resume`, {})
 }
 
 export function fetchResearchRun(cardId: number, runId: number) {

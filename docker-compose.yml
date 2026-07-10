@@ -13,12 +13,14 @@ services:
       MYSQL_DATABASE: sparrow
       MYSQL_USER: sparrow
       MYSQL_PASSWORD: sparrow123
+      TZ: Asia/Shanghai
     # ⚠️ Windows 下挂载的 my.cnf 因权限 0777 会被 MySQL 忽略("world-writable config file ignored"),
     #    故关键 Phase 3 参数通过 command 行强制注入,与 my.cnf 内容保持一致。
     #    真正生效的是这里的命令行参数;my.cnf 仅作 Linux 环境下的备份与文档。
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+      --default-time-zone=+08:00
       --skip-name-resolve=ON
       --max_connections=1500
       --innodb_buffer_pool_size=${MYSQL_BUFFER_POOL:-512M}
@@ -359,9 +361,12 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_CHAT_MODEL: ${AI_CHAT_MODEL:-glm-4.5-air}
+      CHAIN_RESEARCH_REQUEST_TIMEOUT_SECONDS: ${CHAIN_RESEARCH_REQUEST_TIMEOUT_SECONDS:-180}
+      CHAIN_RESEARCH_MAX_RETRIES: ${CHAIN_RESEARCH_MAX_RETRIES:-2}
       CHAIN_RESEARCH_FREE_PER_DAY: ${CHAIN_RESEARCH_FREE_PER_DAY:-1}
       CHAIN_RESEARCH_MEMBER_PER_DAY: ${CHAIN_RESEARCH_MEMBER_PER_DAY:-10}
       CHAIN_RESEARCH_SEARCH_URL: ${CHAIN_RESEARCH_SEARCH_URL:-https://m.sogou.com/web/searchList.jsp}
+      TZ: Asia/Shanghai
       MALLOC_ARENA_MAX: "2"
     expose: ["8085"]
     deploy:

@@ -10,11 +10,21 @@ public record IndustryChainProperties(
         String baseUrl,
         String apiKey,
         String chatModel,
+        Integer requestTimeoutSeconds,
+        Integer maxRetries,
         int researchFreePerDay,
         int researchMemberPerDay,
         String searchUrl) {
 
     public boolean llmConfigured() {
         return baseUrl != null && !baseUrl.isBlank() && apiKey != null && !apiKey.isBlank();
+    }
+
+    public int effectiveRequestTimeoutSeconds() {
+        return requestTimeoutSeconds != null && requestTimeoutSeconds > 0 ? requestTimeoutSeconds : 180;
+    }
+
+    public int effectiveMaxRetries() {
+        return maxRetries != null && maxRetries >= 0 ? maxRetries : 2;
     }
 }

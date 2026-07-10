@@ -3,6 +3,7 @@ package com.sparrow.industrychain.application.run;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.industrychain.application.card.ResearchCardViews.RunView;
 import com.sparrow.industrychain.application.card.ResearchCardViews.StartRunResult;
+import com.sparrow.industrychain.application.card.ResearchCardViews.ResumeRunResult;
 import com.sparrow.industrychain.infrastructure.event.IndustryChainEventHub;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository.CardRow;
@@ -38,8 +39,15 @@ public class ResearchRunService {
             repository.cancelRun(userId, cardId, runId);
             throw error;
         }
-        runner.run(userId, cardId, runId);
+        runner.run(userId, cardId, runId, false);
         return new StartRunResult(runId, remaining);
+    }
+
+    public ResumeRunResult resume(long userId, long cardId) {
+        owned(userId, cardId);
+        RunRow run = repository.resumeLastFailed(userId, cardId);
+        runner.run(userId, cardId, run.id(), true);
+        return new ResumeRunResult(run.id(), run.currentStage(), run.progress());
     }
 
     public RunView run(long userId, long cardId, long runId) {

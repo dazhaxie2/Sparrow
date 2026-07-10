@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.time.ZoneId;
 
 /**
  * 产业链深度调研应用服务。
@@ -28,6 +29,7 @@ import java.util.List;
 public class ResearchCardService {
 
     private static final Logger log = LoggerFactory.getLogger(ResearchCardService.class);
+    private static final ZoneId CHINA_ZONE = ZoneId.of("Asia/Shanghai");
     private final IndustryChainRepository repository;
     private final ResearchConversationService conversationService;
     private final ResearchRunService runService;
@@ -108,7 +110,8 @@ public class ResearchCardService {
         if (runId == null) return List.of();
         return repository.forumEvents(cardId, runId).stream()
                 .map(event -> new ForumEventView(event.id(), event.source(), sourceText(event.source()),
-                        event.content(), event.createdAt() == null ? null : event.createdAt().toString()))
+                        event.content(), event.createdAt() == null ? null : event.createdAt()
+                                .atZone(CHINA_ZONE).toOffsetDateTime().toString()))
                 .toList();
     }
 
@@ -237,6 +240,11 @@ public class ResearchCardService {
      */
     public StartRunResult start(long userId, long cardId) {
         return runService.start(userId, cardId);
+    }
+
+    /** 从最近一次失败任务的持久化检查点继续，不重复扣减配额。 */
+    public ResumeRunResult resume(long userId, long cardId) {
+        return runService.resume(userId, cardId);
     }
 
     /**

@@ -57,6 +57,20 @@ public class IndustryChainResearchOrchestrator {
         void update(String stage, int progress, String message);
     }
 
+    @FunctionalInterface
+    public interface CheckpointListener {
+        void save(ResearchCheckpoint checkpoint);
+    }
+
+    /** 每完成一个昂贵阶段就持久化一次，失败恢复时从第一个缺失字段继续。 */
+    public record ResearchCheckpoint(String plan, List<String> planQueries, List<SearchSource> sources,
+                                     String forumDigest, String evidence, String graphJson,
+                                     String reportIrJson, String reportMarkdown) {
+        public static ResearchCheckpoint empty() {
+            return new ResearchCheckpoint(null, List.of(), List.of(), null, null, null, null, null);
+        }
+    }
+
     /** 调研结果：关系图 JSON、报告 IR JSON、降级 Markdown、节点/边数、合并来源。 */
     public record ResearchResult(String graphJson, String reportIrJson, String reportMarkdown,
                                  int nodeCount, int edgeCount, List<SearchSource> sources) {
@@ -94,15 +108,36 @@ public class IndustryChainResearchOrchestrator {
     public ResearchResult research(String title, String brief, List<MessageRow> history,
                                    List<SearchSource> userSources, long userId, long cardId, long runId,
                                    StageListener listener) {
+        return research(title, brief, history, userSources, userId, cardId, runId, listener,
+                ResearchCheckpoint.empty(), checkpoint -> {}, false);
+    }
+
+    public ResearchResult research(String title, String brief, List<MessageRow> history,
+                                   List<SearchSource> userSources, long userId, long cardId, long runId,
+                                   StageListener listener, ResearchCheckpoint checkpoint,
+                                   CheckpointListener checkpointListener, boolean resumed) {
         if (!chat.available()) throw new BizException(503, "AI 服务未配置，无法执行深度调研");
         List<SearchSource> provided = userSources == null ? List.of() : userSources;
+        ResearchCheckpoint current = checkpoint == null ? ResearchCheckpoint.empty() : checkpoint;
 
-        listener.update("planning", 8, "规划 Agent 正在拆解调研范围");
-        forum.publish(cardId, runId, userId, ForumEvent.SYSTEM, "新一轮 Multi-Agent 调研启动");
-        String plan = chat.chat(planningPrompt(title, brief, provided, history));
-        List<String> planQueries = extractQueries(plan);
+        forum.publish(cardId, runId, userId, ForumEvent.SYSTEM, resumed
+                ? "正在从上次中断点继续调研，已完成阶段不会重复执行"
+                : "新一轮 Multi-Agent 调研启动");
+        String plan = current.plan();
+        List<String> planQueries = current.planQueries() == null ? List.of() : current.planQueries();
+        if (!hasText(plan)) {
+            listener.update("planning", 8, "规划 Agent 正在拆解调研范围");
+            plan = chat.chat(planningPrompt(title, brief, provided, history));
+            planQueries = extractQueries(plan);
+            current = new ResearchCheckpoint(plan, planQueries, List.of(), null, null, null, null, null);
+            checkpointListener.save(current);
+        } else if (planQueries.isEmpty()) {
+            planQueries = extractQueries(plan);
+        }
 
-        listener.update("searching", 24, "行业 / 检索 / 洞察 Agent 正在并行联网调研");
+        List<SearchSource> merged = current.sources() == null ? List.of() : current.sources();
+        if (merged.isEmpty()) {
+            listener.update("searching", 24, "行业 / 检索 / 洞察 Agent 正在并行联网调研");
         // 三角色并行反思循环；用户资料优先编号 S1..Sk，联网结果接续
         IndustryChainResearchAgent industryAgent = new IndustryChainResearchAgent(ForumEvent.INDUSTRY, "行业 Agent",
                 "你是产业链「行业结构」调研 Agent，专注上中下游环节、核心企业与竞争格局。", chat.model(), webSearch, forum);
@@ -125,21 +160,51 @@ public class IndustryChainResearchOrchestrator {
         IndustryChainResearchAgent.AgentResult insight = insightFuture.join();
 
         // 合并来源：用户资料 S1..Sk + 联网来源去重接续
-        List<SearchSource> merged = mergeSources(provided, industry.sources(), query.sources(), insight.sources());
+            merged = mergeSources(provided, industry.sources(), query.sources(), insight.sources());
+        }
         if (merged.isEmpty()) throw new BizException(502, "未获得任何可用来源，请稍后重试或补充资料");
 
-        listener.update("verifying", 58, "证据 Agent 正在交叉核验来源");
-        String forumDigest = forumDigest(cardId, runId);
-        String evidence = chat.chat(evidencePrompt(plan, merged, forumDigest));
+        String forumDigest = hasText(current.forumDigest()) ? current.forumDigest() : forumDigest(cardId, runId);
+        if (current.sources() == null || current.sources().isEmpty()) {
+            current = new ResearchCheckpoint(plan, planQueries, merged, forumDigest,
+                    null, null, null, null);
+            checkpointListener.save(current);
+        }
 
-        listener.update("mapping", 74, "产业链 Agent 正在构建节点与关系");
-        JsonNode graph = graphExtractor.extract(title, evidence, merged);
-        String graphJson = writeJson(graph);
+        String evidence = current.evidence();
+        if (!hasText(evidence)) {
+            listener.update("verifying", 58, "证据 Agent 正在交叉核验来源");
+            evidence = chat.chat(evidencePrompt(plan, merged, forumDigest));
+            current = new ResearchCheckpoint(plan, planQueries, merged, forumDigest,
+                    evidence, null, null, null);
+            checkpointListener.save(current);
+        }
 
-        listener.update("writing", 88, "报告 Agent 正在生成带引用的深度报告");
-        ResearchReportBuilder.ReportResult report = reportBuilder.build(title, evidence, graph, merged, forumDigest);
+        String graphJson = current.graphJson();
+        JsonNode graph;
+        if (!hasText(graphJson)) {
+            listener.update("mapping", 74, "产业链 Agent 正在构建节点与关系");
+            graph = graphExtractor.extract(title, evidence, merged);
+            graphJson = writeJson(graph);
+            current = new ResearchCheckpoint(plan, planQueries, merged, forumDigest,
+                    evidence, graphJson, null, null);
+            checkpointListener.save(current);
+        } else {
+            graph = readJson(graphJson, "读取调研图谱检查点失败");
+        }
 
-        forum.reset(runId);
+        ResearchReportBuilder.ReportResult report;
+        if (!hasText(current.reportIrJson()) || !hasText(current.reportMarkdown())) {
+            listener.update("writing", 88, "报告 Agent 正在生成带引用的深度报告");
+            report = reportBuilder.build(title, evidence, graph, merged, forumDigest);
+            current = new ResearchCheckpoint(plan, planQueries, merged, forumDigest,
+                    evidence, graphJson, report.irJson(), report.markdown());
+            checkpointListener.save(current);
+        } else {
+            report = new ResearchReportBuilder.ReportResult(current.reportIrJson(), current.reportMarkdown());
+        }
+        listener.update("finalizing", 96, "正在保存调研结果");
+
         return new ResearchResult(graphJson, report.irJson(), report.markdown(),
                 graph.path("nodes").size(), graph.path("edges").size(), merged);
     }
@@ -238,6 +303,18 @@ public class IndustryChainResearchOrchestrator {
         } catch (Exception error) {
             throw new BizException(500, "关系图序列化失败");
         }
+    }
+
+    private JsonNode readJson(String value, String errorMessage) {
+        try {
+            return objectMapper.readTree(value);
+        } catch (Exception error) {
+            throw new BizException(500, errorMessage);
+        }
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private String sourceContext(List<SearchSource> sources) {

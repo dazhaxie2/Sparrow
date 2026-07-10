@@ -14,10 +14,19 @@
             <strong>{{ progress }}%</strong>
           </div>
           <button v-if="researching" class="secondary" type="button" @click="cancelRun">取消调研</button>
-          <button v-else class="primary" type="button" :disabled="loading || starting" @click="startRun">
+          <button
+            v-if="!researching && detail?.card.status === 'FAILED'"
+            class="secondary"
+            type="button"
+            :disabled="loading || starting"
+            @click="startRun"
+          >
+            重新开始
+          </button>
+          <button v-if="!researching" class="primary" type="button" :disabled="loading || starting" @click="runPrimaryAction">
             <LoaderCircle v-if="starting" class="spin" :size="15" />
             <SearchCheck v-else :size="15" />
-            {{ detail?.card.status === 'COMPLETED' ? '重新联网调研' : '启动联网深度调研' }}
+            {{ detail?.card.status === 'FAILED' ? '从中断点继续' : detail?.card.status === 'COMPLETED' ? '重新联网调研' : '启动联网深度调研' }}
           </button>
         </div>
       </header>
@@ -69,7 +78,12 @@
             <div v-else-if="detail.reportMarkdown" class="markdown" v-html="renderMarkdown(detail.reportMarkdown)"></div>
             <div v-else class="result-empty"><FileText :size="30" /><strong>报告尚未生成</strong><span>启动联网调研后，报告 Agent 会在这里交付带引用的分析。</span></div>
           </article>
-          <AgentForum v-else-if="tab === 'forum'" ref="forumRef" :researching="researching" />
+          <AgentForum
+            v-else-if="tab === 'forum'"
+            :researching="researching"
+            :events="forumEvents"
+            :error="detail.card.status === 'FAILED' ? detail.card.lastError : null"
+          />
           <div v-else-if="tab === 'sources'" class="source-list">
             <a v-for="source in detail.sources" :key="source.id" :href="source.url" target="_blank" rel="noreferrer" class="source-card">
               <span>{{ source.sourceRef }}</span>
@@ -171,31 +185,33 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import { AlertTriangle, ArrowLeft, BookOpenCheck, Bot, BrainCircuit, ExternalLink, FileDown, FileText, LoaderCircle, MessagesSquare, Network, PanelRightClose, Plus, SearchCheck, Upload } from '@lucide/vue'
 import AppHeader from '../../../app/components/AppHeader.vue'
-import DialogWorkbench from '../../graph/components/DialogWorkbench.vue'
-import AiChatPanel from '../../ai/components/AiChatPanel.vue'
 import { renderMarkdown } from '../../ai/utils/markdown'
-import AgentForum from '../components/AgentForum.vue'
-import ResearchGraph from '../components/ResearchGraph.vue'
-import RichReport from '../components/RichReport.vue'
 import {
   cancelResearchRun,
   fetchForumEvents,
   fetchResearchCard,
+  resumeResearchRun,
   sendResearchMessage,
   startResearchRun,
   streamResearchEvents,
   updateResearchCard,
   uploadResearchAttachment,
 } from '../api'
-import type { ForumSsePayload, ResearchCardDetail } from '../model/types'
+import type { ForumEventView, ForumSsePayload, ResearchCardDetail } from '../model/types'
 import type { NodeBrief } from '../../graph/types'
+
+const DialogWorkbench = defineAsyncComponent(() => import('../../graph/components/DialogWorkbench.vue'))
+const AiChatPanel = defineAsyncComponent(() => import('../../ai/components/AiChatPanel.vue'))
+const AgentForum = defineAsyncComponent(() => import('../components/AgentForum.vue'))
+const ResearchGraph = defineAsyncComponent(() => import('../components/ResearchGraph.vue'))
+const RichReport = defineAsyncComponent(() => import('../components/RichReport.vue'))
 
 const props = defineProps<{ id: number }>()
 type RailMode = 'planning' | 'ask'
-
 const detail = ref<ResearchCardDetail | null>(null)
 const loading = ref(true)
 const sending = ref(false)
@@ -205,8 +221,8 @@ const tab = ref<'graph' | 'report' | 'forum' | 'sources' | 'attachments'>('graph
 const railMode = ref<RailMode>('ask')
 const railModeTouched = ref(false)
 const chainRailCollapsed = ref(localStorage.getItem('industry_chain_ai_rail_collapsed') === '1')
-const forumRef = ref<InstanceType<typeof AgentForum> | null>(null)
-const richReportRef = ref<InstanceType<typeof RichReport> | null>(null)
+const forumEvents = ref<ForumEventView[]>([])
+const richReportRef = ref<ComponentPublicInstance | null>(null)
 const exporting = ref(false)
 let streamController: AbortController | null = null
 let pollTimer: number | null = null
@@ -233,6 +249,7 @@ const stageText = computed(() => ({
   verifying: '交叉核验证据',
   mapping: '构建产业链图谱',
   writing: '撰写深度报告',
+  finalizing: '保存调研结果',
 }[detail.value?.card.currentStage || ''] || '准备调研'))
 const chainContextBrief = computed<NodeBrief | null>(() => {
   const card = detail.value?.card
@@ -266,7 +283,9 @@ async function load(silent = false) {
   try {
     detail.value = await fetchResearchCard(props.id)
     syncDefaultRailMode()
-    error.value = ''
+    error.value = detail.value.card.status === 'FAILED'
+      ? (detail.value.card.lastError || '调研任务未完成，本轮过程记录已保留，可重新启动。')
+      : ''
     // 还原历史论坛流(工作台初次进入 / 刷新)
     void loadForumHistory()
     if (researching.value) { tab.value = 'forum'; connectEvents() }
@@ -280,8 +299,7 @@ async function load(silent = false) {
 async function loadForumHistory() {
   try {
     const history = await fetchForumEvents(props.id)
-    await nextTick()
-    forumRef.value?.setHistory(history)
+    forumEvents.value = history
   } catch {
     // 论坛历史为体验增强，失败静默
   }
@@ -373,6 +391,7 @@ async function startRun() {
   error.value = ''
   try {
     const result = await startResearchRun(props.id)
+    forumEvents.value = []
     if (detail.value) {
       detail.value.card.status = 'RESEARCHING'
       detail.value.card.currentStage = 'planning'
@@ -380,9 +399,45 @@ async function startRun() {
       detail.value.activeRun = { id: result.runId, status: 'RUNNING', currentStage: 'planning', progress: 3, errorMessage: null, startedAt: new Date().toISOString(), finishedAt: null }
     }
     railMode.value = 'planning'
+    tab.value = 'forum'
     connectEvents()
   } catch (e: any) {
     error.value = e.message || '启动调研失败'
+  } finally {
+    starting.value = false
+  }
+}
+
+function runPrimaryAction() {
+  if (detail.value?.card.status === 'FAILED') void resumeRun()
+  else void startRun()
+}
+
+async function resumeRun() {
+  if (starting.value || !detail.value) return
+  starting.value = true
+  error.value = ''
+  try {
+    const result = await resumeResearchRun(props.id)
+    const stage = result.currentStage || detail.value.card.currentStage || 'planning'
+    detail.value.card.status = 'RESEARCHING'
+    detail.value.card.currentStage = stage
+    detail.value.card.progress = result.progress
+    detail.value.card.lastError = null
+    detail.value.activeRun = {
+      id: result.runId,
+      status: 'RUNNING',
+      currentStage: stage,
+      progress: result.progress,
+      errorMessage: null,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+    }
+    railMode.value = 'planning'
+    tab.value = 'forum'
+    connectEvents()
+  } catch (e: any) {
+    error.value = e.message || '断点续跑失败'
   } finally {
     starting.value = false
   }
@@ -412,7 +467,7 @@ function connectEvents() {
   streamController = controller
   void streamResearchEvents(props.id, async (event, data) => {
     if (event === 'forum') {
-      forumRef.value?.append(data as unknown as ForumSsePayload)
+      appendForumEvent(data as unknown as ForumSsePayload)
       return
     }
     applyProgress(data)
@@ -421,10 +476,29 @@ function connectEvents() {
       await load(true)
       if (event === 'completed') tab.value = 'report'
     }
-  }, controller.signal).catch(() => {
+  }, controller.signal).then(() => {
+    if (!controller.signal.aborted && researching.value) startPolling()
+  }).catch(() => {
     if (!controller.signal.aborted && researching.value) startPolling()
   }).finally(() => {
     if (streamController === controller) streamController = null
+  })
+}
+
+function appendForumEvent(payload: ForumSsePayload) {
+  const event = payload.event
+  forumEvents.value.push({
+    id: Date.now() + Math.random(),
+    source: event.source,
+    sourceText: ({
+      INDUSTRY: '行业 Agent',
+      QUERY: '检索 Agent',
+      INSIGHT: '洞察 Agent',
+      HOST: '论坛主持人',
+      SYSTEM: '系统',
+    } as Record<string, string>)[event.source] || event.source,
+    content: event.content,
+    createdAt: event.createdAt,
   })
 }
 
@@ -484,6 +558,7 @@ function stopEvents() {
 watch(chainRailCollapsed, value => localStorage.setItem('industry_chain_ai_rail_collapsed', value ? '1' : '0'))
 watch(() => props.id, () => {
   railModeTouched.value = false
+  forumEvents.value = []
   stopEvents()
   void load()
 })

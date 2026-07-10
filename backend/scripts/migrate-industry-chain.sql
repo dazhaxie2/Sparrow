@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS sparrow_ai.chain_research_message (
 CREATE TABLE IF NOT EXISTS sparrow_ai.chain_research_run (
     id BIGINT NOT NULL AUTO_INCREMENT, card_id BIGINT NOT NULL, user_id BIGINT NOT NULL,
     status VARCHAR(24) NOT NULL, current_stage VARCHAR(32) NULL, progress INT NOT NULL DEFAULT 0,
-    error_message VARCHAR(1000) NULL, started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    error_message VARCHAR(1000) NULL, checkpoint_json LONGTEXT NULL,
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at DATETIME NULL,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -97,7 +98,8 @@ CREATE TABLE IF NOT EXISTS research_message (
 CREATE TABLE IF NOT EXISTS research_run (
     id BIGINT NOT NULL AUTO_INCREMENT, card_id BIGINT NOT NULL, user_id BIGINT NOT NULL,
     status VARCHAR(24) NOT NULL, current_stage VARCHAR(32) NULL, progress INT NOT NULL DEFAULT 0,
-    error_message VARCHAR(1000) NULL, started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    error_message VARCHAR(1000) NULL, checkpoint_json LONGTEXT NULL,
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at DATETIME NULL, PRIMARY KEY (id),
     KEY idx_research_run_card (card_id, id), KEY idx_research_run_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

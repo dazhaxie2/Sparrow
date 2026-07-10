@@ -136,6 +136,36 @@ class IndustryChainResearchOrchestratorTest {
         verify(graphExtractor, never()).extract(anyString(), anyString(), anyList());
     }
 
+    @Test
+    void resumesFromEvidenceCheckpointWithoutRepeatingEarlierStages() {
+        stubLlmConfigured();
+        List<SearchSource> sources = List.of(src("http://saved.com", "已保存来源"));
+        IndustryChainResearchOrchestrator.ResearchCheckpoint checkpoint =
+                new IndustryChainResearchOrchestrator.ResearchCheckpoint(
+                        "已保存计划", List.of("已保存查询"), sources, "已保存论坛摘要",
+                        "已核验证据 [S1]", null, null, null);
+        JsonNode graph = graphJson(2, 1);
+        when(graphExtractor.extract(anyString(), anyString(), anyList())).thenReturn(graph);
+        when(reportBuilder.build(anyString(), anyString(), any(JsonNode.class), anyList(), anyString()))
+                .thenReturn(new ResearchReportBuilder.ReportResult("{\"doc\":\"ir\"}", "# 恢复报告"));
+        List<StageUpdate> stages = new ArrayList<>();
+        List<IndustryChainResearchOrchestrator.ResearchCheckpoint> saved = new ArrayList<>();
+
+        IndustryChainResearchOrchestrator.ResearchResult result = orchestrator.research(
+                "标题", "说明", List.of(), List.of(), 1L, 10L, 100L,
+                (stage, progress, message) -> stages.add(new StageUpdate(stage, progress, message)),
+                checkpoint, saved::add, true);
+
+        assertThat(result.reportMarkdown()).isEqualTo("# 恢复报告");
+        assertThat(stages).extracting(StageUpdate::stage)
+                .containsExactly("mapping", "writing", "finalizing");
+        assertThat(saved).hasSize(2);
+        verify(webSearch, never()).search(anyString(), any(), anyList(), anyInt());
+        verify(chat, never()).chat(anyString());
+        verify(graphExtractor).extract(anyString(), anyString(), anyList());
+        verify(reportBuilder).build(anyString(), anyString(), any(JsonNode.class), anyList(), anyString());
+    }
+
     // ── 致命分支2: 所有来源为空 → 502 ──
 
     @Test

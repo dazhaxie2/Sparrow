@@ -57,14 +57,29 @@ public class IndustryChainResearchAgent {
         listener(publishToForum).accept(roleText + " 启动首轮概览检索", "");
         List<SearchSource> firstBatch = webSearch.search(title, brief, planQueries, startRefIndex);
         sources.addAll(firstBatch);
-        String firstSummary = summarize(title, brief, firstBatch, "");
+        String firstSummary;
+        try {
+            firstSummary = summarize(title, brief, firstBatch, "");
+        } catch (RuntimeException error) {
+            log.warn("Agent 首轮总结失败，保留已检索来源继续汇总: role={} runId={}", role,
+                    publishToForum.runId(), error);
+            firstSummary = roleText + " 的模型总结暂时失败，已保留本轮检索来源供证据 Agent 后续核验。";
+        }
         findings.append("### 首轮概览\n").append(firstSummary).append("\n\n");
         publish(publishToForum, role, firstSummary);
 
         // 反思循环：基于缺口分析 + 主持人引导做深挖
         for (int round = 1; round <= MAX_REFLECTIONS; round++) {
             String hostSpeech = forum.latestHostSpeech(publishToForum.runId());
-            String reflection = reflect(title, findings.toString(), round, hostSpeech);
+            String reflection;
+            try {
+                reflection = reflect(title, findings.toString(), round, hostSpeech);
+            } catch (RuntimeException error) {
+                log.warn("Agent 反思调用失败，结束当前角色的深挖但保留已有结果: role={} round={} runId={}",
+                        role, round, publishToForum.runId(), error);
+                publish(publishToForum, role, roleText + " 本轮深挖暂时中断，已保留此前检索结果。");
+                break;
+            }
             if (reflection == null || reflection.isBlank()) break;
             List<String> extraQueries = extractQueries(reflection);
             if (extraQueries.isEmpty()) {
@@ -75,7 +90,14 @@ public class IndustryChainResearchAgent {
             int offset = startRefIndex + sources.size();
             List<SearchSource> deepBatch = webSearch.search(title, brief, extraQueries, offset);
             sources.addAll(deepBatch);
-            String deepSummary = summarize(title, brief, deepBatch, hostSpeech);
+            String deepSummary;
+            try {
+                deepSummary = summarize(title, brief, deepBatch, hostSpeech);
+            } catch (RuntimeException error) {
+                log.warn("Agent 深挖总结失败，保留已检索来源: role={} round={} runId={}",
+                        role, round, publishToForum.runId(), error);
+                deepSummary = roleText + " 的深挖总结暂时失败，新增来源已保留供证据 Agent 核验。";
+            }
             findings.append("### 反思第 ").append(round).append(" 轮(深挖)\n").append(deepSummary).append("\n\n");
             publish(publishToForum, role, deepSummary);
         }

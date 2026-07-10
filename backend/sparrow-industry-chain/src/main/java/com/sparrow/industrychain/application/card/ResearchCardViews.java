@@ -46,5 +46,9 @@ public final class ResearchCardViews {
     /** 启动调研结果：运行 ID 与剩余配额。 */
     public record StartRunResult(long runId, int remainingQuota) {
     }
+
+    /** 断点续跑结果：复用原运行 ID，不再次消耗调研配额。 */
+    public record ResumeRunResult(long runId, String currentStage, int progress) {
+    }
 }
 

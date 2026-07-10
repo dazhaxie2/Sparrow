@@ -11,11 +11,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
 @Repository
 public class IndustryChainRepository {
+
+    private static final ZoneId CHINA_ZONE = ZoneId.of("Asia/Shanghai");
 
     /** 调研卡片行数据：基本信息、状态、图谱与报告内容。 */
     public record CardRow(Long id, Long userId, String title, String brief, String status,
@@ -80,7 +83,8 @@ public class IndustryChainRepository {
         jdbc.execute("CREATE TABLE IF NOT EXISTS research_run ("
                 + "id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,card_id BIGINT NOT NULL,user_id BIGINT NOT NULL,"
                 + "status VARCHAR(24) NOT NULL,current_stage VARCHAR(32) NULL,progress INT NOT NULL DEFAULT 0,"
-                + "error_message VARCHAR(1000) NULL,started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                + "error_message VARCHAR(1000) NULL,checkpoint_json LONGTEXT NULL,"
+                + "started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
                 + "finished_at DATETIME NULL,KEY idx_research_run_card(card_id,id),"
                 + "KEY idx_research_run_user(user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         jdbc.execute("CREATE TABLE IF NOT EXISTS research_source ("
@@ -106,6 +110,7 @@ public class IndustryChainRepository {
                 + "KEY idx_research_forum_user(user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         // 平滑升级：老库补 report_ir 列
         addColumnIfMissing("research_card", "report_ir", "LONGTEXT NULL AFTER report_md");
+        addColumnIfMissing("research_run", "checkpoint_json", "LONGTEXT NULL AFTER error_message");
     }
 
     /** 幂等加列：列已存在时忽略异常。 */
@@ -259,6 +264,42 @@ public class IndustryChainRepository {
                 (rs, n) -> rs.getLong("id"), cardId, userId).stream().findFirst().orElse(null);
     }
 
+    /** 读取运行检查点；空值表示尚未完成任何可复用阶段。 */
+    public String runCheckpoint(long userId, long cardId, long runId) {
+        return jdbc.query("SELECT checkpoint_json FROM research_run WHERE id=? AND card_id=? AND user_id=?",
+                (rs, n) -> rs.getString("checkpoint_json"), runId, cardId, userId)
+                .stream().findFirst().orElse(null);
+    }
+
+    /** 原子保存最近完成阶段的检查点。 */
+    public void saveCheckpoint(long userId, long cardId, long runId, String checkpointJson) {
+        jdbc.update("UPDATE research_run SET checkpoint_json=? WHERE id=? AND card_id=? AND user_id=? "
+                        + "AND status='RUNNING'",
+                checkpointJson, runId, cardId, userId);
+    }
+
+    /** 恢复最近一次失败任务，复用原 runId、进度和检查点。 */
+    @Transactional
+    public RunRow resumeLastFailed(long userId, long cardId) {
+        jdbc.queryForObject("SELECT id FROM research_card WHERE id=? AND user_id=? FOR UPDATE",
+                Long.class, cardId, userId);
+        Integer running = jdbc.queryForObject("SELECT COUNT(*) FROM research_run "
+                + "WHERE card_id=? AND user_id=? AND status='RUNNING'", Integer.class, cardId, userId);
+        if (running != null && running > 0) throw new BizException(409, "已有调研任务正在运行");
+        RunRow failed = jdbc.query("SELECT * FROM research_run WHERE card_id=? AND user_id=? "
+                        + "AND status='FAILED' ORDER BY id DESC LIMIT 1",
+                (rs, n) -> run(rs), cardId, userId).stream().findFirst()
+                .orElseThrow(() -> new BizException(409, "没有可继续的中断任务"));
+        jdbc.update("UPDATE research_run SET status='RUNNING',error_message=NULL,finished_at=NULL "
+                        + "WHERE id=? AND card_id=? AND user_id=? AND status='FAILED'",
+                failed.id(), cardId, userId);
+        jdbc.update("UPDATE research_card SET status='RESEARCHING',current_stage=?,progress=?,last_error=NULL "
+                        + "WHERE id=? AND user_id=?",
+                failed.currentStage(), failed.progress(), cardId, userId);
+        return new RunRow(failed.id(), failed.cardId(), "RUNNING", failed.currentStage(), failed.progress(),
+                null, failed.startedAt(), null);
+    }
+
     /** 更新任务进度和阶段，同步到卡片。 */
     public void updateProgress(long userId, long cardId, long runId, String stage, int progress) {
         jdbc.update("UPDATE research_run SET current_stage=?,progress=? WHERE id=? AND user_id=?",
@@ -308,10 +349,12 @@ public class IndustryChainRepository {
     /** 标记任务失败，记录错误信息。 */
     public void fail(long userId, long cardId, long runId, String error) {
         String safe = error == null ? "调研失败" : error.substring(0, Math.min(error.length(), 1000));
-        jdbc.update("UPDATE research_run SET status='FAILED',error_message=?,finished_at=NOW() "
-                + "WHERE id=? AND user_id=?", safe, runId, userId);
-        jdbc.update("UPDATE research_card SET status='FAILED',last_error=? WHERE id=? AND user_id=?",
-                safe, cardId, userId);
+        int updated = jdbc.update("UPDATE research_run SET status='FAILED',error_message=?,finished_at=NOW() "
+                + "WHERE id=? AND user_id=? AND status='RUNNING'", safe, runId, userId);
+        if (updated > 0) {
+            jdbc.update("UPDATE research_card SET status='FAILED',last_error=? WHERE id=? AND user_id=?",
+                    safe, cardId, userId);
+        }
     }
 
     /** 查询卡片的调研来源列表。 */
@@ -334,8 +377,9 @@ public class IndustryChainRepository {
 
     /** 写入一条论坛事件。 */
     public void addForumEvent(long userId, long cardId, long runId, String source, String content) {
-        jdbc.update("INSERT INTO research_forum(card_id,user_id,run_id,source,content) VALUES(?,?,?,?,?)",
-                cardId, userId, runId, source, content);
+        jdbc.update("INSERT INTO research_forum(card_id,user_id,run_id,source,content,created_at) "
+                        + "VALUES(?,?,?,?,?,?)",
+                cardId, userId, runId, source, content, LocalDateTime.now(CHINA_ZONE));
     }
 
     /** 查询某次运行的论坛事件(按时间顺序)，用于工作台初次加载还原协作流。 */

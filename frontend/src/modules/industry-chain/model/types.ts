@@ -196,3 +196,9 @@ export interface ResearchStartResult {
   runId: number
   remainingQuota: number
 }
+
+export interface ResearchResumeResult {
+  runId: number
+  currentStage: string | null
+  progress: number
+}

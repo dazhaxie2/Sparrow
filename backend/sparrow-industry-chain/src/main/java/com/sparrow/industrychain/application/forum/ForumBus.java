@@ -8,8 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -36,6 +36,7 @@ public class ForumBus {
 
     /** 每捕获多少条 Agent 发言触发一次主持人发言(对照 BettaFish host_speech_threshold=5)。 */
     static final int HOST_TRIGGER_THRESHOLD = 5;
+    static final ZoneId CHINA_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final IndustryChainRepository repository;
     private final IndustryChainEventHub events;
@@ -57,7 +58,7 @@ public class ForumBus {
 
     /** Agent/系统 发言：写入 DB + 推送 SSE + 累计触发主持人。 */
     public synchronized void publish(long cardId, long runId, long userId, String source, String content) {
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+        String timestamp = ZonedDateTime.now(CHINA_ZONE).toOffsetDateTime().toString();
         ForumEvent event = new ForumEvent(cardId, runId, source, content, timestamp);
         repository.addForumEvent(userId, cardId, runId, source, content);
         buffers.computeIfAbsent(runId, k -> new ConcurrentLinkedQueue<>()).add(event);
@@ -86,8 +87,8 @@ public class ForumBus {
     public List<ForumEvent> history(long cardId, long runId) {
         return repository.forumEvents(cardId, runId).stream()
                 .map(row -> new ForumEvent(row.cardId(), row.runId(), row.source(), row.content(),
-                        row.createdAt() == null ? "" : row.createdAt()
-                                .format(DateTimeFormatter.ofPattern("HH:mm:ss"))))
+                        row.createdAt() == null ? "" : row.createdAt().atZone(CHINA_ZONE)
+                                .toOffsetDateTime().toString()))
                 .toList();
     }
 

@@ -102,11 +102,13 @@
 </template>
 
 <script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
 import type { Block, ResearchSource } from '../model/types'
 import InlineRuns from './InlineRuns.vue'
 import SwotItemView from './SwotItemView.vue'
 import PestItemView from './PestItemView.vue'
-import ChartWidget from './ChartWidget.vue'
+
+const ChartWidget = defineAsyncComponent(() => import('./ChartWidget.vue'))
 
 defineProps<{ block: Block; sources: ResearchSource[] }>()
 const emit = defineEmits<{ (e: 'source-click', ref: string): void }>()

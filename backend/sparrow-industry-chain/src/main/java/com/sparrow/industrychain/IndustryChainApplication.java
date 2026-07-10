@@ -7,6 +7,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 产业链调研服务启动类。
@@ -16,6 +17,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 @EnableDiscoveryClient
 @EnableFeignClients(basePackages = "com.sparrow.industrychain.infrastructure.client")
 @EnableAsync
+@EnableScheduling
 @ComponentScan({"com.sparrow.industrychain", "com.sparrow.common"})
 public class IndustryChainApplication {
 
