@@ -39,6 +39,17 @@
           </div>
           <div v-if="message.role === 'assistant'" class="dialog-md" v-html="renderMarkdown(message.content)" />
           <p v-else>{{ message.content }}</p>
+          <div
+            v-if="message.role === 'assistant' && message.harness"
+            class="dialog-harness"
+            :class="`harness-${message.harness.status}`"
+            :title="`完整追踪 ID: ${message.harness.traceId}`"
+          >
+            <ShieldCheck :size="12" />
+            <span>{{ harnessLabel(message.harness.status) }}</span>
+            <span v-if="message.harness.contextMessages">上下文 {{ message.harness.contextMessages }} 条</span>
+            <code>#{{ message.harness.traceId.slice(0, 8) }}</code>
+          </div>
         </article>
 
         <div v-if="dialogLoading" class="dialog-state">
@@ -68,7 +79,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { BrainCircuit, LoaderCircle, MessageSquareText, SendHorizontal, X } from '@lucide/vue'
+import { BrainCircuit, LoaderCircle, MessageSquareText, SendHorizontal, ShieldCheck, X } from '@lucide/vue'
 import { renderMarkdown } from '../../ai/utils/markdown'
 import QuestionCursor from '../../ai/components/QuestionCursor.vue'
 import type { DialogMessage } from '../composables/useDialogMode'
@@ -123,6 +134,15 @@ function submit() {
   if (!value || props.dialogLoading) return
   emit('submit', value)
   text.value = ''
+}
+
+function harnessLabel(status: string) {
+  return ({
+    running: 'Harness 执行中',
+    completed: 'Harness 已验证',
+    degraded: 'Harness 已降级恢复',
+    failed: 'Harness 失败',
+  } as Record<string, string>)[status] ?? 'Harness'
 }
 
 async function scrollToBottom() {
@@ -360,6 +380,23 @@ onMounted(() => {
 .dialog-md :deep(a) {
   color: var(--accent);
 }
+
+.dialog-harness {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  color: #28744f;
+  font-size: 10px;
+}
+
+.dialog-harness code {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.dialog-harness.harness-degraded { color: #a45b16; }
+.dialog-harness.harness-failed { color: var(--danger); }
 
 .dialog-state,
 .dialog-error {

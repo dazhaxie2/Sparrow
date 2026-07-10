@@ -42,5 +42,5 @@ the root work loop and `changed` verification are enough.
 - `verification.md`: validation levels and change-to-check matrix.
 - `long-running-tasks.md`: task state and continuation protocol.
 - `failure-playbook.md`: diagnosis and recovery for recurring failures.
+- `runtime-ai-chat.md`: Harness lifecycle used by every product AI chat surface.
 - `.harness/manifest.json`: facts consumed by deterministic tooling.
-

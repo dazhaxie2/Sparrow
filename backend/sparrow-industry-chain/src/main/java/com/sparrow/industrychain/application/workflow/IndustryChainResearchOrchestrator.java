@@ -155,11 +155,11 @@ public class IndustryChainResearchOrchestrator {
         IndustryChainResearchAgent.PublishContext ctx = new IndustryChainResearchAgent.PublishContext(cardId, runId, userId);
 
         CompletableFuture<IndustryChainResearchAgent.AgentResult> industryFuture =
-                supply(industryAgent, title, brief, provided.size(), ctx, sharedFirstBatch);
+                supply(industryAgent, title, brief, planQueries, provided.size(), ctx, sharedFirstBatch);
         CompletableFuture<IndustryChainResearchAgent.AgentResult> queryFuture =
-                supply(queryAgent, title, brief, provided.size(), ctx, sharedFirstBatch);
+                supply(queryAgent, title, brief, planQueries, provided.size(), ctx, sharedFirstBatch);
         CompletableFuture<IndustryChainResearchAgent.AgentResult> insightFuture =
-                supply(insightAgent, title, brief, provided.size(), ctx, sharedFirstBatch);
+                supply(insightAgent, title, brief, planQueries, provided.size(), ctx, sharedFirstBatch);
         CompletableFuture.allOf(industryFuture, queryFuture, insightFuture).join();
 
         IndustryChainResearchAgent.AgentResult industry = industryFuture.join();
@@ -220,11 +220,11 @@ public class IndustryChainResearchOrchestrator {
     }
 
     private CompletableFuture<IndustryChainResearchAgent.AgentResult> supply(IndustryChainResearchAgent agent, String title,
-                                                                     String brief, int startRefIndex,
+                                                                     String brief, List<String> planQueries, int startRefIndex,
                                                                      IndustryChainResearchAgent.PublishContext ctx,
                                                                      List<SearchSource> sharedFirstBatch) {
         return CompletableFuture.supplyAsync(
-                () -> agent.research(title, brief, List.of(), startRefIndex, ctx, sharedFirstBatch), executor);
+                () -> agent.research(title, brief, planQueries, startRefIndex, ctx, sharedFirstBatch), executor);
     }
 
     /** 合并来源：用户资料优先编号 S1..Sk；联网来源按 URL 去重后接续 S(k+1)..Sn。 */

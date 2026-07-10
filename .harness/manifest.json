@@ -15,7 +15,8 @@
     "docs/harness/architecture.md",
     "docs/harness/verification.md",
     "docs/harness/long-running-tasks.md",
-    "docs/harness/failure-playbook.md"
+    "docs/harness/failure-playbook.md",
+    "docs/harness/runtime-ai-chat.md"
   ],
   "backend": {
     "root": "backend",

@@ -46,12 +46,17 @@ import AiMessageList from './AiMessageList.vue'
 import AiComposer from './AiComposer.vue'
 import ChatHistoryDrawer from './ChatHistoryDrawer.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   /** 当前上下文节点(科技树节点 / 产业链标题伪节点)，提问会自动带前缀；null 表示无上下文。 */
   contextNode: NodeBrief | null
   /** 折叠为窄竖条。 */
   collapsed?: boolean
-}>()
+  /** 低基数调用界面标识，进入服务端 Harness trace。 */
+  surface?: string
+}>(), {
+  collapsed: false,
+  surface: 'assistant-rail',
+})
 
 defineEmits<{ (e: 'toggle'): void }>()
 
@@ -88,7 +93,7 @@ async function handleSubmit(text: string) {
   const contextualQuestion = props.contextNode
     ? `围绕「${props.contextNode.name}」回答：${question}`
     : question
-  await ask(contextualQuestion, user.isLoggedIn())
+  await ask(contextualQuestion, user.isLoggedIn(), props.surface)
 }
 
 /**

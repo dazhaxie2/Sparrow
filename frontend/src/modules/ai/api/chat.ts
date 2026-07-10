@@ -1,9 +1,9 @@
 import { get, post, request } from '../../../shared/api/request'
 import { createSSEConnection } from '../../../shared/utils/sse'
-import type { AgentStep, AskResult, ChatSession, SourceRef } from '../types'
+import type { AgentStep, AiHarnessMetadata, AskResult, ChatSession, SourceRef } from '../types'
 
-export function askAi(question: string) {
-  return post<AskResult>('/api/ai/ask', { question })
+export function askAi(question: string, surface = 'graph-dialog', sessionId?: number | null) {
+  return post<AskResult>('/api/ai/ask', { question, surface, sessionId: sessionId ?? null })
 }
 
 // ==================== 历史会话管理 ====================
@@ -56,19 +56,31 @@ export interface StreamMeta {
   sources: SourceRef[]
   steps: AgentStep[]
   remainingQuota: number
+  harness: AiHarnessMetadata
+}
+
+export interface StreamError {
+  message: string
+  traceId?: string
+  retryable: boolean
+  harness?: AiHarnessMetadata
 }
 
 /** 流式问答的事件回调集合。 */
 export interface StreamHandlers {
   onMeta?: (meta: StreamMeta) => void
+  /** Harness 生命周期阶段更新。 */
+  onHarness?: (harness: AiHarnessMetadata) => void
+  /** 上级模型失败并降级时，清掉已流出的不完整内容。 */
+  onReset?: () => void
   /** 思考过程增量(reasoning 模型才有)。 */
   onThinking?: (delta: string) => void
   /** 正文增量。 */
   onDelta?: (delta: string) => void
   /** 结束(mode/format 最终确认)。 */
-  onDone?: (mode: string, format: string) => void
+  onDone?: (mode: string, format: string, harness?: AiHarnessMetadata) => void
   /** 错误(含降级到规则仍失败)。 */
-  onError?: (message: string) => void
+  onError?: (error: StreamError) => void
 }
 
 /**
@@ -83,17 +95,24 @@ export function streamAsk(
   question: string,
   handlers: StreamHandlers,
   sessionId?: number | null,
+  surface = 'assistant-rail',
 ): () => void {
   // settled:业务 done/error 已处理过就置 true,避免传输层 onDone 兜底时重复触发收尾。
   // 必要性:后端正常路径必发 done/error,但边界情况(agent+rag 两级连续悬挂导致 SseEmitter
   // 120s 超时先于降级完成)会让 done/error 都发不出。此时若传输层 onDone 不兜底,
   // 前端 loading 永远为 true、消息永久卡在 streaming 态(## 不渲染、光标/占位框不消失)。
   let settled = false
-  return createSSEConnection('/api/ai/ask/stream', { question, sessionId: sessionId ?? null }, {
+  return createSSEConnection('/api/ai/ask/stream', { question, sessionId: sessionId ?? null, surface }, {
     onEvent(event, data) {
       switch (event) {
         case 'meta':
           handlers.onMeta?.(data as StreamMeta)
+          break
+        case 'harness':
+          if (data?.harness) handlers.onHarness?.(data.harness as AiHarnessMetadata)
+          break
+        case 'reset':
+          handlers.onReset?.()
           break
         case 'thinking':
           if (typeof data?.text === 'string') handlers.onThinking?.(data.text)
@@ -104,13 +123,22 @@ export function streamAsk(
         case 'done':
           if (!settled) {
             settled = true
-            handlers.onDone?.(data?.mode ?? 'rules', data?.format ?? 'markdown:v1')
+            handlers.onDone?.(
+              data?.mode ?? 'rules',
+              data?.format ?? 'markdown:v1',
+              data?.harness as AiHarnessMetadata | undefined,
+            )
           }
           break
         case 'error':
           if (!settled) {
             settled = true
-            handlers.onError?.(data?.message ?? '生成失败')
+            handlers.onError?.({
+              message: data?.message ?? '生成失败',
+              traceId: data?.traceId,
+              retryable: data?.retryable !== false,
+              harness: data?.harness as AiHarnessMetadata | undefined,
+            })
           }
           break
         default:
@@ -120,15 +148,15 @@ export function streamAsk(
     onError(err) {
       if (!settled) {
         settled = true
-        handlers.onError?.(err.message || '网络错误')
+        handlers.onError?.({ message: err.message || '网络错误', retryable: true })
       }
     },
     onDone() {
-      // 传输层连接结束(流读尽/连接关闭)。若业务 done/error 未到(后端漏发或网络中断),
-      // 兜底触发 onDone,保证前端必定收尾。已 settled 则跳过,避免重复 resolve。
+      // 传输层连接关闭但业务 done/error 未到，必须按可重试中断处理；不能伪装成功，
+      // 否则会错误增加历史消息计数，并隐藏服务端尚未持久化这一事实。
       if (!settled) {
         settled = true
-        handlers.onDone?.('rules', 'markdown:v1')
+        handlers.onError?.({ message: '连接中断，回答可能未保存', retryable: true })
       }
     },
   })

@@ -1,12 +1,19 @@
 package com.sparrow.industrychain.application.conversation;
 
 import com.sparrow.common.exception.BizException;
+import com.sparrow.common.ai.AiHarness;
+import com.sparrow.common.ai.AiHarness.Metadata;
 import com.sparrow.industrychain.application.card.ResearchCardViews.MessageReply;
 import com.sparrow.industrychain.application.card.ResearchCardViews.MessageView;
 import com.sparrow.industrychain.application.workflow.IndustryChainResearchOrchestrator;
+import com.sparrow.industrychain.application.harness.IndustryChatHarness;
+import com.sparrow.industrychain.application.harness.IndustryChatHarness.Prepared;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository.CardRow;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository.MessageRow;
+import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository.MessageIds;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -14,29 +21,47 @@ import java.util.List;
 @Service
 public class ResearchConversationService {
 
+    private static final Logger log = LoggerFactory.getLogger(ResearchConversationService.class);
+
     private final IndustryChainRepository repository;
     private final IndustryChainResearchOrchestrator orchestrator;
+    private final IndustryChatHarness chatHarness;
 
     public ResearchConversationService(IndustryChainRepository repository,
                                        IndustryChainResearchOrchestrator orchestrator) {
         this.repository = repository;
         this.orchestrator = orchestrator;
+        this.chatHarness = new IndustryChatHarness(repository);
     }
 
     public MessageReply message(long userId, long cardId, String content) {
-        CardRow card = owned(userId, cardId);
-        if (repository.activeRun(userId, cardId).isPresent()) throw new BizException(409, "调研运行中，请等待完成后继续对话");
-        String trimmed = content.trim();
-        // 先基于已有历史生成回复，成功后再成对落库 user + assistant。
-        // 避免 LLM 调用失败时只留下孤儿 user 消息(下次对话历史会多一条无回复的 user 轮次)。
-        List<MessageRow> history = repository.messages(userId, cardId);
-        String reply = orchestrator.reply(card.title(), card.brief(), history, trimmed);
-        long userMessageId = repository.addMessage(userId, cardId, "user", null, trimmed);
-        long assistantId = repository.addMessage(userId, cardId, "assistant", "planner", reply);
-        List<MessageRow> next = repository.messages(userId, cardId);
-        MessageRow userRow = next.stream().filter(item -> item.id() == userMessageId).findFirst().orElseThrow();
-        MessageRow assistantRow = next.stream().filter(item -> item.id() == assistantId).findFirst().orElseThrow();
-        return new MessageReply(messageView(userRow), messageView(assistantRow));
+        AiHarness.Run harness = AiHarness.start("industry-chain-planning");
+        try {
+            CardRow card = owned(userId, cardId);
+            if (repository.activeRun(userId, cardId).isPresent()) {
+                throw new BizException(409, "调研运行中，请等待完成后继续对话");
+            }
+            Prepared prepared = chatHarness.prepare(harness, content, repository.messages(userId, cardId));
+            harness.checkpoint(AiHarness.Stage.EXECUTION, "规划 Agent 正在基于卡片与历史上下文回复");
+            String rawReply = orchestrator.reply(card.title(), card.brief(), prepared.history(), prepared.question());
+            String reply = chatHarness.validateAnswer(harness, rawReply);
+            MessageIds ids = chatHarness.persistExchange(harness, userId, cardId, prepared.question(), reply);
+            List<MessageRow> next = repository.messages(userId, cardId);
+            MessageRow userRow = next.stream().filter(item -> item.id() == ids.userMessageId()).findFirst().orElseThrow();
+            MessageRow assistantRow = next.stream().filter(item -> item.id() == ids.assistantMessageId()).findFirst().orElseThrow();
+            Metadata metadata = harness.complete();
+            return new MessageReply(messageView(userRow), messageView(assistantRow), metadata);
+        } catch (BizException error) {
+            Metadata failed = harness.fail(error.getCode() >= 500, "产业链规划对话未完成");
+            log.warn("产业链规划对话被拒绝 [traceId={} cardId={} code={}]: {}",
+                    failed.traceId(), cardId, error.getCode(), AiHarness.safeFailure(error));
+            throw new BizException(error.getCode(), error.getMessage() + "（追踪 ID: " + failed.traceId() + "）");
+        } catch (Exception error) {
+            Metadata failed = harness.fail(true, "产业链规划对话执行失败");
+            log.warn("产业链规划对话失败 [traceId={} cardId={}]: {}",
+                    failed.traceId(), cardId, AiHarness.safeFailure(error));
+            throw new BizException(503, "规划 Agent 暂时不可用（追踪 ID: " + failed.traceId() + "）");
+        }
     }
 
     private CardRow owned(long userId, long cardId) {

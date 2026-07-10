@@ -30,6 +30,10 @@ public class IndustryChainRepository {
                              LocalDateTime createdAt) {
     }
 
+    /** 一次原子问答轮次生成的消息 ID。 */
+    public record MessageIds(long userMessageId, long assistantMessageId) {
+    }
+
     /** 运行任务行数据：状态、进度、错误信息与时间戳。 */
     public record RunRow(Long id, Long cardId, String status, String currentStage, int progress,
                          String errorMessage, LocalDateTime startedAt, LocalDateTime finishedAt) {
@@ -234,6 +238,20 @@ public class IndustryChainRepository {
             return statement;
         }, key);
         return key.getKey() == null ? 0 : key.getKey().longValue();
+    }
+
+    /** 锁定卡片归属并原子保存 user/assistant，失败时整轮回滚。 */
+    @Transactional
+    public MessageIds addExchange(long userId, long cardId, String question, String answer) {
+        List<Long> owned = jdbc.query("SELECT id FROM research_card WHERE id=? AND user_id=? FOR UPDATE",
+                (rs, n) -> rs.getLong("id"), cardId, userId);
+        if (owned.isEmpty()) throw new BizException(404, "调研卡片不存在");
+        long userMessageId = addMessage(userId, cardId, "user", null, question);
+        long assistantMessageId = addMessage(userId, cardId, "assistant", "planner", answer);
+        if (userMessageId <= 0 || assistantMessageId <= 0) {
+            throw new IllegalStateException("未生成完整对话消息 ID");
+        }
+        return new MessageIds(userMessageId, assistantMessageId);
     }
 
     /** 查询卡片的所有对话消息，按 ID 顺序。 */

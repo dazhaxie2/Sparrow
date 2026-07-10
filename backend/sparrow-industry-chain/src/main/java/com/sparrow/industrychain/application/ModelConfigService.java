@@ -10,6 +10,7 @@ import com.sparrow.industrychain.infrastructure.persistence.ModelConfigRepositor
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -164,7 +165,7 @@ public class ModelConfigService {
         }
         // 先建模型(失败则不切换,保证不破坏当前可用模型)。模型对象在 afterCommit 时使用。
         ChatModel newModel;
-        ChatModel streamingModel;
+        StreamingChatModel streamingModel;
         try {
             newModel = aiConfig.buildFrom(config);
             streamingModel = aiConfig.buildStreamingFrom(config);

@@ -252,7 +252,7 @@ public class IndustryChainResearchAgent {
         try {
             String full = chatProvider.stream(prompt, onToken, error -> { });
             // 最终推送一次完整文本,确保前端拿到结尾。
-            emitStream.accept(full);
+            forum.stream(ctx.cardId(), ctx.runId(), streamId, role, full);
             return full;
         } catch (RuntimeException error) {
             // 流式失败:回退阻塞模型(已在 chatProvider.stream 内部尝试过,这里兜底)。

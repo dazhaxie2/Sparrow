@@ -1,7 +1,8 @@
 import { computed, nextTick, ref, type Ref } from 'vue'
 import { fetchSubgraph, fetchNeighborhood, searchNodes } from '../api'
 import type { Tree, NodeBrief, NodeDetail, EdgeBrief } from '../types'
-import { askAi } from '../../ai/api/chat'
+import { askAi, createSession } from '../../ai/api/chat'
+import type { AiHarnessMetadata } from '../../../shared/ai/harness'
 
 const DIALOG_NODE_LIMIT = 140
 const DIALOG_NEIGHBOR_LIMIT = 10
@@ -17,6 +18,7 @@ export type DialogMessage = {
   role: 'user' | 'assistant'
   title?: string
   content: string
+  harness?: AiHarnessMetadata
 }
 
 type HighlightState = { selectedId: number; chainIds: Set<number> } | null
@@ -77,6 +79,7 @@ export function useDialogMode(deps: DialogDeps) {
   const dialogResult = ref<DialogExtraction | null>(null)
   const dialogPreviousTree = ref<Tree | null>(null)
   const dialogMessages = ref<DialogMessage[]>([])
+  const dialogSessionId = ref<number | null>(null)
   let dialogMessageId = 0
 
   const dialogActive = computed(() => Boolean(dialogResult.value))
@@ -128,8 +131,15 @@ export function useDialogMode(deps: DialogDeps) {
         })
         return
       }
-      const res = await askAi(query)
-      updateDialogMessage(messageId, { title: '', content: res.answer })
+      if (dialogSessionId.value === null) {
+        try {
+          dialogSessionId.value = (await createSession(query)).sessionId
+        } catch {
+          // 会话创建是记忆增强；失败时仍允许无会话问答，Harness 会明确 contextMessages=0。
+        }
+      }
+      const res = await askAi(query, 'graph-dialog', dialogSessionId.value)
+      updateDialogMessage(messageId, { title: '', content: res.answer, harness: res.harness })
     } catch (error: any) {
       updateDialogMessage(messageId, {
         title: '出错',

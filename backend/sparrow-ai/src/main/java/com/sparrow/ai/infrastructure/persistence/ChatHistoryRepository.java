@@ -136,6 +136,20 @@ public class ChatHistoryRepository {
         return key.getKey().longValue();
     }
 
+    /**
+     * 原子保存完整问答轮次。先锁定会话归属，再成对写入，避免 SSE/模型失败留下孤儿 user 消息。
+     */
+    @Transactional
+    public void addExchange(long userId, long sessionId, String question, String answer, String mode) {
+        List<Long> owned = jdbc.query("SELECT id FROM chat_session WHERE id = ? AND user_id = ? FOR UPDATE",
+                (rs, n) -> rs.getLong("id"), sessionId, userId);
+        if (owned.isEmpty()) {
+            throw new IllegalStateException("会话不存在或归属不匹配");
+        }
+        addMessage(userId, sessionId, "user", question, null);
+        addMessage(userId, sessionId, "assistant", answer, mode);
+    }
+
     /** 取会话的全部消息(按时间正序,用于历史回放)。 */
     public List<ChatMessageRow> messages(long userId, long sessionId) {
         return jdbc.query(

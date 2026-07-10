@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "id": "ai-chat-runtime-harness",
+  "title": "Apply harness engineering to every AI chat surface",
+  "status": "completed",
+  "objective": "Make every user-facing AI chat request pass through an explicit runtime harness that assembles bounded context, applies safety and execution policies, exposes traceable lifecycle metadata, validates output, persists recoverable state, and degrades predictably.",
+  "scope": {
+    "in": [
+      "General AI chat and streaming endpoints in sparrow-ai",
+      "Graph dialog surfaces that call the general AI endpoint",
+      "Industry-chain card conversation endpoint",
+      "Frontend display of harness lifecycle, trace id and recoverable errors",
+      "Focused unit tests, architecture documentation and verification"
+    ],
+    "out": [
+      "Changing the multi-agent deep-research orchestration algorithm",
+      "Replacing LLM providers or model configuration storage",
+      "Adding a new microservice or cross-service JAR dependency",
+      "Production observability infrastructure deployment"
+    ]
+  },
+  "acceptanceCriteria": [
+    {
+      "id": "AC-1",
+      "description": "Every AI chat API request receives a server-generated trace id and passes through bounded context, policy, execution, validation and recovery stages.",
+      "status": "passed",
+      "evidence": [
+        "AiHarnessTest covers lifecycle, bounded context metadata, fallback and redacted failure states.",
+        "AiServiceTest and ResearchConversationServiceTest verify service-owned policy, context, execution, validation, persistence and recovery paths."
+      ]
+    },
+    {
+      "id": "AC-2",
+      "description": "Streaming and non-streaming clients receive consistent harness metadata and explicit retryable/non-retryable failure information without exposing secrets.",
+      "status": "passed",
+      "evidence": [
+        "AiService streaming tests verify harness, meta, reset, delta, done and structured error events.",
+        "Frontend TypeScript production build validates the shared metadata, reset and retryability contracts."
+      ]
+    },
+    {
+      "id": "AC-3",
+      "description": "Chat history remains authoritative and recoverable after refresh or interrupted streaming, with no duplicate persisted assistant message.",
+      "status": "passed",
+      "evidence": [
+        "General and industry-chain chat harness tests verify persisted bounded history is loaded before execution.",
+        "Transactional repository addExchange operations persist the user and assistant pair only after output validation."
+      ]
+    },
+    {
+      "id": "AC-4",
+      "description": "Existing general, graph-context and industry-chain chat surfaces continue to work and expose visible harness progress or diagnostic identity.",
+      "status": "passed",
+      "evidence": [
+        "Graph rail, graph dialog, industry-chain guide and industry-chain planning surfaces carry a stable surface id and render harness state/trace metadata.",
+        "The production build passed and the in-app browser rendered the AI rail without frontend console errors."
+      ]
+    },
+    {
+      "id": "AC-5",
+      "description": "Focused backend tests, frontend build, deterministic guards and relevant full verification pass.",
+      "status": "passed",
+      "evidence": [
+        "node tools/harness.mjs changed passed both deterministic guards, the full seven-module backend reactor with 135 tests, and the frontend production build.",
+        "git diff --check passed; only line-ending normalization warnings were reported."
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "S-1",
+      "description": "Inventory chat surfaces, request contracts, persistence and existing failure handling.",
+      "status": "completed",
+      "verification": "Repository inventory completed and baseline focused tests passed before implementation."
+    },
+    {
+      "id": "S-2",
+      "description": "Design a service-owned runtime harness contract and lifecycle without cross-service build dependencies.",
+      "status": "completed",
+      "verification": "Service-owned harness design documented and both architecture guards passed."
+    },
+    {
+      "id": "S-3",
+      "description": "Implement backend harnesses for general AI and industry-chain conversations with tests.",
+      "status": "completed",
+      "verification": "Focused common, sparrow-ai and sparrow-industry-chain test suites passed."
+    },
+    {
+      "id": "S-4",
+      "description": "Propagate harness lifecycle metadata to all frontend chat surfaces and add recoverable UI states.",
+      "status": "completed",
+      "verification": "Frontend production build passed; initial AI rail layout rendered without console errors in the in-app browser."
+    },
+    {
+      "id": "S-5",
+      "description": "Document the runtime harness, run change-aware/full verification and record evidence.",
+      "status": "completed",
+      "verification": "Harness guard, product architecture guard, 135 backend tests and frontend production build passed."
+    }
+  ],
+  "decisions": [
+    "Keep execution inside the owning service: sparrow-ai owns general chat; sparrow-industry-chain owns card conversation context.",
+    "Use one lifecycle vocabulary across services and clients, but do not introduce a business-service JAR dependency.",
+    "Treat persisted messages as authoritative and SSE events as an observable delivery channel.",
+    "An authenticated live-model smoke test remains a deployment follow-up because the local backend was not running; automated contracts and frontend layout were verified locally."
+  ],
+  "blockers": [],
+  "verification": {
+    "lastRunAt": "2026-07-10T17:35:51.3607032Z",
+    "commands": [
+      {
+        "command": "node tools/harness.mjs backend sparrow-ai sparrow-industry-chain",
+        "result": "PASS: focused common, sparrow-ai and sparrow-industry-chain tests passed."
+      },
+      {
+        "command": "node tools/harness.mjs changed",
+        "result": "PASS: both guards, 135 backend tests and frontend production build passed."
+      },
+      {
+        "command": "git diff --check",
+        "result": "PASS: no whitespace errors; line-ending normalization warnings only."
+      },
+      {
+        "command": "In-app browser frontend preview",
+        "result": "PASS: AI rail rendered and no frontend console errors were observed; authenticated backend model flow was unavailable locally."
+      }
+    ]
+  },
+  "nextAction": "Deploy to an environment with the backend services and run the authenticated live-model smoke scenarios.",
+  "createdAt": "2026-07-10T17:08:15.815Z",
+  "updatedAt": "2026-07-10T17:35:51.3607032Z"
+}

@@ -190,6 +190,7 @@ export interface Widget {
 export interface ResearchMessageReply {
   userMessage: ResearchMessage
   assistantMessage: ResearchMessage
+  harness: AiHarnessMetadata
 }
 
 export interface ResearchStartResult {
@@ -202,3 +203,4 @@ export interface ResearchResumeResult {
   currentStage: string | null
   progress: number
 }
+import type { AiHarnessMetadata } from '../../../shared/ai/harness'

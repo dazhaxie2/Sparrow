@@ -177,7 +177,7 @@
                 @submit="sendMessage"
                 @switch-to-map="setRailMode('ask')"
               />
-              <AiChatPanel v-else class="rail-chat" :context-node="chainContextBrief" />
+              <AiChatPanel v-else class="rail-chat" surface="industry-chain-guide" :context-node="chainContextBrief" />
             </div>
           </template>
         </aside>
@@ -205,6 +205,7 @@ import {
 } from '../api'
 import type { ForumEventView, ForumSsePayload, ResearchCardDetail } from '../model/types'
 import type { NodeBrief } from '../../graph/types'
+import type { AiHarnessMetadata } from '../../../shared/ai/harness'
 
 const DialogWorkbench = defineAsyncComponent(() => import('../../graph/components/DialogWorkbench.vue'))
 const AiChatPanel = defineAsyncComponent(() => import('../../ai/components/AiChatPanel.vue'))
@@ -230,6 +231,7 @@ const liveThinking = ref<string | null>(null)
 const streamBubbles = ref<Record<string, { source: string; sourceText: string; text: string }>>({})
 const richReportRef = ref<ComponentPublicInstance | null>(null)
 const exporting = ref(false)
+const planningHarnessByMessageId = ref<Record<number, AiHarnessMetadata>>({})
 let streamController: AbortController | null = null
 let pollTimer: number | null = null
 
@@ -246,6 +248,7 @@ const dialogMessages = computed(() => (detail.value?.messages ?? []).map(message
   role: message.role,
   title: message.agent ? message.agent.toUpperCase() : undefined,
   content: message.content,
+  harness: planningHarnessByMessageId.value[message.id],
 })))
 const researching = computed(() => detail.value?.card.status === 'RESEARCHING')
 const progress = computed(() => detail.value?.card.progress ?? 0)
@@ -383,6 +386,7 @@ async function sendMessage(content: string) {
   error.value = ''
   try {
     const reply = await sendResearchMessage(props.id, content)
+    planningHarnessByMessageId.value[reply.assistantMessage.id] = reply.harness
     if (detail.value) detail.value.messages.push(reply.userMessage, reply.assistantMessage)
   } catch (e: any) {
     error.value = e.message || '消息发送失败'

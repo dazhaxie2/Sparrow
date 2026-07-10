@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { streamAsk, type MessageItem, type StreamMeta } from '../api/chat'
 import { useChatStore } from '../store/chat'
-import type { ChatMessage } from '../types'
+import type { AiHarnessMetadata, ChatMessage } from '../types'
 
 const WELCOME: ChatMessage = {
   role: 'assistant',
@@ -54,7 +54,11 @@ export function useChat() {
     }))
   }
 
-  async function ask(question: string, isLoggedIn: boolean): Promise<{ quotaMsg?: string }> {
+  async function ask(
+    question: string,
+    isLoggedIn: boolean,
+    surface = 'assistant-rail',
+  ): Promise<{ quotaMsg?: string }> {
     const trimmed = question.trim()
     if (!trimmed) return {}
 
@@ -169,6 +173,10 @@ export function useChat() {
       }, 130_000)
 
       const abort = streamAsk(trimmed, {
+        onHarness: (harness: AiHarnessMetadata) => {
+          reactivePlaceholder.harness = harness
+          phase.value = harnessPhase(harness)
+        },
         onMeta: (meta: StreamMeta) => {
           // 来源/配额/步骤先到,就地回填占位消息。
           reactivePlaceholder.sources = meta.sources
@@ -176,6 +184,7 @@ export function useChat() {
           reactivePlaceholder.intent = meta.intent
           reactivePlaceholder.mode = meta.mode
           reactivePlaceholder.format = 'markdown:v1'
+          reactivePlaceholder.harness = meta.harness
           if (meta.remainingQuota >= 0) {
             quotaMsg.value = `今日剩余免费次数: ${meta.remainingQuota}（会员不限次）`
           }
@@ -196,15 +205,28 @@ export function useChat() {
           pendingDelta += delta
           scheduleFlush()
         },
-        onDone: () => {
+        onReset: () => {
+          pendingDelta = ''
+          pendingThinking = ''
+          reactivePlaceholder.content = ''
+          reactivePlaceholder.thinking = ''
+          phase.value = '上游失败，正在切换恢复路径'
+        },
+        onDone: (_mode, _format, harness) => {
           // 收到业务 done=正常完整收尾,标记 complete 让 settle 走"内容完整"路径。
           finishReason = 'complete'
+          if (harness) reactivePlaceholder.harness = harness
           // 成功收尾:本会话消息数 +2(user+assistant),仅在有 session 时
           if (sessionId !== null) store.bumpMessageCount(sessionId, 2)
           settle()
         },
-        onError: message => settle(message),
-      }, sessionId)
+        onError: streamError => {
+          if (streamError.harness) reactivePlaceholder.harness = streamError.harness
+          const trace = streamError.traceId ? `（追踪 ID: ${streamError.traceId}）` : ''
+          const retry = streamError.retryable ? '，可以重试' : ''
+          settle(`${streamError.message}${trace}${retry}`)
+        },
+      }, sessionId, surface)
       // 把 abort 挂到占位消息上,便于组件卸载/切换时中断(可选,此处仅持有不强制)。
       ;(reactivePlaceholder as ChatMessage & { _abort?: () => void })._abort = abort
     })
@@ -217,4 +239,21 @@ export function useChat() {
   }
 
   return { messages, loading, phase, ask, clearMessages, loadHistory, store }
+}
+
+const harnessStageLabels: Record<string, string> = {
+  received: '请求已进入 Harness',
+  policy: '正在执行输入与安全策略',
+  context: '正在装配持久化会话上下文',
+  retrieval: '正在检索图谱与知识库',
+  execution: '正在调用模型与工具',
+  recovery: '上游失败，正在切换恢复路径',
+  validation: '正在校验回答完整性',
+  persistence: '正在保存完整问答轮次',
+  completed: '回答已完成并保存',
+  failed: 'Harness 执行失败',
+}
+
+function harnessPhase(harness: AiHarnessMetadata) {
+  return harnessStageLabels[harness.currentStage] ?? '正在处理'
 }

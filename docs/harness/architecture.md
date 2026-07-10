@@ -34,6 +34,10 @@ only on `sparrow-common` inside the Maven reactor.
 | industry-chain | `/api/chains/**` | `sparrow_industry_chain`, research run state |
 | frontend | browser routes and interaction | no secret or authoritative job state |
 
+Every user-facing AI conversation follows the shared lifecycle contract in
+`runtime-ai-chat.md`. Execution and memory stay in the owning service; only sanitized
+Harness metadata is shared through `sparrow-common`.
+
 ## Enforced constraints
 
 `tools/harness-guard.mjs` checks these rules with actionable remediation:
@@ -67,4 +71,3 @@ update all of the following in one change:
 - architecture guard rules;
 - focused contract or structural tests;
 - deployment and operational verification.
-

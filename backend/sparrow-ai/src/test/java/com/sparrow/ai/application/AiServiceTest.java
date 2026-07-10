@@ -14,6 +14,8 @@ import com.sparrow.ai.infrastructure.client.GraphViews.Tree;
 import com.sparrow.ai.infrastructure.client.UserClient;
 import com.sparrow.ai.infrastructure.config.AiProperties;
 import com.sparrow.ai.infrastructure.persistence.ChatHistoryRepository;
+import com.sparrow.ai.infrastructure.persistence.ChatHistoryRepository.ChatMessageRow;
+import com.sparrow.ai.infrastructure.persistence.ChatHistoryRepository.ChatSessionRow;
 import com.sparrow.ai.infrastructure.rag.MilvusStore;
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
@@ -22,15 +24,18 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -42,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -132,6 +138,8 @@ class AiServiceTest {
         AskResult r = memberService.ask(42L, "蒸汽机是什么?", null);
 
         assertEquals(-1, r.remainingQuota());
+        assertEquals("degraded", r.harness().status());
+        assertTrue(r.harness().fallbackUsed());
         verify(redis, never()).opsForValue();
     }
 
@@ -151,6 +159,8 @@ class AiServiceTest {
         assertEquals("agent", r.mode());
         assertEquals("markdown:v1", r.format());
         assertFalse(r.answer().isEmpty());
+        assertEquals("completed", r.harness().status());
+        assertEquals("general-chat", r.harness().surface());
         // 证明 RAG 分支没执行
         verify(chatModel, never()).chat(anyString());
     }
@@ -167,6 +177,7 @@ class AiServiceTest {
 
         assertEquals("rag", r.mode());
         assertTrue(r.answer().contains("RAG 生成的回答"));
+        assertEquals("degraded", r.harness().status());
     }
 
     @Test
@@ -182,6 +193,7 @@ class AiServiceTest {
         // 命中 keywordMatch("蒸汽机") → rulesAnswer 产出结构化模板
         assertEquals("rules", r.mode());
         assertTrue(r.answer().contains("蒸汽机"));
+        assertEquals("degraded", r.harness().status());
     }
 
     @Test
@@ -194,6 +206,30 @@ class AiServiceTest {
 
         assertEquals("rules", r.mode());
         assertTrue(r.answer().contains("没有在科技图中找到"));
+    }
+
+    @Test
+    void t4d_sessionHistoryIsBoundedContextAndExchangePersistsAtomically() {
+        stubMembership(true);
+        when(agentProvider.getIfAvailable()).thenReturn(agent);
+        when(agent.chat(anyString(), anyString())).thenReturn("结合历史后的回答");
+        when(milvus.ready()).thenReturn(false);
+        LocalDateTime now = LocalDateTime.now();
+        when(chatHistory.findSession(42L, 7L))
+                .thenReturn(Optional.of(new ChatSessionRow(7L, 42L, "蒸汽机", now, now)));
+        when(chatHistory.messages(42L, 7L)).thenReturn(List.of(
+                new ChatMessageRow(1L, 7L, 42L, "user", "上一轮问题", null, now),
+                new ChatMessageRow(2L, 7L, 42L, "assistant", "上一轮回答", "agent", now)));
+
+        AskResult result = aiService.ask(42L, "继续解释", 7L, "graph-dialog");
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(agent).chat(eq("42"), prompt.capture());
+        assertTrue(prompt.getValue().contains("上一轮问题"));
+        assertTrue(prompt.getValue().contains("上一轮回答"));
+        assertEquals(2, result.harness().contextMessages());
+        assertEquals("graph-dialog", result.harness().surface());
+        verify(chatHistory).addExchange(42L, 7L, "继续解释", "结合历史后的回答", "agent");
     }
 
     // ── 应用判定 ──
@@ -278,17 +314,21 @@ class AiServiceTest {
         assertTrue(done.await(15, TimeUnit.SECONDS),
                 "流式应在 15s 内完成,事件=" + events + " error=" + firstError.get());
 
-        // 事件顺序:meta → delta → done
-        assertEquals(List.of("meta", "delta", "done"), events,
+        // Harness 阶段事件可多次出现；业务输出仍严格保持 meta → delta → done。
+        assertEquals("harness", events.get(0));
+        List<String> businessEvents = events.stream().filter(event -> !"harness".equals(event)).toList();
+        assertEquals(List.of("meta", "delta", "done"), businessEvents,
                 "实际事件序列错误: " + events);
         // meta 含 mode=rules
         @SuppressWarnings("unchecked")
-        Map<String, Object> meta = (Map<String, Object>) payloads.get(0);
+        Map<String, Object> meta = (Map<String, Object>) payloads.get(events.indexOf("meta"));
         assertEquals("rules", meta.get("mode"));
+        assertTrue(meta.containsKey("harness"));
         // done 含 mode=rules
         @SuppressWarnings("unchecked")
-        Map<String, Object> donePayload = (Map<String, Object>) payloads.get(2);
+        Map<String, Object> donePayload = (Map<String, Object>) payloads.get(events.indexOf("done"));
         assertEquals("rules", donePayload.get("mode"));
+        assertTrue(donePayload.containsKey("harness"));
     }
 
     // ── 辅助 ──

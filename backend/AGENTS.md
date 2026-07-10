@@ -31,6 +31,9 @@ This directory is a Java 21 Maven reactor. The root `AGENTS.md` still applies.
   SSE reconnect, retry and process restart must not erase completed work.
 - Never log prompts containing secrets or raw API keys. Model configuration updates
   must preserve encryption, masking and audit behaviour.
+- AI chat endpoints must use the shared `AiHarness` metadata contract while keeping
+  context assembly and execution inside the owning service. Persist complete turns
+  atomically after output validation.
 
 ## Verification
 
@@ -43,4 +46,3 @@ node tools/harness.mjs full
 For runtime changes, add a focused unit/integration test and use the smoke scripts
 listed in `docs/harness/verification.md` when infrastructure is available. A schema
 change also needs an idempotent `backend/scripts/migrate-*.sql` path.
-

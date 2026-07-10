@@ -101,7 +101,7 @@
     />
 
     <aside v-if="!graphFullScreen" class="ai-rail" :class="{ collapsed: aiRailCollapsed }">
-      <AiChatPanel :context-node="aiContextNode" :collapsed="aiRailCollapsed" @toggle="aiRailCollapsed = !aiRailCollapsed" />
+      <AiChatPanel surface="graph-rail" :context-node="aiContextNode" :collapsed="aiRailCollapsed" @toggle="aiRailCollapsed = !aiRailCollapsed" />
     </aside>
   </main>
 

@@ -1,5 +1,7 @@
 package com.sparrow.ai.application;
 
+import com.sparrow.ai.application.harness.AiChatHarness;
+import com.sparrow.ai.application.harness.AiChatHarness.Prepared;
 import com.sparrow.ai.infrastructure.agent.TechTreeAgent;
 import com.sparrow.ai.infrastructure.client.GraphClient;
 import com.sparrow.ai.infrastructure.client.GraphViews.NodeBrief;
@@ -10,6 +12,8 @@ import com.sparrow.ai.infrastructure.config.AiProperties;
 import com.sparrow.ai.infrastructure.persistence.ChatHistoryRepository;
 import com.sparrow.ai.infrastructure.rag.MilvusStore;
 import com.sparrow.common.api.ApiResponse;
+import com.sparrow.common.ai.AiHarness;
+import com.sparrow.common.ai.AiHarness.Metadata;
 import com.sparrow.common.exception.BizException;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -54,6 +58,7 @@ public class AiService {
 
     private static final Logger log = LoggerFactory.getLogger(AiService.class);
     private static final String QUOTA_KEY_PREFIX = "sparrow:ai:quota:";
+    private static final ExecutorService CHAT_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
     /**
      * 来源引用记录。
@@ -103,7 +108,8 @@ public class AiService {
      * @param remainingQuota 剩余免费配额(-1 表示会员无限)
      */
     public record AskResult(String answer, String mode, String format, String intent,
-                            List<SourceRef> sources, List<AgentStep> steps, long remainingQuota) {
+                            List<SourceRef> sources, List<AgentStep> steps, long remainingQuota,
+                            Metadata harness) {
     }
 
     /**
@@ -125,6 +131,7 @@ public class AiService {
     private final StringRedisTemplate redis;
     private final ObjectProvider<TechTreeAgent> agentProvider;
     private final ChatHistoryRepository chatHistory;
+    private final AiChatHarness chatHarness;
 
     /**
      * 构造函数。
@@ -153,6 +160,7 @@ public class AiService {
         this.redis = redis;
         this.agentProvider = agentProvider;
         this.chatHistory = chatHistory;
+        this.chatHarness = new AiChatHarness(chatHistory);
     }
 
     /**
@@ -179,58 +187,83 @@ public class AiService {
      * @return 问答结果
      */
     public AskResult ask(Long userId, String question, Long sessionId) {
-        long remaining = consumeQuota(userId);
-        String intent = classifyIntent(question);
-
-        TechTreeAgent agent = agentProvider.getIfAvailable();
-        if (llmConfigured() && agent != null) {
-            try {
-                Retrieved retrieved = retrieve(question);
-                List<SourceRef> sources = buildSources(retrieved);
-                String answer = agent.chat(String.valueOf(userId), agentUserMessage(question, intent));
-                return persist(userId, sessionId, question, result(answer, "agent", intent, sources,
-                        buildSteps(intent, "检索图谱与知识库上下文", "Agent 工具链生成回答", sources.isEmpty()),
-                        remaining));
-            } catch (Exception e) {
-                log.warn("Agent 调用失败,降级为 RAG: {}", e.getMessage());
-            }
-        }
-        if (llmConfigured()) {
-            try {
-                Retrieved retrieved = retrieve(question);
-                List<SourceRef> sources = buildSources(retrieved);
-                String answer = chatModel.chat(systemPrompt() + "\n\n"
-                        + ragUserMessage(question, retrieved.nodes(), retrieved.chunks()));
-                return persist(userId, sessionId, question, result(answer, "rag", intent, sources,
-                        buildSteps(intent, "检索图谱与知识库上下文", "RAG 生成统一回答", sources.isEmpty()),
-                        remaining));
-            } catch (Exception e) {
-                log.warn("LLM 调用失败,降级为规则问答: {}", e.getMessage());
-            }
-        }
-
-        Retrieved retrieved = retrieve(question);
-        List<SourceRef> sources = buildSources(retrieved);
-        return persist(userId, sessionId, question, result(rulesAnswer(question, retrieved.nodes()), "rules", intent, sources,
-                buildSteps(intent, "关键词匹配图谱上下文", "规则引擎生成统一回答", sources.isEmpty()),
-                remaining));
+        return ask(userId, question, sessionId, "general-chat");
     }
 
-    /**
-     * 落库本次问答(仅在 sessionId 非空时)。存 user 问题 + assistant 回答,不存 thinking。
-     * 落库失败不影响主流程(历史是辅助功能,问答本身已成功),仅记日志。
-     */
-    private AskResult persist(long userId, Long sessionId, String question, AskResult r) {
-        if (sessionId == null) {
-            return r;
-        }
+    /** 带调用界面标识的同步 Harness 问答入口。 */
+    public AskResult ask(Long userId, String question, Long sessionId, String surface) {
+        AiHarness.Run harness = AiHarness.start(surface);
         try {
-            chatHistory.addMessage(userId, sessionId, "user", question, null);
-            chatHistory.addMessage(userId, sessionId, "assistant", r.answer(), r.mode());
-        } catch (Exception e) {
-            log.warn("聊天历史落库失败 [userId={} sessionId={}]: {}", userId, sessionId, e.getMessage());
+            Prepared prepared = chatHarness.prepare(harness, userId, sessionId, question);
+            long remaining = consumeQuota(userId);
+            String intent = classifyIntent(prepared.question());
+
+            Retrieved retrieved = retrieve(prepared.question());
+            List<SourceRef> sources = buildSources(retrieved);
+            harness.checkpoint(AiHarness.Stage.RETRIEVAL,
+                    sources.isEmpty() ? "上下文检索完成，未命中可引用来源" : "上下文检索与来源装配完成");
+
+            TechTreeAgent agent = agentProvider.getIfAvailable();
+            if (llmConfigured() && agent != null) {
+                try {
+                    harness.checkpoint(AiHarness.Stage.EXECUTION, "使用 Agent 工具链生成回答");
+                    String answer = agent.chat(String.valueOf(userId),
+                            agentUserMessage(prepared.question(), intent, prepared.conversationContext()));
+                    return finish(prepared, userId, sessionId, answer, "agent", intent, sources,
+                            buildSteps(intent, "检索图谱与会话上下文", "Agent 工具链生成回答", sources.isEmpty()),
+                            remaining);
+                } catch (Exception error) {
+                    harness.fallback("Agent 工具链不可用，切换 RAG");
+                    log.warn("Agent 调用失败,降级为 RAG [traceId={}]: {}", harness.traceId(), AiHarness.safeFailure(error));
+                }
+            }
+            if (llmConfigured()) {
+                try {
+                    harness.checkpoint(AiHarness.Stage.EXECUTION, "使用 RAG 模型生成回答");
+                    String answer = chatModel.chat(systemPrompt() + "\n\n"
+                            + ragUserMessage(prepared.question(), retrieved.nodes(), retrieved.chunks(),
+                            prepared.conversationContext()));
+                    return finish(prepared, userId, sessionId, answer, "rag", intent, sources,
+                            buildSteps(intent, "检索图谱与会话上下文", "RAG 生成统一回答", sources.isEmpty()),
+                            remaining);
+                } catch (Exception error) {
+                    harness.fallback("RAG 模型不可用，切换本地规则");
+                    log.warn("LLM 调用失败,降级为规则问答 [traceId={}]: {}", harness.traceId(), AiHarness.safeFailure(error));
+                }
+            } else {
+                harness.fallback("模型未配置，使用本地规则");
+            }
+
+            harness.checkpoint(AiHarness.Stage.EXECUTION, "使用本地图谱规则生成回答");
+            return finish(prepared, userId, sessionId, rulesAnswer(prepared.question(), retrieved.nodes()),
+                    "rules", intent, sources,
+                    buildSteps(intent, "关键词匹配图谱与会话上下文", "规则引擎生成统一回答", sources.isEmpty()),
+                    remaining);
+        } catch (BizException error) {
+            Metadata failed = harness.fail(error.getCode() >= 500, "请求未通过 Harness 或服务暂时不可用");
+            log.warn("AI 对话被拒绝 [traceId={} code={}]: {}", failed.traceId(), error.getCode(), error.getMessage());
+            throw new BizException(error.getCode(), error.getMessage() + "（追踪 ID: " + failed.traceId() + "）");
+        } catch (Exception error) {
+            Metadata failed = harness.fail(true, "AI 对话执行失败");
+            log.warn("AI 对话执行失败 [traceId={}]: {}", failed.traceId(), AiHarness.safeFailure(error));
+            throw new BizException(503, "AI 服务暂时不可用（追踪 ID: " + failed.traceId() + "）");
         }
-        return r;
+    }
+
+    private AskResult finish(Prepared prepared, long userId, Long sessionId, String rawAnswer,
+                             String mode, String intent, List<SourceRef> sources,
+                             List<AgentStep> steps, long remaining) {
+        String answer = chatHarness.validateAnswer(prepared.run(), rawAnswer);
+        try {
+            chatHarness.persistExchange(prepared.run(), userId, sessionId,
+                    prepared.question(), answer, mode);
+        } catch (Exception error) {
+            prepared.run().warning("聊天历史暂未保存，可稍后重试");
+            log.warn("聊天历史原子落库失败 [traceId={} userId={} sessionId={}]: {}",
+                    prepared.run().traceId(), userId, sessionId, AiHarness.safeFailure(error));
+        }
+        Metadata metadata = prepared.run().complete();
+        return new AskResult(answer, mode, "markdown:v1", intent, sources, steps, remaining, metadata);
     }
 
     /**
@@ -248,112 +281,153 @@ public class AiService {
      * @param sink     流式输出端口
      */
     public void askStream(Long userId, String question, Long sessionId, StreamSink sink) {
-        // ⭐ 用虚拟线程跑 LLM 推理,而非 CompletableFuture 默认的 ForkJoinPool.commonPool(平台线程)。
-        // spring.threads.virtual.enabled 接管的是 Tomcat 请求线程,但本方法立即把阻塞工作甩给 runAsync,
-        // commonPool 仍是平台线程 → LLM 的数十秒阻塞仍占用平台线程,虚拟线程开关对这里零收益。
-        // 改用 newVirtualThreadPerTaskExecutor 后,每个流式问答占一个极轻量虚拟线程(几 KB 栈),
-        // 可支撑成百上千并发 SSE 流。executor 在 task 完成后随虚拟线程结束自动回收。
-        ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
-        CompletableFuture.runAsync(() -> {
-            try {
-                askStreamInternal(userId, question, sessionId, sink);
-            } catch (BizException e) {
-                sink.emit("error", Map.of("message", e.getMessage()));
-                sink.complete();
-            } catch (Exception e) {
-                log.warn("流式问答失败 [userId={}]: {}", userId, e.toString());
-                sink.completeWithError(e);
-            }
-        }, virtualExecutor);
+        askStream(userId, question, sessionId, "general-chat", sink);
     }
 
-    private void askStreamInternal(Long userId, String question, Long sessionId, StreamSink sink) {
-        long remaining = consumeQuota(userId);
-        String intent = classifyIntent(question);
-
-        // 会话历史:先存 user 问题(若提供 sessionId)。失败不阻断问答。
-        if (sessionId != null) {
+    /** 带调用界面标识的流式 Harness 问答入口。 */
+    public void askStream(Long userId, String question, Long sessionId, String surface, StreamSink sink) {
+        AiHarness.Run harness = AiHarness.start(surface);
+        CompletableFuture.runAsync(() -> {
             try {
-                chatHistory.addMessage(userId, sessionId, "user", question, null);
-            } catch (Exception e) {
-                log.warn("存 user 消息失败 [userId={} sessionId={}]: {}", userId, sessionId, e.getMessage());
+                emitHarness(sink, harness);
+                askStreamInternal(userId, question, sessionId, sink, harness);
+            } catch (BizException error) {
+                Metadata failed = harness.fail(error.getCode() >= 500,
+                        "请求未通过 Harness 或服务暂时不可用");
+                emitHarness(sink, harness);
+                sink.emit("error", Map.of(
+                        "message", error.getMessage(),
+                        "traceId", failed.traceId(),
+                        "retryable", failed.retryable(),
+                        "harness", failed));
+                sink.complete();
+            } catch (Exception error) {
+                Metadata failed = harness.fail(true, "AI 流式执行失败");
+                log.warn("流式问答失败 [traceId={} userId={}]: {}", failed.traceId(), userId, AiHarness.safeFailure(error));
+                emitHarness(sink, harness);
+                sink.emit("error", Map.of(
+                        "message", "AI 服务暂时不可用",
+                        "traceId", failed.traceId(),
+                        "retryable", true,
+                        "harness", failed));
+                sink.complete();
             }
-        }
+        }, CHAT_EXECUTOR);
+    }
+
+    private void askStreamInternal(Long userId, String question, Long sessionId, StreamSink sink,
+                                   AiHarness.Run harness) {
+        Prepared prepared = chatHarness.prepare(harness, userId, sessionId, question);
+        emitHarness(sink, harness);
+        long remaining = consumeQuota(userId);
+        String intent = classifyIntent(prepared.question());
 
         // 检索上下文(三种模式共用),来源/步骤先于正文推给前端,UI 可先渲染来源卡片。
-        Retrieved retrieved = retrieve(question);
+        Retrieved retrieved = retrieve(prepared.question());
         List<SourceRef> sources = buildSources(retrieved);
+        harness.checkpoint(AiHarness.Stage.RETRIEVAL,
+                sources.isEmpty() ? "上下文检索完成，未命中可引用来源" : "上下文检索与来源装配完成");
+        emitHarness(sink, harness);
 
         // 1. Agent 流式(优先)。TokenStream 流式 + 工具调用在部分 provider 上不稳,
         //    onError 时降级 RAG 流式。
         TechTreeAgent agent = agentProvider.getIfAvailable();
         if (streamConfigured() && agent != null) {
+            harness.checkpoint(AiHarness.Stage.EXECUTION, "使用 Agent 工具链流式生成回答");
             Map<String, Object> meta = streamMeta("agent", intent, sources,
-                    buildSteps(intent, "检索图谱与知识库上下文", "Agent 工具链流式生成回答", sources.isEmpty()),
-                    remaining);
+                    buildSteps(intent, "检索图谱与会话上下文", "Agent 工具链流式生成回答", sources.isEmpty()),
+                    remaining, harness);
             sink.emit("meta", meta);
             StringBuilder answer = new StringBuilder();
             StringBuilder thinking = new StringBuilder();
             if (streamAgent(agent, String.valueOf(userId),
-                    agentUserMessage(question, intent), sink, answer, thinking)) {
-                sink.emit("done", Map.of("mode", "agent", "format", "markdown:v1"));
-                persistStream(userId, sessionId, question, answer.toString(), "agent");
-                sink.complete();
+                    agentUserMessage(prepared.question(), intent, prepared.conversationContext()),
+                    sink, answer, thinking)) {
+                finishStream(prepared, userId, sessionId, sink, answer.toString(), "agent", intent);
                 return;
             }
-            // Agent 流式失败:落到 RAG 流式(已在 streamAgent 内打 warn 日志)。
+            resetPartialStream(sink, answer, thinking);
+            harness.fallback("Agent 流式不可用，切换 RAG");
+            emitHarness(sink, harness);
         }
 
         // 2. RAG 流式。
         if (streamConfigured()) {
+            harness.checkpoint(AiHarness.Stage.EXECUTION, "使用 RAG 模型流式生成回答");
             Map<String, Object> meta = streamMeta("rag", intent, sources,
-                    buildSteps(intent, "检索图谱与知识库上下文", "RAG 流式生成回答", sources.isEmpty()),
-                    remaining);
+                    buildSteps(intent, "检索图谱与会话上下文", "RAG 流式生成回答", sources.isEmpty()),
+                    remaining, harness);
             sink.emit("meta", meta);
             StringBuilder answer = new StringBuilder();
             StringBuilder thinking = new StringBuilder();
-            if (streamRag(question, retrieved, sink, answer, thinking)) {
-                sink.emit("done", Map.of("mode", "rag", "format", "markdown:v1"));
-                persistStream(userId, sessionId, question, answer.toString(), "rag");
-                sink.complete();
+            if (streamRag(prepared, retrieved, sink, answer, thinking)) {
+                finishStream(prepared, userId, sessionId, sink, answer.toString(), "rag", intent);
                 return;
             }
-            // RAG 流式失败:落到规则。
+            resetPartialStream(sink, answer, thinking);
+            harness.fallback("RAG 流式不可用，切换本地规则");
+            emitHarness(sink, harness);
+        } else {
+            harness.fallback("流式模型未配置，使用本地规则");
+            emitHarness(sink, harness);
         }
 
         // 3. 规则模式:本地拼好整段,一次性推送(伪流式,体验统一)。
-        String answer = rulesAnswer(question, retrieved.nodes());
+        harness.checkpoint(AiHarness.Stage.EXECUTION, "使用本地图谱规则生成回答");
+        String answer = rulesAnswer(prepared.question(), retrieved.nodes());
         Map<String, Object> meta = streamMeta("rules", intent, sources,
-                buildSteps(intent, "关键词匹配图谱上下文", "规则引擎生成统一回答", sources.isEmpty()),
-                remaining);
+                buildSteps(intent, "关键词匹配图谱与会话上下文", "规则引擎生成统一回答", sources.isEmpty()),
+                remaining, harness);
         sink.emit("meta", meta);
-        sink.emit("delta", Map.of("text", cleanupAnswer(answer)));
-        sink.emit("done", Map.of("mode", "rules", "format", "markdown:v1"));
-        persistStream(userId, sessionId, question, cleanupAnswer(answer), "rules");
+        String validated = chatHarness.validateAnswer(harness, answer);
+        sink.emit("delta", Map.of("text", validated));
+        finishValidatedStream(prepared, userId, sessionId, sink, validated, "rules", intent);
+    }
+
+    private void finishStream(Prepared prepared, long userId, Long sessionId, StreamSink sink,
+                              String rawAnswer, String mode, String intent) {
+        String validated = chatHarness.validateAnswer(prepared.run(), rawAnswer);
+        if (rawAnswer == null || rawAnswer.isBlank()) {
+            sink.emit("delta", Map.of("text", validated));
+        }
+        finishValidatedStream(prepared, userId, sessionId, sink, validated, mode, intent);
+    }
+
+    private void finishValidatedStream(Prepared prepared, long userId, Long sessionId, StreamSink sink,
+                                       String answer, String mode, String intent) {
+        try {
+            chatHarness.persistExchange(prepared.run(), userId, sessionId,
+                    prepared.question(), answer, mode);
+        } catch (Exception error) {
+            prepared.run().warning("聊天历史暂未保存，可稍后重试");
+            log.warn("流式聊天历史原子落库失败 [traceId={} userId={} sessionId={}]: {}",
+                    prepared.run().traceId(), userId, sessionId, AiHarness.safeFailure(error));
+        }
+        Metadata metadata = prepared.run().complete();
+        sink.emit("done", Map.of(
+                "mode", mode,
+                "format", "markdown:v1",
+                "intent", intent,
+                "harness", metadata));
         sink.complete();
     }
 
-    /**
-     * 流式落库 assistant 回答。user 消息已在 askStreamInternal 开头存过,这里只存 assistant。
-     * 注:agent/rag 降级时,上级已吐出的 delta 不会撤回,assistant 消息只存最终成功那段的内容,
-     * 与前端看到的拼接内容可能有细微差异,这是降级的固有代价,可接受。
-     */
-    private void persistStream(long userId, Long sessionId, String question, String answer, String mode) {
-        if (sessionId == null) {
-            return;
-        }
-        try {
-            chatHistory.addMessage(userId, sessionId, "assistant", answer, mode);
-        } catch (Exception e) {
-            log.warn("存 assistant 消息失败 [userId={} sessionId={}]: {}", userId, sessionId, e.getMessage());
+    private void resetPartialStream(StreamSink sink, StringBuilder answer, StringBuilder thinking) {
+        if (!answer.isEmpty() || !thinking.isEmpty()) {
+            sink.emit("reset", Map.of("reason", "fallback"));
         }
     }
 
+    private void emitHarness(StreamSink sink, AiHarness.Run harness) {
+        sink.emit("harness", Map.of("harness", harness.snapshot()));
+    }
+
     /** 用流式模型直接生成 RAG 回答;逐 token 推 delta,reasoning 推 thinking。返回 true=成功,false=降级。 */
-    private boolean streamRag(String question, Retrieved retrieved, StreamSink sink,
+    private boolean streamRag(Prepared prepared, Retrieved retrieved, StreamSink sink,
                               StringBuilder answer, StringBuilder thinking) {
         String prompt = systemPrompt() + "\n\n"
-                + ragUserMessage(question, retrieved.nodes(), retrieved.chunks());
+                + ragUserMessage(prepared.question(), retrieved.nodes(), retrieved.chunks(),
+                prepared.conversationContext());
         return streamWithString(prompt, sink, answer, thinking, "RAG");
     }
 
@@ -385,7 +459,7 @@ public class AiService {
                     })
                     .start();
         } catch (Exception e) {
-            log.warn("Agent 流式启动失败,降级 RAG: {}", e.getMessage());
+            log.warn("Agent 流式启动失败,降级 RAG: {}", AiHarness.safeFailure(e));
             return false;
         }
         return awaitStream(latch, error, "Agent");
@@ -440,7 +514,7 @@ public class AiService {
             return false;
         }
         if (error.get() != null) {
-            log.warn("{} 流式出错,降级: {}", tag, error.get().getMessage());
+            log.warn("{} 流式出错,降级: {}", tag, AiHarness.safeFailure(error.get()));
             return false;
         }
         return true;
@@ -448,13 +522,15 @@ public class AiService {
 
     /** 构造首帧 meta 事件的 payload。 */
     private Map<String, Object> streamMeta(String mode, String intent, List<SourceRef> sources,
-                                           List<AgentStep> steps, long remaining) {
+                                           List<AgentStep> steps, long remaining,
+                                           AiHarness.Run harness) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("mode", mode);
         meta.put("intent", intent);
         meta.put("sources", sources);
         meta.put("steps", steps);
         meta.put("remainingQuota", remaining);
+        meta.put("harness", harness.snapshot());
         return meta;
     }
 
@@ -482,31 +558,16 @@ public class AiService {
     }
 
     /**
-     * 构建问答结果。
-     *
-     * @param answer    回答内容
-     * @param mode      回答模式
-     * @param intent    意图分类
-     * @param sources   来源列表
-     * @param steps     步骤列表
-     * @param remaining 剩余配额
-     * @return 封装后的 AskResult
-     */
-    private AskResult result(String answer, String mode, String intent, List<SourceRef> sources,
-                             List<AgentStep> steps, long remaining) {
-        return new AskResult(cleanupAnswer(answer),
-                mode, "markdown:v1", intent, sources, steps, remaining);
-    }
-
-    /**
      * 构建 Agent 模式的用户消息模板。
      *
      * @param question 用户问题
      * @param intent   识别的意图
      * @return 格式化后的用户消息
      */
-    private String agentUserMessage(String question, String intent) {
-        return "用户问题:\n" + question + "\n\n" +
+    private String agentUserMessage(String question, String intent, String conversationContext) {
+        String history = conversationContext == null || conversationContext.isBlank()
+                ? "" : conversationContext + "\n\n";
+        return history + "用户问题:\n" + question + "\n\n" +
                 "请用中文自然、口语化地回答,直接讲重点,把相关的技术依赖与历史脉络说清楚;" +
                 "内容要充分、有信息量,给足背景和关键的年代、数字、事实与例子,把「为什么」讲透,宁可多展开也别敷衍带过;" +
                 "可以顺着内容自然分层,必要时用小标题或列表理清脉络," +
@@ -588,22 +649,6 @@ public class AiService {
     }
 
     /**
-     * 轻量清洗回答:仅统一换行、去首尾空白、折叠多余空行;不再强制套用固定小标题模板,
-     * 保留模型自然、口语化的表达。空白回答给出兜底文案。
-     *
-     * @param answer 原始回答内容
-     * @return 清洗后的回答
-     */
-    private String cleanupAnswer(String answer) {
-        String normalized = answer == null ? "" : answer
-                .replace("\r\n", "\n")
-                .replace("\r", "\n")
-                .trim()
-                .replaceAll("\n{3,}", "\n\n");
-        return normalized.isBlank() ? "资料不足以生成可靠回答。" : normalized;
-    }
-
-    /**
      * 检索与问题相关的上下文。
      * 优先使用向量检索,失败时降级为关键词匹配。
      *
@@ -630,7 +675,7 @@ public class AiService {
                 }
                 return new Retrieved(nodes, chunks);
             } catch (Exception e) {
-                log.warn("向量检索失败,降级为关键词匹配: {}", e.getMessage());
+                log.warn("向量检索失败,降级为关键词匹配: {}", AiHarness.safeFailure(e));
             }
         }
         return new Retrieved(keywordMatch(question), List.of());
@@ -715,7 +760,8 @@ public class AiService {
      * @return 格式化后的用户消息
      */
     private String ragUserMessage(String question, List<NodeBrief> hits,
-                                  List<MilvusStore.ChunkHit> chunks) {
+                                  List<MilvusStore.ChunkHit> chunks,
+                                  String conversationContext) {
         StringBuilder sb = new StringBuilder("### 科技图资料\n");
         if (hits.isEmpty()) {
             sb.append("(未检索到直接相关节点)\n");
@@ -741,6 +787,9 @@ public class AiService {
                     sb.append("  (来源: ").append(c.url()).append(")\n");
                 }
             }
+        }
+        if (conversationContext != null && !conversationContext.isBlank()) {
+            sb.append("\n").append(conversationContext).append("\n");
         }
         sb.append("\n### 用户问题\n").append(question);
         return sb.toString();
@@ -849,7 +898,7 @@ public class AiService {
             return resp != null && resp.data() != null
                     && Boolean.TRUE.equals(resp.data().get("member"));
         } catch (Exception e) {
-            log.warn("会员校验失败,按非会员处理: userId={} err={}", userId, e.getMessage());
+            log.warn("会员校验失败,按非会员处理: userId={} err={}", userId, AiHarness.safeFailure(e));
             return false;
         }
     }
@@ -883,7 +932,7 @@ public class AiService {
             String answer = chatModel.chat(prompt);
             return parseApplicationIds(answer, req.neighbors());
         } catch (Exception e) {
-            log.warn("应用判定 LLM 调用失败 [nodeId={}]: {}", req.nodeId(), e.getMessage());
+            log.warn("应用判定 LLM 调用失败 [nodeId={}]: {}", req.nodeId(), AiHarness.safeFailure(e));
             return List.of();
         }
     }

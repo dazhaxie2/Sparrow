@@ -1,6 +1,7 @@
 package com.sparrow.industrychain.application.card;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.sparrow.common.ai.AiHarness.Metadata;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -36,7 +37,7 @@ public final class ResearchCardViews {
     }
 
     /** 消息回复：用户消息与助手回复的配对。 */
-    public record MessageReply(MessageView userMessage, MessageView assistantMessage) {
+    public record MessageReply(MessageView userMessage, MessageView assistantMessage, Metadata harness) {
     }
 
     /** 论坛事件视图：Multi-Agent 协作发言的对外展示。 */

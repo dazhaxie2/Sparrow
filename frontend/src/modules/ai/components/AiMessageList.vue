@@ -19,6 +19,17 @@
           <span v-if="msg.mode" class="mode-pill">{{ modeLabel(msg.mode) }}</span>
           <span v-if="msg.intent" class="intent-pill">{{ intentLabel(msg.intent) }}</span>
         </div>
+        <div
+          v-if="msg.role !== 'user' && msg.harness"
+          class="harness-trace"
+          :class="`harness-${msg.harness.status}`"
+          :title="`完整追踪 ID: ${msg.harness.traceId}`"
+        >
+          <ShieldCheck :size="12" />
+          <span>{{ harnessLabel(msg.harness.status) }}</span>
+          <span v-if="msg.harness.contextMessages">上下文 {{ msg.harness.contextMessages }} 条</span>
+          <code>{{ shortTrace(msg.harness.traceId) }}</code>
+        </div>
         <!-- 思考过程(reasoning 模型才有):默认展开,可折叠。 -->
         <div
           v-if="msg.role !== 'user' && msg.thinking"
@@ -64,9 +75,10 @@
 
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { Brain, ChevronDown, LoaderCircle } from '@lucide/vue'
+import { Brain, ChevronDown, LoaderCircle, ShieldCheck } from '@lucide/vue'
 import { renderMarkdown } from '../utils/markdown'
 import QuestionCursor from './QuestionCursor.vue'
+import type { AiHarnessMetadata } from '../types'
 
 interface ChatStep {
   key: string
@@ -90,6 +102,7 @@ interface ChatMessage {
   streaming?: boolean
   steps?: ChatStep[]
   sources?: ChatSource[]
+  harness?: AiHarnessMetadata
 }
 
 const props = defineProps<{
@@ -155,6 +168,19 @@ function modeLabel(mode: string) {
 
 function intentLabel(intent: string) {
   return intentLabels[intent] ?? intent
+}
+
+function harnessLabel(status: string) {
+  return ({
+    running: 'Harness 执行中',
+    completed: 'Harness 已验证',
+    degraded: 'Harness 已降级恢复',
+    failed: 'Harness 失败',
+  } as Record<string, string>)[status] ?? 'Harness'
+}
+
+function shortTrace(traceId: string) {
+  return `#${traceId.slice(0, 8)}`
 }
 
 function compactLabel(value: string) {
@@ -323,6 +349,24 @@ watch(
   border-color: rgba(255, 87, 34, 0.38);
   color: var(--accent);
 }
+
+.harness-trace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin: -2px 0 8px;
+  color: #28744f;
+  font-size: 10px;
+}
+
+.harness-trace code {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.harness-degraded { color: #a45b16; }
+.harness-failed { color: #b3261e; }
 
 /* 流式渲染期间用纯文本插值:保留换行与空白,视觉上与 markdown 渲染后基本一致,
    避免每个 token 都全量 markdown 解析 + v-html DOM 重建。完成后由 .msg-content 接管。 */

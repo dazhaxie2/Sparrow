@@ -1,3 +1,6 @@
+import type { AiHarnessMetadata } from '../../shared/ai/harness'
+export type { AiHarnessEvent, AiHarnessMetadata } from '../../shared/ai/harness'
+
 export interface SourceRef {
   id: number
   name: string
@@ -25,6 +28,8 @@ export interface ChatMessage {
   timestamp?: number
   /** 后端历史消息的 id(前端临时消息无此字段)。 */
   id?: number
+  /** 服务端运行时 Harness 摘要，用于阶段展示和故障追踪。 */
+  harness?: AiHarnessMetadata
 }
 
 export interface AskResult {
@@ -35,6 +40,7 @@ export interface AskResult {
   sources: SourceRef[]
   steps: AgentStep[]
   remainingQuota: number
+  harness: AiHarnessMetadata
 }
 
 export interface ChatSession {

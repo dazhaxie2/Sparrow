@@ -21,6 +21,9 @@ This directory is Vue 3 + TypeScript + Vite. The root `AGENTS.md` still applies.
 - Show explicit pending, timeout, retry, cancelled and failed states for long jobs.
   A progress percentage must never be the only liveness signal.
 - Do not expose model API keys in browser bundles, local storage, URLs or logs.
+- AI chat clients must handle `harness`, `reset`, `done` and structured `error`
+  events. A connection close without terminal metadata is an interruption, not
+  success.
 
 ## Verification
 
@@ -31,4 +34,3 @@ node tools/harness.mjs changed
 
 For user-visible changes, also exercise the affected flow in a real browser at the
 target viewport and verify refresh/reconnect behaviour where applicable.
-

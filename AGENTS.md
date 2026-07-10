@@ -41,6 +41,8 @@ behaviour. The repository, not chat history, is the source of truth.
   API keys, tokens, passwords, or decrypted model credentials.
 - Persisted state is authoritative for long-running research. SSE is a delivery
   channel, not the only record of progress.
+- Every user-facing AI chat must follow `docs/harness/runtime-ai-chat.md`: bounded
+  durable context, traceable lifecycle, validated output and recoverable failure.
 
 ## Work loop
 
@@ -87,4 +89,3 @@ Use `changed --base <git-ref>` in CI or when validating a branch. See
 When an agent repeatedly guesses wrong, a task stalls, or review catches the same
 defect twice, do not only add prose. Add the smallest durable feedback mechanism:
 a guard rule, focused test, fixture, diagnostic command, or failure-playbook entry.
-
