@@ -1,77 +1,85 @@
 <template>
   <Teleport to="body">
     <div class="modal" @click.self="$emit('close')">
-      <form class="modal-box" @submit.prevent="handleSubmit">
-        <div class="modal-head">
-          <div>
-            <span class="eyebrow">SPARROW ACCOUNT</span>
-            <h3>登录 Sparrow</h3>
-          </div>
-          <button class="icon-btn" type="button" aria-label="关闭" @click="$emit('close')">×</button>
+      <form class="login-card" @submit.prevent="handleSubmit">
+        <button class="close-btn" type="button" aria-label="关闭" @click="$emit('close')">×</button>
+
+        <!-- 品牌区 -->
+        <div class="brand">
+          <div class="logo">S</div>
+          <strong>Sparrow</strong>
+          <span class="brand-sub">科技图 · Human Technology Tree</span>
         </div>
 
-        <div class="mode-switch" role="tablist" aria-label="登录方式">
+        <!-- Tab 切换 -->
+        <div class="tabs" role="tablist" aria-label="登录方式">
+          <button type="button" role="tab" :class="{ active: mode === 'email' }" @click="mode = 'email'">邮箱验证码登录</button>
           <button type="button" role="tab" :class="{ active: mode === 'password' }" @click="mode = 'password'">密码登录</button>
-          <button type="button" role="tab" :class="{ active: mode === 'email' }" @click="mode = 'email'">邮箱验证码</button>
         </div>
+
+        <!-- 邮箱验证码登录 -->
+        <template v-if="mode === 'email'">
+          <label class="field">
+            <input
+              v-model="email"
+              type="email"
+              placeholder="请输入邮箱地址"
+              maxlength="128"
+              autocomplete="email"
+            />
+          </label>
+          <label class="field code-field">
+            <input
+              v-model="code"
+              type="text"
+              inputmode="numeric"
+              placeholder="请输入验证码"
+              maxlength="6"
+              autocomplete="one-time-code"
+            />
+            <button
+              class="inline-code-btn"
+              type="button"
+              :disabled="cooldown > 0 || sendingCode || !emailValid"
+              @click="handleSendCode"
+            >
+              <LoaderCircle v-if="sendingCode" class="spin" :size="13" />
+              <span v-else>{{ codeBtnText }}</span>
+            </button>
+          </label>
+        </template>
 
         <!-- 密码登录 -->
-        <template v-if="mode === 'password'">
+        <template v-else>
           <label class="field">
-            <span>用户名</span>
-            <input v-model="username" type="text" placeholder="3-32 位" maxlength="32" autocomplete="username" />
+            <input v-model="username" type="text" placeholder="请输入用户名" maxlength="32" autocomplete="username" />
           </label>
           <label class="field">
-            <span>密码</span>
             <input
               v-model="password"
               type="password"
-              placeholder="6-64 位"
+              placeholder="请输入密码"
               maxlength="64"
               autocomplete="current-password"
             />
           </label>
         </template>
 
-        <!-- 邮箱验证码登录 -->
-        <template v-else>
-          <label class="field">
-            <span>邮箱</span>
-            <input v-model="email" type="email" placeholder="you@example.com" maxlength="128" autocomplete="email" />
-          </label>
-          <label class="field">
-            <span>验证码</span>
-            <div class="code-row">
-              <input
-                v-model="code"
-                type="text"
-                inputmode="numeric"
-                placeholder="6 位验证码"
-                maxlength="6"
-                autocomplete="one-time-code"
-              />
-              <button
-                class="btn code-btn"
-                type="button"
-                :disabled="cooldown > 0 || sendingCode || !emailValid"
-                @click="handleSendCode"
-              >
-                {{ codeBtnText }}
-              </button>
-            </div>
-          </label>
-        </template>
+        <transition name="msg">
+          <p v-if="infoMessage" class="info-msg">{{ infoMessage }}</p>
+        </transition>
+        <transition name="msg">
+          <p v-if="errorMessage" class="error-msg">{{ errorMessage }}</p>
+        </transition>
 
-        <p v-if="infoMessage" class="form-info">{{ infoMessage }}</p>
-        <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
+        <button class="primary-btn" type="submit" :disabled="submitting">
+          <LoaderCircle v-if="submitting" class="spin" :size="16" />
+          <span>{{ submitting ? '登录中…' : '登录 / 注册' }}</span>
+        </button>
 
-        <div class="modal-actions">
-          <button class="btn primary" type="submit" :disabled="submitting">
-            {{ submitting ? '登录中…' : '登录' }}
-          </button>
-          <button v-if="mode === 'password'" class="btn" type="button" :disabled="submitting" @click="handleRegister">注册并登录</button>
-          <button class="btn ghost" type="button" @click="$emit('close')">取消</button>
-        </div>
+        <p class="agreement">
+          登录即表示同意 Sparrow《<a href="#" @click.prevent>用户协议</a>》与《<a href="#" @click.prevent>隐私政策</a>》
+        </p>
       </form>
     </div>
   </Teleport>
@@ -79,14 +87,16 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
+import { LoaderCircle } from '@lucide/vue'
 import { useUserStore } from '../store'
 import { sendEmailCode } from '../api'
 
 const emit = defineEmits<{ close: [] }>()
 const user = useUserStore()
 
-type Mode = 'password' | 'email'
-const mode = ref<Mode>('password')
+type Mode = 'email' | 'password'
+// 默认邮箱验证码(产品主推方式)
+const mode = ref<Mode>('email')
 
 // 密码模式状态
 const username = ref('')
@@ -105,8 +115,7 @@ const submitting = ref(false)
 const emailValid = computed(() => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email.value))
 
 const codeBtnText = computed(() => {
-  if (sendingCode.value) return '发送中…'
-  if (cooldown.value > 0) return `${cooldown.value}s`
+  if (cooldown.value > 0) return `${cooldown.value}s 后重发`
   return '获取验证码'
 })
 
@@ -166,20 +175,6 @@ async function handleSubmit() {
     submitting.value = false
   }
 }
-
-async function handleRegister() {
-  errorMessage.value = ''
-  infoMessage.value = ''
-  submitting.value = true
-  try {
-    await user.register(username.value, password.value)
-    emit('close')
-  } catch (error: any) {
-    errorMessage.value = error.message
-  } finally {
-    submitting.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -189,178 +184,274 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
   z-index: 100;
+  padding: 16px;
 }
 
-.modal-box {
-  width: min(420px, calc(100vw - 32px));
-  border: 1px solid var(--ink);
+.login-card {
+  position: relative;
+  width: min(380px, 100%);
   background: var(--panel);
+  border-radius: var(--radius);
   box-shadow: var(--shadow-md);
-  padding: 22px;
-}
-
-.modal-head {
+  padding: 36px 28px 24px;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--line);
+  flex-direction: column;
+  gap: 14px;
 }
 
-.eyebrow {
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-}
-
-.modal-head h3 {
-  margin-top: 6px;
-  font-size: 24px;
-  letter-spacing: 0;
-}
-
-.icon-btn {
+.close-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
   width: 30px;
   height: 30px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
-  color: var(--ink);
-  cursor: pointer;
-}
-
-/* 登录方式切换 */
-.mode-switch {
-  display: inline-flex;
-  margin-top: 16px;
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
-}
-
-.mode-switch button {
   border: 0;
   background: transparent;
-  color: var(--ink-2);
-  padding: 8px 16px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
   cursor: pointer;
+  border-radius: 50%;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
-.mode-switch button.active {
+.close-btn:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* 品牌区 */
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
   background: var(--ink);
   color: var(--bg);
-}
-
-.field {
-  display: grid;
-  gap: 7px;
-  margin-top: 14px;
-}
-
-.field span {
-  color: var(--ink-2);
-  font-size: 12px;
+  font-size: 26px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.brand strong {
+  font-size: 20px;
+  letter-spacing: 0.04em;
+}
+
+.brand-sub {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+/* Tab 切换 */
+.tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+  margin: 4px 0 6px;
+}
+
+.tabs button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.16s ease;
+}
+
+.tabs button.active {
+  color: var(--ink);
+}
+
+.tabs button.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+/* 输入字段 */
+.field {
+  display: block;
+  position: relative;
 }
 
 .field input {
   width: 100%;
-  height: 40px;
-  border: 1px solid var(--line-strong);
+  height: 46px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
-  padding: 0 11px;
+  padding: 0 14px;
   font-size: 14px;
   outline: none;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.field input::placeholder {
+  color: var(--muted);
 }
 
 .field input:focus {
   border-color: var(--ink);
   background: var(--panel);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
 }
 
-.code-row {
-  display: flex;
-  gap: 8px;
+/* 验证码行 */
+.code-field input {
+  padding-right: 110px;
 }
 
-.code-row input {
-  flex: 1;
-  min-width: 0;
-}
-
-.code-btn {
-  white-space: nowrap;
-  min-height: 40px;
-}
-
-.code-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.form-error {
-  margin-top: 12px;
-  border: 1px solid rgba(220, 38, 38, 0.32);
-  background: rgba(220, 38, 38, 0.06);
-  color: var(--danger);
-  padding: 9px 10px;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.form-info {
-  margin-top: 12px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--ink-2);
-  padding: 9px 10px;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.modal-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 18px;
-}
-
-.btn {
-  min-height: 36px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
-  color: var(--ink);
-  padding: 0 13px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.btn:hover:not(:disabled),
-.icon-btn:hover {
-  border-color: var(--ink);
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn.primary {
-  border-color: var(--ink);
+.inline-code-btn {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
   background: var(--ink);
   color: var(--bg);
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  transition: opacity 0.16s ease;
 }
 
-.btn.ghost {
-  background: transparent;
+.inline-code-btn:disabled {
+  background: var(--line-strong);
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.inline-code-btn:not(:disabled):hover {
+  opacity: 0.85;
+}
+
+/* 消息提示 */
+.info-msg {
+  color: var(--blue);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.error-msg {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.msg-enter-active,
+.msg-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.msg-enter-from,
+.msg-leave-to {
+  opacity: 0;
+}
+
+/* 主按钮 */
+.primary-btn {
+  margin-top: 6px;
+  height: 46px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.16s ease, transform 0.08s ease;
+}
+
+.primary-btn:not(:disabled):hover {
+  background: #f4511e;
+}
+
+.primary-btn:not(:disabled):active {
+  transform: scale(0.99);
+}
+
+.primary-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* 协议 */
+.agreement {
+  text-align: center;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 4px;
+}
+
+.agreement a {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+
+.agreement a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 420px) {
+  .login-card {
+    padding: 28px 20px 20px;
+  }
+
+  .tabs {
+    gap: 12px;
+  }
+
+  .tabs button {
+    font-size: 13px;
+  }
 }
 </style>
