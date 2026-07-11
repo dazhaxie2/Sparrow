@@ -358,6 +358,14 @@ public class AiService {
                 finishStream(prepared, userId, sessionId, sink, answer.toString(), "agent", intent);
                 return;
             }
+            // 流式被判失败(超时/onError),但若已吐出足够完整的正文,直接收尾保留——
+            // 不再 reset+降级,避免把已给用户看到的回答清空只剩尾部。
+            if (hasSubstantialAnswer(answer)) {
+                harness.checkpoint(AiHarness.Stage.VALIDATION, "Agent 流式超时但已有完整正文，直接收尾");
+                emitHarness(sink, harness);
+                finishStream(prepared, userId, sessionId, sink, answer.toString(), "agent", intent);
+                return;
+            }
             resetPartialStream(sink, answer, thinking);
             harness.fallback("Agent 流式不可用，切换 RAG");
             emitHarness(sink, harness);
@@ -373,6 +381,13 @@ public class AiService {
             StringBuilder answer = new StringBuilder();
             StringBuilder thinking = new StringBuilder();
             if (streamRag(prepared, retrieved, sink, answer, thinking)) {
+                finishStream(prepared, userId, sessionId, sink, answer.toString(), "rag", intent);
+                return;
+            }
+            // 同 Agent:RAG 超时但正文已足够完整时直接收尾,不丢弃降级。
+            if (hasSubstantialAnswer(answer)) {
+                harness.checkpoint(AiHarness.Stage.VALIDATION, "RAG 流式超时但已有完整正文，直接收尾");
+                emitHarness(sink, harness);
                 finishStream(prepared, userId, sessionId, sink, answer.toString(), "rag", intent);
                 return;
             }
@@ -430,6 +445,26 @@ public class AiService {
         if (!answer.isEmpty() || !thinking.isEmpty()) {
             sink.emit("reset", Map.of("reason", "fallback"));
         }
+    }
+
+    /**
+     * 判断流式虽未收到 onCompleteResponse(超时/onError)但已吐出的正文是否足够完整,
+     * 足以直接收尾而非丢弃降级。
+     *
+     * <p>背景:部分 provider 的 TokenStream 会逐 token 稳定回调 onPartialResponse,
+     * 但 onCompleteResponse 偶发不触发或在 55s 超时后才触发。旧实现一律判失败→reset→
+     * 降级,导致已经流给用户、内容完整的回答被前端清空,最终只剩降级尾部。
+     * 这里按"非空白字符数"判实质内容:阈值远小于最小输出上限(500),只用于区分
+     * "真没产出"与"产出已被用户读到"。</p>
+     */
+    private boolean hasSubstantialAnswer(StringBuilder answer) {
+        int nonBlank = 0;
+        for (int i = 0; i < answer.length(); i++) {
+            if (!Character.isWhitespace(answer.charAt(i))) {
+                nonBlank++;
+            }
+        }
+        return nonBlank >= 100;
     }
 
     private void emitHarness(StreamSink sink, AiHarness.Run harness) {

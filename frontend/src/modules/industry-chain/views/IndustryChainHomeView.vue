@@ -1,6 +1,5 @@
 <template>
   <div class="chain-list-shell">
-    <AppHeader @show-graph="$router.push('/')" />
     <main class="chain-list-page">
       <header class="page-header">
         <h1>产业链调研</h1>
@@ -59,7 +58,6 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { AlertTriangle, ArrowRight, LoaderCircle, Pencil, Plus, Sparkles, Trash2, X } from '@lucide/vue'
-import AppHeader from '../../../app/components/AppHeader.vue'
 import { useUserStore } from '../../user/store'
 import { createResearchCard, deleteResearchCard, fetchResearchCards, updateResearchCard } from '../api'
 import type { ResearchCardSummary } from '../model/types'
@@ -134,7 +132,7 @@ onMounted(() => { void loadResearchCards() })
 </script>
 
 <style scoped>
-.chain-list-shell { min-height: 100vh; background: var(--surface); }
+.chain-list-shell { min-height: 100%; background: var(--surface); }
 .chain-list-page { max-width: 1080px; margin: 0 auto; padding: 40px 24px 60px; }
 .page-header h1 { font-size: 28px; letter-spacing: -0.01em; }
 .page-header p { margin-top: 10px; color: var(--ink-2); font-size: 14px; line-height: 1.8; }

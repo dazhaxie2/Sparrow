@@ -102,6 +102,8 @@ export function useChat() {
 
     let seenDelta = false
     let seenThinking = false
+    // 已为本次"降级补充"插入过分隔线则置真,避免多次 reset 叠加多条分隔。
+    let resetSeparatorAdded = false
 
     // delta/thinking 批处理:同一帧(浏览器刷新率 ~60fps)内的多个 token 合并为一次 reactive 更新,
     // 避免 langchain4j 高频吐 token 时每个 token 都触发一次全量 markdown 重渲染 + DOM 重建(O(n²))。
@@ -206,11 +208,26 @@ export function useChat() {
           scheduleFlush()
         },
         onReset: () => {
+          // 后端 Agent/RAG 超时或出错后会发 reset 并降级到下一级引擎。
+          // 旧实现无条件清空 content,会把已经流给用户、正在阅读的回答整段抹掉,
+          // 之后只追加下游降级产出的尾部,表现为"回答只剩最后一点点"。
+          // 止血:先刷出残余 token,再判断是否已有实质正文——
+          //   有正文就保留(降级产物改为"补充"而非覆盖);无正文才清空等下游重发。
+          flush()
+          const hasShownContent = reactivePlaceholder.content.trim().length > 0
           pendingDelta = ''
           pendingThinking = ''
-          reactivePlaceholder.content = ''
-          reactivePlaceholder.thinking = ''
-          phase.value = '上游失败，正在切换恢复路径'
+          if (hasShownContent) {
+            // 已显示的正文不动;用一个分隔让后续降级 delta 与已有回答区分,避免拼接成一句。
+            if (!resetSeparatorAdded) {
+              reactivePlaceholder.content += '\n\n---\n\n'
+              resetSeparatorAdded = true
+            }
+          } else {
+            reactivePlaceholder.content = ''
+            reactivePlaceholder.thinking = ''
+          }
+          phase.value = '上游降级，正在补充回答'
         },
         onDone: (_mode, _format, harness) => {
           // 收到业务 done=正常完整收尾,标记 complete 让 settle 走"内容完整"路径。

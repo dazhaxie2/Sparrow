@@ -1,17 +1,4 @@
 <template>
-  <AppHeader
-    :graph-mode="graphMode"
-    :show-ai-toggle="!graphFullScreen"
-    :ai-rail-collapsed="aiRailCollapsed"
-    @show-graph="switchGraphMode('map')"
-    @toggle-ai="aiRailCollapsed = !aiRailCollapsed"
-    @open-login="showLogin = true"
-    @open-member="showMemberModal"
-    @open-learning="showLearning = true"
-    @open-settings="showSettings = true"
-    @open-bind-email="showBindEmail = true"
-  />
-
   <main class="layout" :class="{ 'dialog-layout': graphMode === 'dialog' }">
     <GraphSideRail
       v-if="graphMode === 'map' && !graphFullScreen"
@@ -125,9 +112,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import AppHeader from '../../../app/components/AppHeader.vue'
+import { storeToRefs } from 'pinia'
+import { useUiStore, type GraphMode } from '../../../shared/store/ui'
 import GraphPanel from '../components/GraphPanel.vue'
 import GraphSideRail from '../components/GraphSideRail.vue'
 import GraphToolbar from '../components/GraphToolbar.vue'
@@ -148,7 +136,6 @@ import { useDialogMode } from '../composables/useDialogMode'
 import { useLearningProgress, type ProgressState } from '../composables/useLearningProgress'
 import { useCompare } from '../composables/useCompare'
 
-type GraphMode = 'map' | 'dialog'
 type DisplayMode = 'raw' | 'community' | 'lod'
 
 const LIMIT_OPTIONS = [200, 400, 800, 1500, 3000]
@@ -158,6 +145,9 @@ const COMMUNITY_NODE_LIMIT = 30000
 const user = useUserStore()
 const route = useRoute()
 const router = useRouter()
+// 图谱视图/AI 栏/全屏状态由共享 UI store 持有:App.vue 的 header 也需要读写它们。
+const ui = useUiStore()
+const { graphMode, graphFullScreen, aiRailCollapsed } = storeToRefs(ui)
 
 // ── 页面级状态 ──
 const treeData = ref<Tree | null>(null)
@@ -175,7 +165,6 @@ const clusterOverview = ref<ClusterOverview | null>(null)
 const drilledCluster = ref<{ id: number; name: string; size: number } | null>(null)
 const activeCategory = ref<string | null>(null)
 const graphLimit = ref(800)
-const graphMode = ref<GraphMode>('map')
 const showEdgeLabels = ref(false)
 
 const treeLoading = ref(false)
@@ -185,10 +174,6 @@ const nodeError = ref('')
 const showLogin = ref(false)
 const showMember = ref(false)
 const showBindEmail = ref(false)
-const graphFullScreen = ref(false)
-// 右侧常驻 AI 对话栏：折叠状态记忆在 localStorage，与全屏沉浸互斥（全屏时整栏隐藏）。
-const aiRailCollapsed = ref(localStorage.getItem('sparrow_ai_rail_collapsed') === '1')
-watch(aiRailCollapsed, value => localStorage.setItem('sparrow_ai_rail_collapsed', value ? '1' : '0'))
 const showLearning = ref(false)
 const showSettings = ref(false)
 
@@ -790,6 +775,16 @@ onMounted(async () => {
   await Promise.all([loadOverview(), loadTree()])
 })
 
+// keep-alive 复用组件时,onMounted 不会再触发;从其它路由带 ?open= 回到首页时在此补消费。
+onActivated(() => {
+  consumeHeaderIntent()
+})
+
+// 已在首页时(如 App.vue 的 header openIntent),?open= 变化也要消费。intent 为空时早退,不会空转。
+watch(() => route.query.open, intent => {
+  if (intent) consumeHeaderIntent()
+})
+
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('focus', handleFocus)
@@ -802,7 +797,7 @@ onUnmounted(() => {
 .layout {
   position: relative;
   display: flex;
-  height: calc(100vh - 52px);
+  height: 100%;
   min-height: 0;
   background: #fbfbfa;
   overflow: hidden;
@@ -856,7 +851,7 @@ onUnmounted(() => {
 
 @media (max-width: 920px) {
   .layout {
-    height: calc(100vh - 48px);
+    height: 100%;
   }
 
   .graph-workspace {

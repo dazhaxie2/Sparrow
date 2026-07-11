@@ -1,6 +1,5 @@
 <template>
   <div class="admin-shell">
-    <AppHeader @show-graph="$router.push('/')" />
     <main class="admin-page">
       <header class="page-header">
         <div>
@@ -119,7 +118,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { AlertTriangle, LoaderCircle, Pencil, Plug, Plus, Power } from '@lucide/vue'
-import AppHeader from '../../../app/components/AppHeader.vue'
 import { useToast } from '../../../shared/composables/useCommon'
 import {
   activateModelConfig,
@@ -317,7 +315,7 @@ function formatTime(iso: string) {
 
 <style scoped>
 .admin-shell {
-  min-height: 100vh;
+  min-height: 100%;
   background: var(--bg);
 }
 

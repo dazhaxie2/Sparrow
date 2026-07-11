@@ -57,6 +57,12 @@ behaviour. The repository, not chat history, is the source of truth.
 6. Update task state after each meaningful checkpoint, including the next action.
 7. Before handoff, report changed files, commands run, results and remaining risk.
 
+## Communication
+
+回复用户一律用中文(解释、计划、总结、风险、工具提问文案)。代码标识符、命令、
+路径、commit、注释、现有文档不因本规则改写;技术字符串保持原样,仅外层解释用中文。
+权威细则见 `docs/harness/communication.md`。
+
 ## Commands
 
 Run from the repository root:

@@ -1,6 +1,5 @@
 <template>
   <div class="admin-shell">
-    <AppHeader />
     <main class="admin-page">
       <header class="page-head">
         <div>
@@ -85,7 +84,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import AppHeader from '../../../app/components/AppHeader.vue'
 import { listAgentProfiles, saveAgentProfile } from '../api'
 import type { AgentProfile, SaveAgentProfilePayload } from '../types'
 
@@ -175,7 +173,7 @@ function updateLabel(agent: AgentProfile) {
 </script>
 
 <style scoped>
-.admin-shell { min-height: 100vh; background: var(--bg); }
+.admin-shell { min-height: 100%; background: var(--bg); }
 .admin-page { max-width: 1180px; margin: 0 auto; padding: 30px 24px 64px; }
 .page-head { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
 .eyebrow, .service { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .12em; }

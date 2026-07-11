@@ -41,6 +41,22 @@ body {
   text-rendering: geometricPrecision;
 }
 
+/**
+ * 共享布局壳的滚动主区:占据 header 以下的剩余视口,内部纵向滚动。
+ * header 高度 52px(桌面)/48px(移动)集中在这里,不再在各页面重复。
+ */
+.app-content {
+  height: calc(100vh - 52px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+@media (max-width: 920px) {
+  .app-content {
+    height: calc(100vh - 48px);
+  }
+}
+
 button,
 input,
 textarea,

@@ -1,6 +1,5 @@
 <template>
   <div class="research-shell">
-    <AppHeader @show-graph="$router.push('/')" />
     <main class="research-page">
       <header class="research-header">
         <div class="heading">
@@ -190,7 +189,6 @@
 import { computed, defineAsyncComponent, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { AlertTriangle, ArrowLeft, BookOpenCheck, Bot, BrainCircuit, ExternalLink, FileDown, FileText, LoaderCircle, MessagesSquare, Network, PanelRightClose, Plus, SearchCheck, Upload } from '@lucide/vue'
-import AppHeader from '../../../app/components/AppHeader.vue'
 import { renderMarkdown } from '../../ai/utils/markdown'
 import {
   cancelResearchRun,
@@ -627,8 +625,8 @@ onUnmounted(stopEvents)
 </script>
 
 <style scoped>
-.research-shell { height: 100vh; overflow: hidden; background: var(--surface); }
-.research-page { display: flex; flex-direction: column; height: calc(100vh - 52px); min-height: 0; padding: 14px 18px 18px; }
+.research-shell { height: 100%; overflow: hidden; background: var(--surface); }
+.research-page { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 14px 18px 18px; }
 .research-header { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 4px 2px 14px; }
 .heading { min-width: 0; }
 .heading a { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; text-decoration: none; }
@@ -708,7 +706,7 @@ onUnmounted(stopEvents)
 .attachment-list h4 { margin: 0 0 12px; font-size: 13px; }
 
 @media (max-width: 920px) {
-  .research-page { height: calc(100vh - 48px); overflow-y: auto; }
+  .research-page { height: 100%; overflow-y: auto; }
   .research-header { align-items: flex-start; flex-direction: column; }
   .workbench-layout { flex-direction: column; overflow: visible; }
   .result-panel { min-height: 600px; }

@@ -17,7 +17,8 @@
     "docs/harness/long-running-tasks.md",
     "docs/harness/failure-playbook.md",
     "docs/harness/runtime-ai-chat.md",
-    "docs/harness/admin-agent-config.md"
+    "docs/harness/admin-agent-config.md",
+    "docs/harness/communication.md"
   ],
   "backend": {
     "root": "backend",
