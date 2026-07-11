@@ -274,7 +274,8 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       MAIL_USERNAME: ${MAIL_USERNAME:-3267044027@qq.com}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
-      SPARROW_ADMIN_EMAIL: ${SPARROW_ADMIN_EMAIL:?SPARROW_ADMIN_EMAIL must be set in .env}
+      # 引导管理员邮箱由部署环境 .env 注入;仓库不留默认值,见 docs/harness/admin-agent-config.md
+      SPARROW_ADMIN_EMAIL: ${SPARROW_ADMIN_EMAIL:-}
       MALLOC_ARENA_MAX: "2"
     expose: ["8081"]
     deploy:
