@@ -13,31 +13,43 @@
         <label v-if="user.profile?.passwordSet" class="field">
           <input
             v-model="currentPassword"
-            type="password"
+            :type="showCurrentPassword ? 'text' : 'password'"
             placeholder="请输入当前密码"
             maxlength="64"
             autocomplete="current-password"
             autofocus
           />
+          <button class="toggle-pwd" type="button" @click="showCurrentPassword = !showCurrentPassword" :aria-label="showCurrentPassword ? '隐藏密码' : '显示密码'">
+            <Eye v-if="showCurrentPassword" :size="16" />
+            <EyeOff v-else :size="16" />
+          </button>
         </label>
         <label class="field">
           <input
             v-model.trim="password"
-            type="password"
+            :type="showPassword ? 'text' : 'password'"
             placeholder="设置密码(6-64 位)"
             maxlength="64"
             autocomplete="new-password"
             :autofocus="!user.profile?.passwordSet"
           />
+          <button class="toggle-pwd" type="button" @click="showPassword = !showPassword" :aria-label="showPassword ? '隐藏密码' : '显示密码'">
+            <Eye v-if="showPassword" :size="16" />
+            <EyeOff v-else :size="16" />
+          </button>
         </label>
         <label class="field">
           <input
             v-model.trim="confirm"
-            type="password"
+            :type="showConfirm ? 'text' : 'password'"
             placeholder="再次输入密码确认"
             maxlength="64"
             autocomplete="new-password"
           />
+          <button class="toggle-pwd" type="button" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? '隐藏密码' : '显示密码'">
+            <Eye v-if="showConfirm" :size="16" />
+            <EyeOff v-else :size="16" />
+          </button>
         </label>
 
         <transition name="msg">
@@ -56,7 +68,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { KeyRound, LoaderCircle } from '@lucide/vue'
+import { Eye, EyeOff, KeyRound, LoaderCircle } from '@lucide/vue'
 import { useUserStore } from '../store'
 import { setPassword as apiSetPassword } from '../api'
 import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
@@ -68,6 +80,9 @@ const dismiss = useDismissableOverlay(() => emit('skip'))
 const currentPassword = ref('')
 const password = ref('')
 const confirm = ref('')
+const showCurrentPassword = ref(false)
+const showPassword = ref(false)
+const showConfirm = ref(false)
 const errorMessage = ref('')
 const submitting = ref(false)
 
@@ -162,7 +177,7 @@ async function handleSubmit() {
   line-height: 1.6;
 }
 
-.field { display: block; }
+.field { display: block; position: relative; }
 
 .field input {
   width: 100%;
@@ -183,6 +198,26 @@ async function handleSubmit() {
   border-color: var(--ink);
   background: var(--panel);
   box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+
+.toggle-pwd {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.16s ease;
+}
+
+.toggle-pwd:hover {
+  color: var(--ink);
 }
 
 .error-msg {

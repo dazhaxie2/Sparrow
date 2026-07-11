@@ -57,11 +57,15 @@
           <label class="field">
             <input
               v-model="password"
-              type="password"
+              :type="showPassword ? 'text' : 'password'"
               placeholder="请输入密码"
               maxlength="64"
               autocomplete="current-password"
             />
+            <button class="toggle-pwd" type="button" @click="showPassword = !showPassword" :aria-label="showPassword ? '隐藏密码' : '显示密码'">
+              <Eye v-if="showPassword" :size="16" />
+              <EyeOff v-else :size="16" />
+            </button>
           </label>
         </template>
 
@@ -87,7 +91,7 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
-import { LoaderCircle } from '@lucide/vue'
+import { Eye, EyeOff, LoaderCircle } from '@lucide/vue'
 import { useUserStore } from '../store'
 import { sendEmailCode } from '../api'
 import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
@@ -103,6 +107,7 @@ const mode = ref<Mode>('email')
 // 密码模式状态
 const username = ref('')
 const password = ref('')
+const showPassword = ref(false)
 
 // 邮箱模式状态
 const email = ref('')
@@ -322,6 +327,26 @@ async function handleSubmit() {
   border-color: var(--ink);
   background: var(--panel);
   box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+
+.toggle-pwd {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.16s ease;
+}
+
+.toggle-pwd:hover {
+  color: var(--ink);
 }
 
 /* 验证码行 */
