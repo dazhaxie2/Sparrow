@@ -4,6 +4,7 @@ import com.sparrow.ai.infrastructure.client.UserClient;
 import com.sparrow.ai.infrastructure.persistence.AiAgentConfigRepository;
 import com.sparrow.ai.infrastructure.persistence.AiAgentConfigRepository.AuditRow;
 import com.sparrow.common.ai.AiAgentProfile;
+import com.sparrow.common.ai.AiAgentProfileRules;
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.common.security.AdminGuard;
@@ -88,9 +89,7 @@ public class AiAgentConfigService {
     private void requireAdmin(long operatorId) {
         try {
             ApiResponse<Map<String, Object>> response = userClient.profile(operatorId);
-            Object role = response == null || response.data() == null
-                    ? null : response.data().get("role");
-            AdminGuard.requireAdmin(role == null ? null : role.toString());
+            AdminGuard.requireAdmin(AdminGuard.roleOf(response));
         } catch (BizException error) {
             throw error;
         } catch (Exception error) {
@@ -102,16 +101,8 @@ public class AiAgentConfigService {
         if (request == null || request.agentKey() == null || request.agentKey().isBlank()) {
             throw new BizException("Agent 标识不能为空");
         }
-        if (request.systemPrompt() == null || request.systemPrompt().trim().length() < 20
-                || request.systemPrompt().length() > 20_000) {
-            throw new BizException("系统提示词长度必须在 20 到 20000 字符之间");
-        }
-        if (request.maxContextMessages() < 0 || request.maxContextMessages() > 50
-                || request.maxContextChars() < 1000 || request.maxContextChars() > 50_000
-                || request.maxOutputChars() < 500 || request.maxOutputChars() > 100_000
-                || request.maxSteps() < 1 || request.maxSteps() > 20) {
-            throw new BizException("Agent 运行参数超出允许范围");
-        }
+        AiAgentProfileRules.validateRuntime(request.systemPrompt(), request.maxContextMessages(),
+                request.maxContextChars(), request.maxOutputChars(), request.maxSteps());
     }
 
     public record SaveRequest(String agentKey, String systemPrompt, boolean enabled,

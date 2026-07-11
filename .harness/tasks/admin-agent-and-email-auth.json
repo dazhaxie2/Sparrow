@@ -8,7 +8,7 @@
     "in": [
       "Username or registered-email password login in sparrow-user",
       "Verified email binding for authenticated users without an email",
-      "Idempotent promotion of 13102373468@163.com to admin without storing a password",
+      "Idempotent promotion of the environment-configured administrator email without storing a password",
       "Service-owned Agent prompt and bounded runtime parameter persistence in sparrow-ai and sparrow-industry-chain",
       "Server-side admin authorization, audit records and a unified frontend Agent management page",
       "Additive database migrations, focused tests, frontend build and harness verification"
@@ -39,10 +39,10 @@
     },
     {
       "id": "AC-3",
-      "description": "The account bound to 13102373468@163.com receives the admin role through idempotent startup and runtime paths without a committed password or token.",
+      "description": "The account bound to the environment-configured administrator email receives the admin role through idempotent startup and runtime paths without a committed account value, password or token.",
       "status": "passed",
       "evidence": [
-        "Startup migration, email registration and verified binding promote the configurable designated email; migration SQL contains no password or token."
+        "Startup migration, email registration and verified binding promote the environment-configured identity; tracked files contain no administrator account value, password or token."
       ]
     },
     {
@@ -109,12 +109,12 @@
     "sparrow-user remains authoritative for identity and roles; downstream services authorize administrators through internal profile calls.",
     "sparrow-ai and sparrow-industry-chain each own their Agent configuration and audit tables; the frontend aggregates their public admin APIs.",
     "Verification codes are purpose-scoped so a login code cannot be replayed to bind an email.",
-    "The designated administrator email is a non-secret configurable bootstrap identity; no password, token or API key is committed.",
+    "The designated administrator identity is read only from SPARROW_ADMIN_EMAIL; the repository contains no account value, password, token or API key.",
     "Authenticated live API, SMTP delivery and the populated administrator page remain deployment smoke checks because local backend infrastructure was not running."
   ],
   "blockers": [],
   "verification": {
-    "lastRunAt": "2026-07-11T02:32:34.4836679Z",
+    "lastRunAt": "2026-07-11T02:47:55.3621496Z",
     "commands": [
       {
         "command": "mvn -pl sparrow-user -am test",
@@ -139,10 +139,22 @@
       {
         "command": "node tools/harness.mjs changed",
         "result": "PASS: both guards, full seven-module backend reactor with 142 tests, and frontend production build."
+      },
+      {
+        "command": "git grep plus repository scan for the administrator account value",
+        "result": "PASS: zero tracked or non-.env repository hits; the ignored root .env contains SPARROW_ADMIN_EMAIL."
+      },
+      {
+        "command": "docker compose config --quiet",
+        "result": "PASS: Compose resolved the required SPARROW_ADMIN_EMAIL from the root .env."
+      },
+      {
+        "command": "mvn -f backend/pom.xml -pl sparrow-user -am test",
+        "result": "PASS: shared 39 and sparrow-user 12 tests after removing the repository default."
       }
     ]
   },
   "nextAction": "Apply the two additive migrations in deployment, sign in with the designated email, then smoke-test email binding and one audited Agent update.",
   "createdAt": "2026-07-10T17:37:20.707Z",
-  "updatedAt": "2026-07-11T02:32:34.4836679Z"
+  "updatedAt": "2026-07-11T02:47:55.3621496Z"
 }

@@ -19,7 +19,7 @@ public class SchemaMigrator {
     private final String bootstrapAdminEmail;
 
     public SchemaMigrator(JdbcTemplate jdbc,
-                          @Value("${sparrow.auth.bootstrap-admin-email:13102373468@163.com}")
+                          @Value("${sparrow.auth.bootstrap-admin-email:}")
                           String bootstrapAdminEmail) {
         this.jdbc = jdbc;
         this.bootstrapAdminEmail = bootstrapAdminEmail == null

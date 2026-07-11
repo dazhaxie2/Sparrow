@@ -19,13 +19,4 @@ public record AiAgentProfile(
         int maxSteps,
         Long updatedBy,
         Instant updatedAt) {
-
-    public AiAgentProfile withRuntimeValues(String prompt, boolean active,
-                                            int contextMessages, int contextChars,
-                                            int outputChars, int steps,
-                                            Long operatorId, Instant changedAt) {
-        return new AiAgentProfile(service, agentKey, displayName, description,
-                prompt, active, contextMessages, contextChars, outputChars, steps,
-                operatorId, changedAt);
-    }
 }

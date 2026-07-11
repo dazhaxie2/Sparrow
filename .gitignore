@@ -41,6 +41,7 @@ build/
 ### VS Code ###
 .vscode/
 .trae/
+.zcode/
 
 # 本地机密(LLM key 等)
 /.env

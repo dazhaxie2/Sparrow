@@ -111,11 +111,6 @@ public class ChatHistoryRepository {
         jdbc.update("DELETE FROM chat_session WHERE id = ? AND user_id = ?", sessionId, userId);
     }
 
-    /** 更新会话标题(首问截断后回填)。 */
-    public void updateTitle(long sessionId, String title) {
-        jdbc.update("UPDATE chat_session SET title = ? WHERE id = ?", title, sessionId);
-    }
-
     /** 追加一条消息,返回消息 id。 */
     public long addMessage(long userId, long sessionId, String role, String content, String mode) {
         KeyHolder key = new GeneratedKeyHolder();

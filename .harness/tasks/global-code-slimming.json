@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "id": "global-code-slimming",
+  "title": "Global code slimming without behavior changes",
+  "status": "completed",
+  "objective": "Reduce the repository's maintenance surface without changing public behavior, service ownership, database schemas, routes, or API contracts. Remove provably dead code, consolidate duplicated stable policies, and record the measurable net source reduction.",
+  "scope": {
+    "in": [
+      "Backend Java source across all service modules and sparrow-common",
+      "Frontend Vue and TypeScript source across business modules and shared code",
+      "Harness/tooling code where dead or redundant implementation is provable",
+      "Targeted tests and maintained harness documentation required by the changes"
+    ],
+    "out": [
+      "Public API, route, event, or database schema redesign",
+      "Cross-service business dependencies or moving service-owned persistence into sparrow-common",
+      "Product UI redesign, dependency replacement, generated output, and formatting-only compression",
+      "Unrelated user-owned changes in .gitignore and ROADMAP.md"
+    ]
+  },
+  "acceptanceCriteria": [
+    {
+      "id": "AC-1",
+      "description": "The baseline source count and line count are recorded and the same measurement shows a net reduction at handoff.",
+      "status": "passed",
+      "evidence": [
+        "A normalized physical-line recount records 260 to 256 source files and 31,248 to 31,047 lines: four fewer files and 201 fewer lines."
+      ]
+    },
+    {
+      "id": "AC-2",
+      "description": "Removed symbols have no repository references and no externally exposed route or contract is removed.",
+      "status": "passed",
+      "evidence": [
+        "Repository reference scans found no callers for the removed backend members, frontend exports, utilities, types or orphan layout.",
+        "The backend registration route and all public service routes/contracts remain present."
+      ]
+    },
+    {
+      "id": "AC-3",
+      "description": "Repeated stable Agent validation and administrator-role interpretation are consolidated without coupling business services.",
+      "status": "passed",
+      "evidence": [
+        "AiAgentProfileRules owns the shared prompt/runtime bounds and AdminGuard owns profile-role extraction; service-owned persistence remains unchanged."
+      ]
+    },
+    {
+      "id": "AC-4",
+      "description": "At least one backend and one frontend maintenance surface are simplified without changing observable behavior.",
+      "status": "passed",
+      "evidence": [
+        "Backend dead members and redundant research helpers were removed; frontend unused API clients, store actions, utilities, types and an orphan layout were removed."
+      ]
+    },
+    {
+      "id": "AC-5",
+      "description": "Architecture guards, targeted backend tests, and the production frontend build pass.",
+      "status": "passed",
+      "evidence": [
+        "node tools/harness.mjs guard passed both structural and architecture guards.",
+        "node tools/harness.mjs full passed Docker Compose validation, all seven backend modules with 142 tests, the production frontend build and Python tool syntax checks."
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "S-1",
+      "status": "completed",
+      "description": "Establish dirty-worktree, architecture, file-count, line-count, long-file, and duplicate-code baselines.",
+      "verification": "Recorded user-owned changes, service boundaries, 260-source-file baseline and long-file inventory."
+    },
+    {
+      "id": "S-2",
+      "status": "completed",
+      "description": "Remove repository-private code proven to have no callers and simplify redundant wrappers and branches.",
+      "verification": "Repository-wide reference scans found no remaining callers for the removed backend members or frontend exports."
+    },
+    {
+      "id": "S-3",
+      "status": "completed",
+      "description": "Consolidate stable validation and role-handling policy in sparrow-common while preserving service ownership.",
+      "verification": "Relevant common, user, AI and industry-chain modules compiled and 115 tests passed."
+    },
+    {
+      "id": "S-4",
+      "status": "completed",
+      "description": "Remove unused frontend client/store surface and simplify a safe high-maintenance path.",
+      "verification": "Vite production build passed after removing orphan APIs, utilities, types and a layout component."
+    },
+    {
+      "id": "S-5",
+      "status": "completed",
+      "description": "Run guards, targeted and full builds as warranted, remeasure the repository, and record evidence.",
+      "verification": "Repository guards and full verification passed; final normalized measurement is 256 files and 31,047 physical lines."
+    }
+  ],
+  "decisions": [
+    "The initial quick scanner reported 30,658 nonblank lines; the reproducible before/after metric uses physical lines including blanks: 260 files and 31,248 lines before, 256 files and 31,047 lines after.",
+    "Treat slimming as removal of maintenance concepts and duplication, not minification or deletion of useful documentation.",
+    "Do not centralize JDBC repositories in sparrow-common; persistence and tables remain owned by their services."
+  ],
+  "blockers": [],
+  "verification": {
+    "lastRunAt": "2026-07-11T03:09:13.5338784Z",
+    "commands": [
+      {
+        "command": "mvn -f backend/pom.xml -pl sparrow-common,sparrow-user,sparrow-ai,sparrow-industry-chain -am test",
+        "result": "PASS: 115 focused shared, user, AI and industry-chain tests."
+      },
+      {
+        "command": "npm run build",
+        "result": "PASS: Vite production build completed after the frontend removals."
+      },
+      {
+        "command": "node tools/harness.mjs guard",
+        "result": "PASS: structural and product architecture guards."
+      },
+      {
+        "command": "node tools/harness.mjs full",
+        "result": "PASS: Docker Compose configuration, 142 backend tests, frontend production build and Python tool syntax."
+      },
+      {
+        "command": "Repository-wide exported-symbol, private-method and orphan-component reference scans",
+        "result": "PASS: removed candidates have no remaining source references; reflection and framework-owned entry points were retained."
+      },
+      {
+        "command": "git diff --check",
+        "result": "PASS: no whitespace errors; line-ending normalization warnings only."
+      },
+      {
+        "command": "Normalized source inventory",
+        "result": "PASS: 260 to 256 source files and 31,248 to 31,047 physical lines, a net reduction of four files and 201 lines."
+      }
+    ]
+  },
+  "nextAction": "If deeper reduction is desired, decompose AiService and the largest graph views in separate behavior-preserving slices instead of compressing them in place.",
+  "createdAt": "2026-07-11T02:52:54.825Z",
+  "updatedAt": "2026-07-11T03:09:13.5338784Z"
+}

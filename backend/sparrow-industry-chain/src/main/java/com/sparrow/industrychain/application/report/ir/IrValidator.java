@@ -1,6 +1,5 @@
 package com.sparrow.industrychain.application.report.ir;
 
-import com.sparrow.industrychain.application.report.ir.Block.KpiGrid;
 import com.sparrow.industrychain.application.report.ir.Block.PestTable;
 import com.sparrow.industrychain.application.report.ir.Block.SwotTable;
 import com.sparrow.industrychain.application.report.ir.Block.TableRows;
@@ -143,6 +142,4 @@ public class IrValidator {
         }
     }
 
-    /** 忽略 KPI 校验：KPI 为展示型数据，无来源引用约束。 */
-    private void ignoreKpi(KpiGrid kpi) { /* no-op */ }
 }

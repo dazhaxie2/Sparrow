@@ -40,12 +40,14 @@ execution objects; subsequent stages that resolve a profile use the latest value
 - Login verification codes and binding verification codes use separate Redis key
   namespaces; one purpose cannot be replayed as the other.
 - A username-only account may bind one globally unique email after proving control.
-- `sparrow.auth.bootstrap-admin-email` defaults to `13102373468@163.com`. Startup,
-  email registration and email binding all promote that verified account to
-  `admin`. No password or token is created, reset or committed.
+- `sparrow.auth.bootstrap-admin-email` is populated only from
+  `SPARROW_ADMIN_EMAIL` in the deployment environment. Startup, email registration
+  and email binding promote that verified account to `admin`. No account value,
+  password or token is committed.
 - Existing administrators are not silently demoted.
 
-Production may override the bootstrap identity with `SPARROW_ADMIN_EMAIL`. Run the
+Docker Compose requires `SPARROW_ADMIN_EMAIL` to be present in the ignored root
+`.env`; non-Compose deployments must inject the same environment variable. Run the
 additive migrations before deployment:
 
 ```text

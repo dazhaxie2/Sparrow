@@ -90,7 +90,7 @@ public class IndustryChainResearchOrchestrator {
         if (!chat.available()) {
             return "AI 服务尚未配置。你可以继续编辑卡片范围，配置模型后再开始深度调研。";
         }
-        AiAgentProfile profile = configured(IndustryAgentConfigService.PLANNING_CHAT);
+        AiAgentProfile profile = agent(IndustryAgentConfigService.PLANNING_CHAT);
         StringBuilder context = new StringBuilder();
         int maxMessages = profile == null ? 12 : profile.maxContextMessages();
         int contextChars = profile == null ? 8000 : profile.maxContextChars();
@@ -158,9 +158,9 @@ public class IndustryChainResearchOrchestrator {
         java.util.function.BiConsumer<String, String> thinkingSink =
                 (source, message) -> forum.thinking(cardId, runId, source, message);
         // 三角色并行反思循环；用户资料优先编号 S1..Sk，联网结果接续
-        AiAgentProfile industryProfile = required(IndustryAgentConfigService.INDUSTRY_RESEARCHER);
-        AiAgentProfile searchProfile = required(IndustryAgentConfigService.SEARCH_RESEARCHER);
-        AiAgentProfile insightProfile = required(IndustryAgentConfigService.INSIGHT_RESEARCHER);
+        AiAgentProfile industryProfile = agent(IndustryAgentConfigService.INDUSTRY_RESEARCHER);
+        AiAgentProfile searchProfile = agent(IndustryAgentConfigService.SEARCH_RESEARCHER);
+        AiAgentProfile insightProfile = agent(IndustryAgentConfigService.INSIGHT_RESEARCHER);
         IndustryChainResearchAgent industryAgent = new IndustryChainResearchAgent(ForumEvent.INDUSTRY, "行业 Agent",
                 prompt(industryProfile, "你是产业链行业结构调研 Agent。"), chat.model(), webSearch, forum,
                 thinkingSink, chat, steps(industryProfile, 1));
@@ -299,7 +299,7 @@ public class IndustryChainResearchOrchestrator {
     }
 
     private String planningPrompt(String title, String brief, List<SearchSource> provided, List<MessageRow> history) {
-        return prompt(required(IndustryAgentConfigService.RESEARCH_PLANNER),
+        return prompt(agent(IndustryAgentConfigService.RESEARCH_PLANNER),
                 "你是产业链研究规划 Agent。") + "\n\n" + """
                 你是产业链研究规划 Agent。根据标题、说明和用户对话，制定一份可执行的调研计划。
                 计划必须覆盖上游原料/设备、中游制造/集成、下游客户/应用、核心企业、竞争格局、
@@ -316,7 +316,7 @@ public class IndustryChainResearchOrchestrator {
     }
 
     private String evidencePrompt(String plan, List<SearchSource> sources, String forumDigest) {
-        return prompt(required(IndustryAgentConfigService.EVIDENCE_VALIDATOR),
+        return prompt(agent(IndustryAgentConfigService.EVIDENCE_VALIDATOR),
                 "你是证据核验 Agent。") + "\n\n" + """
                 你是证据核验 Agent。只能使用下方来源（含用户提供的资料与联网搜索结果），整理可以被来源直接支持的产业链事实。
                 忽略广告、问答猜测和互相矛盾且无法核实的内容。每条事实末尾必须标注来源编号，格式为 [S1]；证据不足要明确写「待核验」，不得凭常识补齐。
@@ -347,12 +347,8 @@ public class IndustryChainResearchOrchestrator {
         return value != null && !value.isBlank();
     }
 
-    private AiAgentProfile configured(String agentKey) {
+    private AiAgentProfile agent(String agentKey) {
         return agentConfigs == null ? null : agentConfigs.requireEnabled(agentKey);
-    }
-
-    private AiAgentProfile required(String agentKey) {
-        return configured(agentKey);
     }
 
     private String prompt(AiAgentProfile profile, String fallback) {

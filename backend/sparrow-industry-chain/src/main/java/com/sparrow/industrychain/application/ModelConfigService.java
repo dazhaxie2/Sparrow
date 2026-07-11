@@ -66,8 +66,7 @@ public class ModelConfigService {
             if (resp == null || resp.data() == null) {
                 throw new BizException(401, "无法识别用户身份");
             }
-            Object role = resp.data().get("role");
-            AdminGuard.requireAdmin(role == null ? null : role.toString());
+            AdminGuard.requireAdmin(AdminGuard.roleOf(resp));
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {

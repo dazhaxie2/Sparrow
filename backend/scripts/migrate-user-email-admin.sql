@@ -35,6 +35,5 @@ PREPARE stmt FROM @ddl;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
-UPDATE t_user
-SET role = 'admin'
-WHERE LOWER(email) = '13102373468@163.com' AND role <> 'admin';
+-- 管理员角色提升由 sparrow-user 启动时读取 SPARROW_ADMIN_EMAIL 后参数化执行。
+-- 本迁移脚本不保存、接收或打印管理员邮箱。

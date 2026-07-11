@@ -140,20 +140,21 @@ class UserServiceEmailLoginTest {
 
     @Test
     void bindEmailUsesPurposeScopedCodeAndPromotesConfiguredAdmin() {
+        service = new UserService(userMapper, redis, mailSender, 7, 60, "admin@example.test");
         User existing = new User();
         setId(existing, 12L);
         existing.setUsername("legacy-user");
         existing.setPasswordHash("hash");
         when(userMapper.selectById(12L)).thenReturn(existing);
         when(userMapper.selectOne(any())).thenReturn(null);
-        when(valueOps.get("sparrow:email-bind-code:13102373468@163.com")).thenReturn("246810");
+        when(valueOps.get("sparrow:email-bind-code:admin@example.test")).thenReturn("246810");
 
-        User updated = service.bindEmail(12L, "13102373468@163.com", "246810");
+        User updated = service.bindEmail(12L, "admin@example.test", "246810");
 
-        assertThat(updated.getEmail()).isEqualTo("13102373468@163.com");
+        assertThat(updated.getEmail()).isEqualTo("admin@example.test");
         assertThat(updated.effectiveRole()).isEqualTo("admin");
         verify(userMapper).updateById(existing);
-        verify(redis).delete("sparrow:email-bind-code:13102373468@163.com");
+        verify(redis).delete("sparrow:email-bind-code:admin@example.test");
     }
 
     @Test

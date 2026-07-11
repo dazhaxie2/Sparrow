@@ -159,7 +159,7 @@ export function useSigmaGraph(opts: {
       }
     }
 
-    sigma.setSetting('nodeReducer', (nodeId, data) => {
+    sigma.setSetting('nodeReducer', (_nodeId, data) => {
       const id = data._nodeId as number
       const isSelected = id === selected
       const inChain = Boolean(chain && (chain.has(id) || id === selected))

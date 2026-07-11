@@ -99,13 +99,6 @@ export interface Overview {
   totalEdges: number
 }
 
-export interface NodePage {
-  nodes: NodeBrief[]
-  total: number
-  page: number
-  size: number
-}
-
 export interface Neighborhood {
   center: NodeBrief
   nodes: NodeBrief[]
@@ -125,13 +118,4 @@ export interface SourceBrief {
   url: string
   source?: string | null
   updatedAt: string
-}
-
-export interface KnowledgeStatus {
-  ragDocumentCount: number
-  ragUpdatedAt: string | null
-  ragIndexed: boolean
-  ragNodeCount: number | null
-  ragChunkCount: number | null
-  ragIndexUpdatedAt: string | null
 }

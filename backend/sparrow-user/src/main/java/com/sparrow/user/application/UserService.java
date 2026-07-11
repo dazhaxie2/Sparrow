@@ -1,7 +1,6 @@
 package com.sparrow.user.application;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.common.security.TokenKeys;
 import com.sparrow.user.domain.model.User;
@@ -27,7 +26,6 @@ public class UserService {
     private static final String EMAIL_LOGIN_CODE_KEY = "sparrow:email-code:";
     private static final String EMAIL_BIND_CODE_KEY = "sparrow:email-bind-code:";
     private static final String EMAIL_COOLDOWN_KEY = "sparrow:email-code:cooldown:";
-    private static final String DEFAULT_ADMIN_EMAIL = "13102373468@163.com";
 
     private final UserMapper userMapper;
     private final StringRedisTemplate redis;
@@ -41,7 +39,7 @@ public class UserService {
     public UserService(UserMapper userMapper, StringRedisTemplate redis, MailSenderAdapter mailSender,
                        @Value("${sparrow.auth.token-ttl-days:7}") int tokenTtlDays,
                        @Value("${sparrow.mail.resend-cooldown-seconds:60}") int resendCooldownSeconds,
-                       @Value("${sparrow.auth.bootstrap-admin-email:" + DEFAULT_ADMIN_EMAIL + "}")
+                       @Value("${sparrow.auth.bootstrap-admin-email:}")
                        String bootstrapAdminEmail) {
         this.userMapper = userMapper;
         this.redis = redis;
@@ -54,7 +52,7 @@ public class UserService {
     /** Compatibility constructor for focused tests and non-Spring callers. */
     public UserService(UserMapper userMapper, StringRedisTemplate redis, MailSenderAdapter mailSender,
                        int tokenTtlDays, int resendCooldownSeconds) {
-        this(userMapper, redis, mailSender, tokenTtlDays, resendCooldownSeconds, DEFAULT_ADMIN_EMAIL);
+        this(userMapper, redis, mailSender, tokenTtlDays, resendCooldownSeconds, "");
     }
 
     @Transactional
@@ -237,14 +235,6 @@ public class UserService {
         redis.opsForValue().set(TokenKeys.TOKEN_KEY_PREFIX + token,
                 String.valueOf(userId), Duration.ofDays(tokenTtlDays));
         return token;
-    }
-
-    public void updateRole(Long userId, String role) {
-        int rows = userMapper.update(null, new LambdaUpdateWrapper<User>()
-                .eq(User::getId, userId).set(User::getRole, role));
-        if (rows == 0) {
-            throw new BizException(404, "用户不存在");
-        }
     }
 
     private void requireCode(String keyPrefix, String email, String code) {

@@ -1,6 +1,6 @@
 import { get, post, request } from '../../../shared/api/request'
 import { createSSEConnection } from '../../../shared/utils/sse'
-import type { AgentStep, AiHarnessMetadata, AskResult, ChatSession, SourceRef } from '../types'
+import type { AgentStep, AiHarnessMetadata, AskResult, SourceRef } from '../types'
 
 export function askAi(question: string, surface = 'graph-dialog', sessionId?: number | null) {
   return post<AskResult>('/api/ai/ask', { question, surface, sessionId: sessionId ?? null })

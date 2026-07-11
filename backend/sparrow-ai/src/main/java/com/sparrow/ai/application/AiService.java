@@ -133,7 +133,6 @@ public class AiService {
     private final UserClient userClient;
     private final StringRedisTemplate redis;
     private final ObjectProvider<TechTreeAgent> agentProvider;
-    private final ChatHistoryRepository chatHistory;
     private final AiChatHarness chatHarness;
     private AiAgentConfigService agentConfigs;
 
@@ -163,7 +162,6 @@ public class AiService {
         this.userClient = userClient;
         this.redis = redis;
         this.agentProvider = agentProvider;
-        this.chatHistory = chatHistory;
         this.chatHarness = new AiChatHarness(chatHistory);
     }
 

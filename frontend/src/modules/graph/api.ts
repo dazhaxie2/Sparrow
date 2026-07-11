@@ -1,12 +1,7 @@
-import { ttlCache } from '../../shared/utils/ttlCache'
 import { get } from '../../shared/api/request'
 import type {
-  Tree, NodeDetail, NodeBrief, KnowledgeStatus, Overview, Neighborhood, SubgraphFilters, GraphTile, ClusterOverview,
+  Tree, NodeDetail, NodeBrief, Overview, Neighborhood, SubgraphFilters, GraphTile, ClusterOverview,
 } from './types'
-
-export function fetchTree() {
-  return ttlCache('graph:tree', 300000, () => get<Tree>('/api/graph/tree'))
-}
 
 /** 领域×时代聚合总览(响应体小,展示真实规模 + 领域列表)。 */
 export function fetchOverview() {
@@ -55,8 +50,4 @@ export function fetchPrerequisites(id: number) {
 /** 节点「应用与产业链」:服务端命中缓存秒出,未命中时 AI 判定后缓存。 */
 export function fetchApplications(id: number) {
   return get<NodeBrief[]>(`/api/graph/node/${id}/applications`)
-}
-
-export function fetchKnowledgeStatus() {
-  return get<KnowledgeStatus>('/api/graph/knowledge/status')
 }

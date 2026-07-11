@@ -1,6 +1,9 @@
 package com.sparrow.common.security;
 
+import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
+
+import java.util.Map;
 
 /**
  * 管理员权限校验工具：供下游服务(经 Feign 查到用户 role 后)做统一的管理端鉴权。
@@ -22,7 +25,8 @@ public final class AdminGuard {
         }
     }
 
-    public static boolean isAdmin(String role) {
-        return ROLE_ADMIN.equalsIgnoreCase(role);
+    public static String roleOf(ApiResponse<? extends Map<String, ?>> response) {
+        Object role = response == null || response.data() == null ? null : response.data().get("role");
+        return role == null ? null : role.toString();
     }
 }
