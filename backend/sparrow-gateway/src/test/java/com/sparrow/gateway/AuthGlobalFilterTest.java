@@ -23,7 +23,7 @@ class AuthGlobalFilterTest {
 
     @Test
     void validTokenInjectsUserHeaderAndInvokesChainOnce() {
-        ReactiveStringRedisTemplate redis = mockRedisGet("abc", Mono.just("42"));
+        ReactiveStringRedisTemplate redis = mockRedisGet("abc", Mono.just("42:0"), Mono.empty(), false);
         AuthGlobalFilter filter = new AuthGlobalFilter(redis);
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/user/me")
@@ -39,7 +39,7 @@ class AuthGlobalFilterTest {
 
     @Test
     void missingTokenStripsForgedUserHeader() {
-        ReactiveStringRedisTemplate redis = mockRedisGet("missing", Mono.empty());
+        ReactiveStringRedisTemplate redis = mockRedisGet("missing", Mono.empty(), Mono.empty(), false);
         AuthGlobalFilter filter = new AuthGlobalFilter(redis);
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/graph/tree")
@@ -55,7 +55,8 @@ class AuthGlobalFilterTest {
 
     @Test
     void redisErrorFallsBackToAnonymousRequest() {
-        ReactiveStringRedisTemplate redis = mockRedisGet("abc", Mono.error(new IllegalStateException("redis down")));
+        ReactiveStringRedisTemplate redis = mockRedisGet("abc",
+                Mono.error(new IllegalStateException("redis down")), Mono.empty(), false);
         AuthGlobalFilter filter = new AuthGlobalFilter(redis);
         CapturingChain chain = new CapturingChain();
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/user/me")
@@ -69,12 +70,55 @@ class AuthGlobalFilterTest {
         assertThat(chain.lastRequest.get().getHeaders()).doesNotContainKey(TokenKeys.USER_ID_HEADER);
     }
 
+    @Test
+    void tokenIssuedBeforePasswordChangeIsRejected() {
+        ReactiveStringRedisTemplate redis = mockRedisGet("old", Mono.just("42:0"), Mono.just("1"), true);
+        AuthGlobalFilter filter = new AuthGlobalFilter(redis);
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/user/me")
+                .header("Authorization", "Bearer old").build());
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertThat(chain.lastRequest.get().getHeaders()).doesNotContainKey(TokenKeys.USER_ID_HEADER);
+    }
+
+    @Test
+    void tokenWithCurrentAuthVersionRemainsValid() {
+        ReactiveStringRedisTemplate redis = mockRedisGet("new", Mono.just("42:1"), Mono.just("1"), true);
+        AuthGlobalFilter filter = new AuthGlobalFilter(redis);
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/user/me")
+                .header("Authorization", "Bearer new").build());
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertThat(chain.lastRequest.get().getHeaders().getFirst(TokenKeys.USER_ID_HEADER)).isEqualTo("42");
+    }
+
+    @Test
+    void legacyTokenIsRejectedAfterPasswordChange() {
+        ReactiveStringRedisTemplate redis = mockRedisGet("legacy", Mono.just("42"), Mono.just("1"), true);
+        AuthGlobalFilter filter = new AuthGlobalFilter(redis);
+        CapturingChain chain = new CapturingChain();
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/user/me")
+                .header("Authorization", "Bearer legacy").build());
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertThat(chain.lastRequest.get().getHeaders()).doesNotContainKey(TokenKeys.USER_ID_HEADER);
+    }
+
     @SuppressWarnings("unchecked")
-    private static ReactiveStringRedisTemplate mockRedisGet(String token, Mono<String> result) {
+    private static ReactiveStringRedisTemplate mockRedisGet(String token, Mono<String> tokenResult,
+                                                             Mono<String> authVersion, boolean versionKeyExists) {
         ReactiveStringRedisTemplate redis = mock(ReactiveStringRedisTemplate.class);
         ReactiveValueOperations<String, String> ops = mock(ReactiveValueOperations.class);
         when(redis.opsForValue()).thenReturn(ops);
-        when(ops.get(TokenKeys.TOKEN_KEY_PREFIX + token)).thenReturn(result);
+        when(ops.get(TokenKeys.TOKEN_KEY_PREFIX + token)).thenReturn(tokenResult);
+        when(ops.get(TokenKeys.TOKEN_VERSION_PREFIX + "42")).thenReturn(authVersion);
+        when(redis.hasKey(TokenKeys.TOKEN_VERSION_PREFIX + "42"))
+                .thenReturn(Mono.just(versionKeyExists));
         return redis;
     }
 

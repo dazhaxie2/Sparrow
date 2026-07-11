@@ -23,6 +23,13 @@ sources, artifacts and run metadata are committed before their progress event is
 emitted, then verify the card snapshot reconstructs them without an active SSE
 connection.
 
+## AI chat appears complete but disappears after refresh
+
+Treat this as a terminal-contract violation. For a request with a session ID, inject a
+repository failure and verify the server emits `error`/`failed` without `done`; the
+client must not increment its durable message count. Never downgrade persistence failure
+to a warning after answer deltas have already been delivered.
+
 ## Timestamp is several hours wrong
 
 Trace the value at database, Java serialization and browser formatting boundaries.
@@ -35,6 +42,18 @@ Identify the active model configuration version without exposing the API key. Ch
 URL normalization, connect/read timeout, provider response code, retry budget and
 whether all instances received the configuration update. Preserve the last known
 good configuration and make rollback auditable.
+
+When an administrator leaves a masked API key blank, reuse is allowed only for the exact
+same normalized Base URL. A host, port or path change must require a newly supplied key;
+cover both the connection-test and saved-config paths with regression tests.
+
+## Authentication abuse or account takeover risk
+
+Verification codes must be atomically consumed and have a bounded failure budget per
+purpose and email. A new code resets the budget; login and binding codes never share it.
+Changing an existing password requires the current password and advances the user's auth
+version so all older tokens fail at the gateway. Keep gateway compatibility tests for
+legacy tokens during rollout and collision tests for concurrent email auto-registration.
 
 ## Guard fails
 

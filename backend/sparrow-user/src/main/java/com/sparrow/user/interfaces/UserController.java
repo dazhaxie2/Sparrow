@@ -52,8 +52,12 @@ public class UserController {
     }
 
     public record SetPasswordRequest(
+            String currentPassword,
             @NotBlank @Size(min = 6, max = 64) String password,
             @NotBlank String confirmPassword) {
+    }
+
+    public record SetPasswordResult(Profile profile, String token) {
     }
 
     public record Profile(Long id, String username, String email, String role,
@@ -102,9 +106,10 @@ public class UserController {
 
     /** 已登录用户设置或修改密码(邮箱注册的空密码账号补设密码后即可用密码登录)。 */
     @PostMapping("/set-password")
-    public ApiResponse<Profile> setPassword(@RequestBody @Validated SetPasswordRequest req) {
-        return ApiResponse.ok(toProfile(userService.setPassword(
-                UserContext.require(), req.password(), req.confirmPassword())));
+    public ApiResponse<SetPasswordResult> setPassword(@RequestBody @Validated SetPasswordRequest req) {
+        UserService.PasswordChange changed = userService.setPassword(
+                UserContext.require(), req.currentPassword(), req.password(), req.confirmPassword());
+        return ApiResponse.ok(new SetPasswordResult(toProfile(changed.user()), changed.token()));
     }
 
     @GetMapping("/me")

@@ -49,6 +49,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -232,6 +233,24 @@ class AiServiceTest {
         verify(chatHistory).addExchange(42L, 7L, "继续解释", "结合历史后的回答", "agent");
     }
 
+    @Test
+    void t4e_sessionPersistenceFailureDoesNotReturnCompletedResponse() {
+        stubMembership(true);
+        when(milvus.ready()).thenReturn(false);
+        LocalDateTime now = LocalDateTime.now();
+        when(chatHistory.findSession(42L, 7L))
+                .thenReturn(Optional.of(new ChatSessionRow(7L, 42L, "蒸汽机", now, now)));
+        when(chatHistory.messages(42L, 7L)).thenReturn(List.of());
+        doThrow(new IllegalStateException("database unavailable")).when(chatHistory)
+                .addExchange(eq(42L), eq(7L), anyString(), anyString(), anyString());
+
+        BizException error = assertThrows(BizException.class,
+                () -> rulesOnlyService.ask(42L, "继续解释", 7L));
+
+        assertEquals(503, error.getCode());
+        assertTrue(error.getMessage().contains("追踪 ID"));
+    }
+
     // ── 应用判定 ──
 
     @Test
@@ -329,6 +348,31 @@ class AiServiceTest {
         Map<String, Object> donePayload = (Map<String, Object>) payloads.get(events.indexOf("done"));
         assertEquals("rules", donePayload.get("mode"));
         assertTrue(donePayload.containsKey("harness"));
+    }
+
+    @Test
+    void t6b_streamPersistenceFailureEmitsErrorWithoutDone() throws Exception {
+        stubMembership(true);
+        when(milvus.ready()).thenReturn(false);
+        LocalDateTime now = LocalDateTime.now();
+        when(chatHistory.findSession(42L, 7L))
+                .thenReturn(Optional.of(new ChatSessionRow(7L, 42L, "蒸汽机", now, now)));
+        when(chatHistory.messages(42L, 7L)).thenReturn(List.of());
+        doThrow(new IllegalStateException("database unavailable")).when(chatHistory)
+                .addExchange(eq(42L), eq(7L), anyString(), anyString(), anyString());
+        List<String> events = new ArrayList<>();
+        CountDownLatch finished = new CountDownLatch(1);
+        StreamSink sink = new StreamSink() {
+            @Override public void emit(String event, Map<String, ?> data) { events.add(event); }
+            @Override public void complete() { finished.countDown(); }
+            @Override public void completeWithError(Throwable error) { finished.countDown(); }
+        };
+
+        rulesOnlyService.askStream(42L, "继续解释", 7L, sink);
+
+        assertTrue(finished.await(15, TimeUnit.SECONDS), "流式失败应及时收尾，事件=" + events);
+        assertTrue(events.contains("error"), "持久化失败必须发送 error，事件=" + events);
+        assertFalse(events.contains("done"), "持久化失败不得发送 done，事件=" + events);
     }
 
     // ── 辅助 ──

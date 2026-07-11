@@ -39,12 +39,21 @@ execution objects; subsequent stages that resolve a profile use the latest value
 - Password login accepts an exact username or an already-bound email.
 - Login verification codes and binding verification codes use separate Redis key
   namespaces; one purpose cannot be replayed as the other.
+- Verification and one-time consumption are atomic. Five incorrect attempts invalidate
+  that code; requesting a new code resets its attempt budget while resend cooldown remains.
 - A username-only account may bind one globally unique email after proving control.
+- Setting the first password requires the authenticated email session. Changing an
+  existing password additionally requires the current password and increments the user's
+  Redis authentication version so every older token is rejected by the gateway.
 - `sparrow.auth.bootstrap-admin-email` is populated only from
   `SPARROW_ADMIN_EMAIL` in the deployment environment. Startup, email registration
   and email binding promote that verified account to `admin`. No account value,
   password or token is committed.
 - Existing administrators are not silently demoted.
+
+Model API keys may be reused only when the complete normalized Base URL is unchanged.
+Testing or saving a different provider endpoint requires the administrator to re-enter
+the key, preventing a masked stored credential from being forwarded to another host.
 
 Docker Compose requires `SPARROW_ADMIN_EMAIL` to be present in the ignored root
 `.env`; non-Compose deployments must inject the same environment variable. Run the

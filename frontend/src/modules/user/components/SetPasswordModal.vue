@@ -6,10 +6,20 @@
 
         <div class="head">
           <KeyRound :size="26" />
-          <strong>设置登录密码</strong>
-          <p>你的账号目前只能用邮箱验证码登录。设置密码后,也可以用密码登录。</p>
+          <strong>{{ user.profile?.passwordSet ? '修改登录密码' : '设置登录密码' }}</strong>
+          <p>{{ user.profile?.passwordSet ? '为保护账号安全，修改前需要验证当前密码。' : '设置密码后,也可以用密码登录。' }}</p>
         </div>
 
+        <label v-if="user.profile?.passwordSet" class="field">
+          <input
+            v-model="currentPassword"
+            type="password"
+            placeholder="请输入当前密码"
+            maxlength="64"
+            autocomplete="current-password"
+            autofocus
+          />
+        </label>
         <label class="field">
           <input
             v-model.trim="password"
@@ -17,7 +27,7 @@
             placeholder="设置密码(6-64 位)"
             maxlength="64"
             autocomplete="new-password"
-            autofocus
+            :autofocus="!user.profile?.passwordSet"
           />
         </label>
         <label class="field">
@@ -55,6 +65,7 @@ const emit = defineEmits<{ done: []; skip: [] }>()
 const user = useUserStore()
 const dismiss = useDismissableOverlay(() => emit('skip'))
 
+const currentPassword = ref('')
 const password = ref('')
 const confirm = ref('')
 const errorMessage = ref('')
@@ -62,6 +73,10 @@ const submitting = ref(false)
 
 async function handleSubmit() {
   errorMessage.value = ''
+  if (user.profile?.passwordSet && !currentPassword.value) {
+    errorMessage.value = '请输入当前密码'
+    return
+  }
   if (!password.value || password.value.length < 6 || password.value.length > 64) {
     errorMessage.value = '密码长度需在 6 到 64 个字符之间'
     return
@@ -72,9 +87,10 @@ async function handleSubmit() {
   }
   submitting.value = true
   try {
-    const updated = await apiSetPassword(password.value, confirm.value)
-    // 就地更新 store 里的 profile,使 passwordSet 标记即时生效
-    if (user.profile) user.profile.passwordSet = updated.passwordSet
+    const result = await apiSetPassword(currentPassword.value, password.value, confirm.value)
+    user.profile = result.profile
+    user.token = result.token
+    localStorage.setItem('sparrow_token', result.token)
     emit('done')
   } catch (error: any) {
     errorMessage.value = error.message

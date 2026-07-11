@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -26,6 +28,25 @@ public class UserService {
     private static final String EMAIL_LOGIN_CODE_KEY = "sparrow:email-code:";
     private static final String EMAIL_BIND_CODE_KEY = "sparrow:email-bind-code:";
     private static final String EMAIL_COOLDOWN_KEY = "sparrow:email-code:cooldown:";
+    private static final String EMAIL_CODE_ATTEMPTS_KEY = "sparrow:email-code:attempts:";
+    private static final int MAX_CODE_ATTEMPTS = 5;
+    private static final DefaultRedisScript<Long> VERIFY_CODE_SCRIPT = new DefaultRedisScript<>("""
+            local stored = redis.call('GET', KEYS[1])
+            if not stored then return 0 end
+            if stored == ARGV[1] then
+              redis.call('DEL', KEYS[1])
+              redis.call('DEL', KEYS[2])
+              return 1
+            end
+            local attempts = redis.call('INCR', KEYS[2])
+            if attempts == 1 then redis.call('EXPIRE', KEYS[2], tonumber(ARGV[3])) end
+            if attempts >= tonumber(ARGV[2]) then
+              redis.call('DEL', KEYS[1])
+              redis.call('DEL', KEYS[2])
+              return -1
+            end
+            return 0
+            """, Long.class);
 
     private final UserMapper userMapper;
     private final StringRedisTemplate redis;
@@ -93,7 +114,8 @@ public class UserService {
      * 用此方法补设后即可走密码登录。两次输入必须一致,长度 6-64(与注册一致)。
      */
     @Transactional
-    public User setPassword(long userId, String password, String confirmPassword) {
+    public PasswordChange setPassword(long userId, String currentPassword,
+                                      String password, String confirmPassword) {
         if (password == null || password.isBlank() || password.length() < 6 || password.length() > 64) {
             throw new BizException("密码长度需在 6 到 64 个字符之间");
         }
@@ -101,9 +123,18 @@ public class UserService {
             throw new BizException("两次输入的密码不一致");
         }
         User user = getById(userId);
+        if (hasText(user.getPasswordHash())
+                && (currentPassword == null || !encoder.matches(currentPassword, user.getPasswordHash()))) {
+            throw new BizException("当前密码不正确");
+        }
         user.setPasswordHash(encoder.encode(password));
         userMapper.updateById(user);
-        return user;
+        Long authVersion = redis.opsForValue().increment(TokenKeys.TOKEN_VERSION_PREFIX + userId);
+        if (authVersion == null) {
+            throw new IllegalStateException("无法更新用户认证版本");
+        }
+        redis.expire(TokenKeys.TOKEN_VERSION_PREFIX + userId, Duration.ofDays(tokenTtlDays));
+        return new PasswordChange(user, issueToken(userId, authVersion));
     }
 
     public void sendEmailCode(String email) {
@@ -133,6 +164,7 @@ public class UserService {
             throw new BizException("发送过于频繁，请稍后再试");
         }
         String code = randomCode();
+        redis.delete(EMAIL_CODE_ATTEMPTS_KEY + cooldownPurpose + normalized);
         redis.opsForValue().set(codeKeyPrefix + normalized, code,
                 Duration.ofMinutes(mailSender.getCodeTtlMinutes()));
         mailSender.sendVerificationCode(normalized, code);
@@ -141,8 +173,7 @@ public class UserService {
     /** Verification-code login keeps the existing email-first registration behaviour. */
     public String loginByEmail(String email, String code) {
         String normalized = requireValidEmail(email);
-        requireCode(EMAIL_LOGIN_CODE_KEY, normalized, code);
-        redis.delete(EMAIL_LOGIN_CODE_KEY + normalized);
+        consumeCode(EMAIL_LOGIN_CODE_KEY, "login:", normalized, code);
 
         User user = findByEmail(normalized);
         if (user == null) {
@@ -157,12 +188,11 @@ public class UserService {
     @Transactional
     public User bindEmail(long userId, String email, String code) {
         String normalized = requireValidEmail(email);
-        requireCode(EMAIL_BIND_CODE_KEY, normalized, code);
+        consumeCode(EMAIL_BIND_CODE_KEY, "bind:", normalized, code);
 
         User user = getById(userId);
         if (hasText(user.getEmail())) {
             if (normalized.equalsIgnoreCase(user.getEmail())) {
-                redis.delete(EMAIL_BIND_CODE_KEY + normalized);
                 return user;
             }
             throw new BizException("当前账号已经绑定邮箱");
@@ -181,7 +211,6 @@ public class UserService {
         } catch (DuplicateKeyException error) {
             throw new BizException("该邮箱已被其他账号绑定");
         }
-        redis.delete(EMAIL_BIND_CODE_KEY + normalized);
         return user;
     }
 
@@ -211,24 +240,26 @@ public class UserService {
         if (base.isBlank()) {
             base = "user";
         }
-        String username = base;
-        int suffix = 0;
-        while (existsByUsername(username)) {
-            username = base + (++suffix);
+        for (int suffix = 0; suffix < 1000; suffix++) {
+            User user = new User();
+            user.setUsername(suffix == 0 ? base : base + suffix);
+            user.setEmail(email);
+            user.setPasswordHash("");
+            if (isBootstrapAdmin(email)) {
+                user.setRole("admin");
+            }
+            try {
+                userMapper.insert(user);
+                return user;
+            } catch (DuplicateKeyException error) {
+                User concurrentlyCreated = findByEmail(email);
+                if (concurrentlyCreated != null) {
+                    return concurrentlyCreated;
+                }
+                // The username, not the email, collided. Retry with the next suffix.
+            }
         }
-        User user = new User();
-        user.setUsername(username);
-        user.setEmail(email);
-        user.setPasswordHash("");
-        if (isBootstrapAdmin(email)) {
-            user.setRole("admin");
-        }
-        try {
-            userMapper.insert(user);
-        } catch (DuplicateKeyException error) {
-            return findByEmail(email);
-        }
-        return user;
+        throw new BizException(409, "无法分配唯一用户名，请稍后重试");
     }
 
     private void ensureBootstrapRole(User user, String email) {
@@ -242,25 +273,36 @@ public class UserService {
         return userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getEmail, email));
     }
 
-    private boolean existsByUsername(String username) {
-        Long count = userMapper.selectCount(
-                new LambdaQueryWrapper<User>().eq(User::getUsername, username));
-        return count != null && count > 0;
+    private String issueToken(Long userId) {
+        String storedVersion = redis.opsForValue().get(TokenKeys.TOKEN_VERSION_PREFIX + userId);
+        long authVersion;
+        try {
+            authVersion = storedVersion == null ? 0L : Long.parseLong(storedVersion);
+        } catch (NumberFormatException error) {
+            throw new IllegalStateException("用户认证版本损坏", error);
+        }
+        return issueToken(userId, authVersion);
     }
 
-    private String issueToken(Long userId) {
+    private String issueToken(Long userId, long authVersion) {
         String token = UUID.randomUUID().toString().replace("-", "");
         redis.opsForValue().set(TokenKeys.TOKEN_KEY_PREFIX + token,
-                String.valueOf(userId), Duration.ofDays(tokenTtlDays));
+                userId + ":" + authVersion, Duration.ofDays(tokenTtlDays));
         return token;
     }
 
-    private void requireCode(String keyPrefix, String email, String code) {
+    private void consumeCode(String keyPrefix, String purpose, String email, String code) {
         if (code == null || code.isBlank()) {
             throw new BizException("验证码不能为空");
         }
-        String stored = redis.opsForValue().get(keyPrefix + email);
-        if (stored == null || !stored.equals(code)) {
+        Long result = redis.execute(VERIFY_CODE_SCRIPT,
+                List.of(keyPrefix + email, EMAIL_CODE_ATTEMPTS_KEY + purpose + email),
+                code, String.valueOf(MAX_CODE_ATTEMPTS),
+                String.valueOf(Math.max(60, mailSender.getCodeTtlMinutes() * 60)));
+        if (result != null && result == -1L) {
+            throw new BizException("验证码错误次数过多，请重新获取");
+        }
+        if (result == null || result != 1L) {
             throw new BizException("验证码错误或已失效");
         }
     }
@@ -291,5 +333,8 @@ public class UserService {
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    public record PasswordChange(User user, String token) {
     }
 }

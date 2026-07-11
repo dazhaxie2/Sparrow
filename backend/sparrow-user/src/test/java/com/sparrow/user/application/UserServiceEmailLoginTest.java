@@ -1,7 +1,7 @@
 package com.sparrow.user.application;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.sparrow.common.exception.BizException;
+import com.sparrow.common.security.TokenKeys;
 import com.sparrow.user.domain.model.User;
 import com.sparrow.user.infrastructure.mail.MailSenderAdapter;
 import com.sparrow.user.infrastructure.persistence.UserMapper;
@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.lang.reflect.Field;
@@ -19,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -45,7 +47,11 @@ class UserServiceEmailLoginTest {
         redis = mock(StringRedisTemplate.class);
         valueOps = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(valueOps);
+        when(redis.execute(any(RedisScript.class), anyList(), any(), any(), any())).thenReturn(1L);
         mailSender = mock(MailSenderAdapter.class);
+        when(mailSender.getCodeTtlMinutes()).thenReturn(5);
+        when(valueOps.increment(org.mockito.ArgumentMatchers.startsWith(TokenKeys.TOKEN_VERSION_PREFIX)))
+                .thenReturn(1L);
         service = new UserService(userMapper, redis, mailSender, 7, 60);
     }
 
@@ -84,7 +90,7 @@ class UserServiceEmailLoginTest {
     /** 验证码错误/失效拒绝登录。 */
     @Test
     void loginByEmailRejectsWrongCode() {
-        when(valueOps.get("sparrow:email-code:user@example.com")).thenReturn("123456");
+        when(redis.execute(any(RedisScript.class), anyList(), any(), any(), any())).thenReturn(0L);
         assertThatThrownBy(() -> service.loginByEmail("user@example.com", "000000"))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("验证码错误");
@@ -93,8 +99,6 @@ class UserServiceEmailLoginTest {
     /** 邮箱不存在 → 自动注册并签发 token。 */
     @Test
     void loginByEmailAutoRegistersNewUser() {
-        when(valueOps.get("sparrow:email-code:new@example.com")).thenReturn("999999");
-        when(userMapper.selectCount(any())).thenReturn(0L);
         when(userMapper.insert(any(User.class))).thenAnswer(inv -> {
             setId((User) inv.getArgument(0), 42L);
             return 1;
@@ -104,14 +108,12 @@ class UserServiceEmailLoginTest {
 
         assertThat(token).isNotBlank();
         verify(userMapper, times(1)).insert(any(User.class));
-        // 验证码一次性使用:成功后删除
-        verify(redis, times(1)).delete("sparrow:email-code:new@example.com");
+        verify(redis).execute(any(RedisScript.class), anyList(), eq("999999"), eq("5"), eq("300"));
     }
 
     /** 邮箱已存在 → 直接登录,不再注册。 */
     @Test
     void loginByEmailSkipsRegistrationForExistingUser() {
-        when(valueOps.get("sparrow:email-code:old@example.com")).thenReturn("111111");
         User existing = new User();
         setId(existing, 7L);
         existing.setEmail("old@example.com");
@@ -121,6 +123,31 @@ class UserServiceEmailLoginTest {
 
         assertThat(token).isNotBlank();
         verify(userMapper, never()).insert(any(User.class));
+    }
+
+    @Test
+    void loginByEmailLocksCodeAfterTooManyFailures() {
+        when(redis.execute(any(RedisScript.class), anyList(), any(), any(), any())).thenReturn(-1L);
+
+        assertThatThrownBy(() -> service.loginByEmail("user@example.com", "000000"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("次数过多");
+    }
+
+    @Test
+    void autoRegistrationRetriesWhenUsernameCollides() {
+        when(userMapper.insert(any(User.class)))
+                .thenThrow(new org.springframework.dao.DuplicateKeyException("username collision"))
+                .thenAnswer(inv -> {
+                    setId((User) inv.getArgument(0), 43L);
+                    return 1;
+                });
+        when(userMapper.selectOne(any())).thenReturn(null);
+
+        String token = service.loginByEmail("same@example.com", "123456");
+
+        assertThat(token).isNotBlank();
+        verify(userMapper, times(2)).insert(any(User.class));
     }
 
     @Test
@@ -135,7 +162,7 @@ class UserServiceEmailLoginTest {
 
         assertThat(token).isNotBlank();
         verify(valueOps).set(org.mockito.ArgumentMatchers.startsWith("sparrow:token:"),
-                eq("9"), any());
+                org.mockito.ArgumentMatchers.startsWith("9:"), any());
     }
 
     @Test
@@ -147,19 +174,18 @@ class UserServiceEmailLoginTest {
         existing.setPasswordHash("hash");
         when(userMapper.selectById(12L)).thenReturn(existing);
         when(userMapper.selectOne(any())).thenReturn(null);
-        when(valueOps.get("sparrow:email-bind-code:admin@example.test")).thenReturn("246810");
 
         User updated = service.bindEmail(12L, "admin@example.test", "246810");
 
         assertThat(updated.getEmail()).isEqualTo("admin@example.test");
         assertThat(updated.effectiveRole()).isEqualTo("admin");
         verify(userMapper).updateById(existing);
-        verify(redis).delete("sparrow:email-bind-code:admin@example.test");
+        verify(redis).execute(any(RedisScript.class), anyList(), eq("246810"), eq("5"), eq("300"));
     }
 
     @Test
     void bindEmailRejectsLoginPurposeCode() {
-        when(valueOps.get("sparrow:email-bind-code:user@example.com")).thenReturn(null);
+        when(redis.execute(any(RedisScript.class), anyList(), any(), any(), any())).thenReturn(0L);
 
         assertThatThrownBy(() -> service.bindEmail(12L, "user@example.com", "123456"))
                 .isInstanceOf(BizException.class)
@@ -179,9 +205,12 @@ class UserServiceEmailLoginTest {
         existing.setPasswordHash("");
         when(userMapper.selectById(20L)).thenReturn(existing);
 
-        User updated = service.setPassword(20L, "secret12", "secret12");
+        UserService.PasswordChange changed = service.setPassword(20L, null, "secret12", "secret12");
 
-        assertThat(updated.getPasswordHash()).isNotBlank();
+        assertThat(changed.user().getPasswordHash()).isNotBlank();
+        assertThat(changed.token()).isNotBlank();
+        verify(valueOps).increment(TokenKeys.TOKEN_VERSION_PREFIX + "20");
+        verify(redis).expire(eq(TokenKeys.TOKEN_VERSION_PREFIX + "20"), any());
         verify(userMapper).updateById(existing);
     }
 
@@ -190,7 +219,7 @@ class UserServiceEmailLoginTest {
     void setPasswordRejectsWhenConfirmMismatch() {
         when(userMapper.selectById(20L)).thenReturn(new User());
 
-        assertThatThrownBy(() -> service.setPassword(20L, "secret12", "different1"))
+        assertThatThrownBy(() -> service.setPassword(20L, null, "secret12", "different1"))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("不一致");
 
@@ -200,11 +229,41 @@ class UserServiceEmailLoginTest {
     /** 密码过短 → 拒绝。 */
     @Test
     void setPasswordRejectsTooShortPassword() {
-        assertThatThrownBy(() -> service.setPassword(20L, "abc", "abc"))
+        assertThatThrownBy(() -> service.setPassword(20L, null, "abc", "abc"))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("长度");
 
         verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
+    void changingExistingPasswordRequiresCurrentPassword() {
+        User existing = new User();
+        setId(existing, 20L);
+        existing.setPasswordHash(new BCryptPasswordEncoder().encode("old-secret"));
+        when(userMapper.selectById(20L)).thenReturn(existing);
+
+        assertThatThrownBy(() -> service.setPassword(20L, "wrong", "new-secret", "new-secret"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("当前密码");
+
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
+    void changingExistingPasswordRevokesOlderTokensAndIssuesReplacement() {
+        User existing = new User();
+        setId(existing, 20L);
+        existing.setPasswordHash(new BCryptPasswordEncoder().encode("old-secret"));
+        when(userMapper.selectById(20L)).thenReturn(existing);
+
+        UserService.PasswordChange changed = service.setPassword(
+                20L, "old-secret", "new-secret", "new-secret");
+
+        assertThat(new BCryptPasswordEncoder().matches("new-secret", changed.user().getPasswordHash())).isTrue();
+        verify(valueOps).increment(TokenKeys.TOKEN_VERSION_PREFIX + "20");
+        verify(valueOps).set(org.mockito.ArgumentMatchers.startsWith(TokenKeys.TOKEN_KEY_PREFIX),
+                org.mockito.ArgumentMatchers.startsWith("20:"), any());
     }
 
     /** User 实体 id 由 MyBatis 自增,无 setter;测试用反射写入。 */

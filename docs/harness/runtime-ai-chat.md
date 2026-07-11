@@ -70,6 +70,9 @@ The frontend must not count it as a successful persisted exchange.
 - Partial tokens from a failed provider are reset before the next path starts.
 - Terminal state is `completed`, `degraded`, or `failed`; the UI displays it with a
   short trace ID and retains the full ID in the tooltip/error.
+- A run with a session ID may emit `done` only after the complete exchange commits.
+  Persistence failure is a retryable `error`/`failed` terminal state, even when answer
+  deltas were already delivered; the client must not increment durable message counts.
 
 ## Extension rule
 

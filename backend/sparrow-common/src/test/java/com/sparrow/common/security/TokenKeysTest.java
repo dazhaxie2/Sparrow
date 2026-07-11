@@ -26,6 +26,12 @@ class TokenKeysTest {
     }
 
     @Test
+    void tokenVersionPrefixFormat() {
+        assertEquals("sparrow:token-version:", TokenKeys.TOKEN_VERSION_PREFIX);
+        assertTrue(TokenKeys.TOKEN_VERSION_PREFIX.endsWith(":"));
+    }
+
+    @Test
     void concatenationProducesValidKey() {
         // 验证实际拼接结果符合 Redis key 规范(无空格、单层冒号分隔)
         String token = "abc-123-xyz";

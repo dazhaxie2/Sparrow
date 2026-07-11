@@ -266,14 +266,8 @@ public class AiService {
                              List<AgentStep> steps, long remaining) {
         String answer = chatHarness.validateAnswer(prepared.run(), rawAnswer,
                 prepared.profile().maxOutputChars());
-        try {
-            chatHarness.persistExchange(prepared.run(), userId, sessionId,
-                    prepared.question(), answer, mode);
-        } catch (Exception error) {
-            prepared.run().warning("聊天历史暂未保存，可稍后重试");
-            log.warn("聊天历史原子落库失败 [traceId={} userId={} sessionId={}]: {}",
-                    prepared.run().traceId(), userId, sessionId, AiHarness.safeFailure(error));
-        }
+        chatHarness.persistExchange(prepared.run(), userId, sessionId,
+                prepared.question(), answer, mode);
         Metadata metadata = prepared.run().complete();
         return new AskResult(answer, mode, "markdown:v1", intent, sources, steps, remaining, metadata);
     }
@@ -424,14 +418,8 @@ public class AiService {
 
     private void finishValidatedStream(Prepared prepared, long userId, Long sessionId, StreamSink sink,
                                        String answer, String mode, String intent) {
-        try {
-            chatHarness.persistExchange(prepared.run(), userId, sessionId,
-                    prepared.question(), answer, mode);
-        } catch (Exception error) {
-            prepared.run().warning("聊天历史暂未保存，可稍后重试");
-            log.warn("流式聊天历史原子落库失败 [traceId={} userId={} sessionId={}]: {}",
-                    prepared.run().traceId(), userId, sessionId, AiHarness.safeFailure(error));
-        }
+        chatHarness.persistExchange(prepared.run(), userId, sessionId,
+                prepared.question(), answer, mode);
         Metadata metadata = prepared.run().complete();
         sink.emit("done", Map.of(
                 "mode", mode,

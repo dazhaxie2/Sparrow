@@ -20,7 +20,9 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
+import java.net.URI;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -81,12 +83,18 @@ public class ModelConfigService {
                 || req.modelName() == null || req.modelName().isBlank()) {
             throw new BizException("base_url 与 model_name 不能为空");
         }
+        normalizeBaseUrl(req.baseUrl());
         // apiKey 为空时复用已激活配置的 key(便于只改 model_name 试探)
         String apiKey = req.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            apiKey = repository.findActiveDecrypted().map(ModelConfig::apiKeyPlain).orElse("");
+            ModelConfig active = repository.findActiveDecrypted()
+                    .orElseThrow(() -> new BizException("未提供 API Key 且无激活配置可复用"));
+            if (!sameBaseUrl(req.baseUrl(), active.baseUrl())) {
+                throw new BizException("Base URL 已变化，必须重新提供 API Key");
+            }
+            apiKey = active.apiKeyPlain();
         }
-        if (apiKey.isBlank()) {
+        if (apiKey == null || apiKey.isBlank()) {
             throw new BizException("未提供 API Key 且无激活配置可复用");
         }
         long started = System.currentTimeMillis();
@@ -129,6 +137,10 @@ public class ModelConfigService {
         if (req.id() != null) {
             ModelConfig existing = repository.findDecryptedById(req.id())
                     .orElseThrow(() -> new BizException(404, "配置不存在"));
+            if ((req.apiKey() == null || req.apiKey().isBlank())
+                    && !sameBaseUrl(req.baseUrl(), existing.baseUrl())) {
+                throw new BizException("Base URL 已变化，必须重新提供 API Key");
+            }
             String encKey = (req.apiKey() == null || req.apiKey().isBlank())
                     ? null // 保留旧 key
                     : repository.encryptApiKey(req.apiKey());
@@ -199,11 +211,43 @@ public class ModelConfigService {
         if (req.baseUrl() == null || req.baseUrl().isBlank()) {
             throw new BizException("base_url 不能为空");
         }
+        normalizeBaseUrl(req.baseUrl());
         if (req.modelName() == null || req.modelName().isBlank()) {
             throw new BizException("model_name 不能为空");
         }
         if (req.id() == null && (req.apiKey() == null || req.apiKey().isBlank())) {
             throw new BizException("新增配置必须提供 API Key");
+        }
+    }
+
+    private static boolean sameBaseUrl(String left, String right) {
+        return normalizeBaseUrl(left).equals(normalizeBaseUrl(right));
+    }
+
+    /** Canonicalize the complete provider endpoint; credentials may only be reused for this exact endpoint. */
+    private static String normalizeBaseUrl(String value) {
+        try {
+            URI parsed = URI.create(value.trim()).normalize();
+            String scheme = parsed.getScheme() == null ? "" : parsed.getScheme().toLowerCase(Locale.ROOT);
+            String host = parsed.getHost() == null ? "" : parsed.getHost().toLowerCase(Locale.ROOT);
+            if (!("https".equals(scheme) || "http".equals(scheme)) || host.isBlank()
+                    || parsed.getUserInfo() != null || parsed.getQuery() != null || parsed.getFragment() != null) {
+                throw new IllegalArgumentException("unsupported endpoint");
+            }
+            int port = parsed.getPort();
+            if (("https".equals(scheme) && port == 443) || ("http".equals(scheme) && port == 80)) {
+                port = -1;
+            }
+            String path = parsed.getPath() == null ? "" : parsed.getPath();
+            while (path.endsWith("/") && path.length() > 1) {
+                path = path.substring(0, path.length() - 1);
+            }
+            if ("/".equals(path)) {
+                path = "";
+            }
+            return new URI(scheme, null, host, port, path, null, null).toASCIIString();
+        } catch (Exception error) {
+            throw new BizException("base_url 格式不正确");
         }
     }
 

@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "id": "security-review-closure",
+  "title": "闭环近期代码审查问题",
+  "status": "completed",
+  "objective": "修复近期代码审查发现的五项安全与可靠性问题，并用自动化测试和仓库守卫防止同类回归。",
+  "scope": {
+    "in": [
+      "sparrow-user 邮箱验证码、密码变更和自动注册",
+      "sparrow-industry-chain 模型配置测试的密钥边界",
+      "sparrow-ai 对话持久化完成语义",
+      "相关单元测试、Harness 守卫和维护文档"
+    ],
+    "out": [
+      "引入新的认证服务或 OAuth2/JWT 体系",
+      "变更现有数据库所有权或跨服务依赖",
+      "部署到外部环境或修改生产数据"
+    ]
+  },
+  "acceptanceCriteria": [
+    {
+      "id": "AC-1",
+      "description": "留空 API Key 的模型测试不能把已保存密钥发送到不同 Base URL。",
+      "status": "passed",
+      "evidence": [
+        "ModelConfigServiceTest: 16 tests passed, including different-host test and save rejection"
+      ]
+    },
+    {
+      "id": "AC-2",
+      "description": "邮箱验证码验证采用原子一次性消费并按验证码限制失败次数，达到阈值后失效，同时保持用途隔离。",
+      "status": "passed",
+      "evidence": [
+        "UserServiceEmailLoginTest covers atomic verifier outcomes and five-failure lockout"
+      ]
+    },
+    {
+      "id": "AC-3",
+      "description": "已有密码的账号修改密码前必须验证旧密码，首次设置空密码仍可完成；修改后撤销旧会话并签发当前会话可继续使用的新 token。",
+      "status": "passed",
+      "evidence": [
+        "UserServiceEmailLoginTest covers first password, wrong current password and auth-version increment",
+        "AuthGlobalFilterTest covers legacy, stale-version and current-version tokens"
+      ]
+    },
+    {
+      "id": "AC-4",
+      "description": "带会话的 AI 对话持久化失败时不得返回 completed/done，客户端收到结构化可重试错误。",
+      "status": "passed",
+      "evidence": [
+        "AiServiceTest sync and stream persistence-failure cases pass; stream asserts error without done"
+      ]
+    },
+    {
+      "id": "AC-5",
+      "description": "邮箱自动注册遇到用户名并发冲突时重试，不返回 null、不消费后留下不可恢复错误。",
+      "status": "passed",
+      "evidence": [
+        "UserServiceEmailLoginTest verifies retry after username DuplicateKeyException"
+      ]
+    },
+    {
+      "id": "AC-6",
+      "description": "架构守卫、相关模块测试和全量验证通过，工作区只包含本任务改动。",
+      "status": "passed",
+      "evidence": [
+        "node tools/harness.mjs full passed",
+        "git diff --check passed; final status contains only this task's source, test and documentation changes"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "S-1",
+      "description": "实现用户认证安全修复及测试",
+      "status": "completed",
+      "verification": "mvn -f backend/pom.xml -B -ntp -pl sparrow-user,sparrow-gateway -am clean test: passed"
+    },
+    {
+      "id": "S-2",
+      "description": "实现模型配置密钥边界修复及测试",
+      "status": "completed",
+      "verification": "ModelConfigServiceTest: 16 passed"
+    },
+    {
+      "id": "S-3",
+      "description": "实现 AI 持久化完成语义修复及测试",
+      "status": "completed",
+      "verification": "AiServiceTest: 14 passed"
+    },
+    {
+      "id": "S-4",
+      "description": "增加耐久反馈机制并运行全量验证",
+      "status": "completed",
+      "verification": "node tools/harness.mjs full: passed"
+    }
+  ],
+  "decisions": [
+    "保持现有服务所有权：验证码和密码由 sparrow-user 管理，模型密钥由 sparrow-industry-chain 管理，对话持久化由 sparrow-ai 管理。",
+    "验证码使用 Redis Lua 在邮箱与用途维度原子校验、消费和累计失败次数；单个验证码五次失败后失效，发送冷却限制重新获取。",
+    "已有密码修改要求旧密码；首次设置无需旧密码。成功修改后递增用户认证版本，使全部旧版本 token 失效并返回新 token，避免当前客户端被意外登出。",
+    "模型测试仅在请求 Base URL 与激活配置规范化后一致时允许复用已保存密钥。",
+    "有 sessionId 的对话持久化失败视为请求失败；无 sessionId 仍允许明确的无持久化完成。"
+  ],
+  "blockers": [],
+  "verification": {
+    "lastRunAt": "2026-07-11T11:06:00.000Z",
+    "commands": [
+      {
+        "command": "mvn -f backend/pom.xml -B -ntp -pl sparrow-user,sparrow-gateway -am clean test",
+        "result": "passed: common 40, gateway 6, user 19 tests"
+      },
+      {
+        "command": "mvn -f backend/pom.xml -B -ntp -pl sparrow-ai,sparrow-industry-chain -am clean test",
+        "result": "passed before auth-version refactor: common 40, ai 26, industry-chain 45 tests"
+      },
+      {
+        "command": "mvn -f backend/pom.xml -B -ntp -pl sparrow-industry-chain -am \"-Dtest=ModelConfigServiceTest\" \"-Dsurefire.failIfNoSpecifiedTests=false\" test",
+        "result": "passed: 16 tests"
+      },
+      {
+        "command": "npm run build",
+        "result": "passed: Vite production build"
+      },
+      {
+        "command": "node tools/harness.mjs guard",
+        "result": "passed: structural and product architecture guards"
+      },
+      {
+        "command": "node tools/harness.mjs full",
+        "result": "passed: guards, docker compose config, all backend tests, frontend production build and Python syntax"
+      },
+      {
+        "command": "docker compose ps --status running --format json",
+        "result": "not run: Docker Desktop engine unavailable, so live auth/API smoke remains deployment verification"
+      }
+    ]
+  },
+  "nextAction": "部署环境可用时运行认证、模型配置和 AI 会话持久化 smoke",
+  "createdAt": "2026-07-11T10:53:54.671Z",
+  "updatedAt": "2026-07-11T11:08:00.000Z"
+}

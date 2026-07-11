@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -161,6 +162,19 @@ class ModelConfigServiceTest {
                 .hasMessageContaining("API Key");
     }
 
+    @Test
+    void testNeverReusesActiveKeyForDifferentBaseUrl() {
+        asAdmin(ADMIN_ID);
+        when(repository.findActiveDecrypted()).thenReturn(Optional.of(
+                ModelConfig.decrypted(7L, "prod", "https://provider.example/v1", "m",
+                        "stored-secret", 3000, 180, 2, true)));
+
+        assertThatThrownBy(() -> service.test(
+                new TestConfig("probe", "https://attacker.example/v1", "m", "", 30), ADMIN_ID))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("重新提供 API Key");
+    }
+
     // ── 保存 ──
 
     /** 未配置主密钥 → 保存被拒(防止明文落库)。 */
@@ -193,10 +207,27 @@ class ModelConfigServiceTest {
         when(repository.findDecryptedById(8L)).thenReturn(Optional.of(
                 ModelConfig.decrypted(8L, "n", "http://u", "m", "old-key", 3000, 180, 2, false)));
 
-        service.save(new SaveConfig(8L, "n2", "http://u2", "m2", "", 4000, 120, 1), ADMIN_ID);
+        service.save(new SaveConfig(8L, "n2", "http://u/", "m2", "", 4000, 120, 1), ADMIN_ID);
 
-        verify(repository, times(1)).update(eq(8L), eq("n2"), eq("http://u2"), eq("m2"),
+        verify(repository, times(1)).update(eq(8L), eq("n2"), eq("http://u/"), eq("m2"),
                 eq(null), eq(4000), eq(120), eq(1));
+    }
+
+    @Test
+    void saveRequiresNewKeyWhenBaseUrlChanges() {
+        asAdmin(ADMIN_ID);
+        when(repository.encryptionReady()).thenReturn(true);
+        when(repository.findDecryptedById(8L)).thenReturn(Optional.of(
+                ModelConfig.decrypted(8L, "n", "https://provider.example/v1", "m",
+                        "stored-secret", 3000, 180, 2, false)));
+
+        assertThatThrownBy(() -> service.save(new SaveConfig(8L, "n2",
+                "https://attacker.example/v1", "m2", "", 4000, 120, 1), ADMIN_ID))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("重新提供 API Key");
+
+        verify(repository, never()).update(anyLong(), any(), any(), any(), any(),
+                anyInt(), anyInt(), anyInt());
     }
 
     // ── 脱敏 ──

@@ -48,15 +48,49 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
         }
 
         return redis.opsForValue().get(TokenKeys.TOKEN_KEY_PREFIX + token)
-                .map(userId -> stripped.mutate()
-                        .header(TokenKeys.USER_ID_HEADER, userId)
-                        .build())
+                .flatMap(tokenValue -> authenticatedRequest(stripped, tokenValue))
                 .defaultIfEmpty(stripped)
                 .flatMap(request -> chain.filter(exchange.mutate().request(request).build()))
                 .onErrorResume(e -> {
                     log.warn("Redis 查 token 失败,按匿名处理: {}", e.getMessage());
                     return chain.filter(strippedExchange);
                 });
+    }
+
+    /**
+     * Token value supports both the legacy {@code userId} form and the new
+     * {@code userId:authVersion} form. A password change increments the per-user
+     * version, which invalidates every older token without scanning Redis.
+     */
+    private Mono<ServerHttpRequest> authenticatedRequest(ServerHttpRequest request, String tokenValue) {
+        String[] parts = tokenValue == null ? new String[0] : tokenValue.split(":", 2);
+        if (parts.length == 0 || !parts[0].matches("\\d+")) {
+            return Mono.empty();
+        }
+        String userId = parts[0];
+        long tokenVersion;
+        try {
+            tokenVersion = parts.length == 2 ? Long.parseLong(parts[1]) : 0L;
+        } catch (NumberFormatException error) {
+            return Mono.empty();
+        }
+        return redis.opsForValue().get(TokenKeys.TOKEN_VERSION_PREFIX + userId)
+                .filter(value -> {
+                    try {
+                        return tokenVersion == Long.parseLong(value);
+                    } catch (NumberFormatException error) {
+                        return false;
+                    }
+                })
+                .map(ignored -> withUserHeader(request, userId))
+                // No version marker means this user has not changed their password since
+                // the rollout, so legacy tokens remain valid until their normal TTL expires.
+                .switchIfEmpty(redis.hasKey(TokenKeys.TOKEN_VERSION_PREFIX + userId)
+                        .flatMap(exists -> exists ? Mono.empty() : Mono.just(withUserHeader(request, userId))));
+    }
+
+    private ServerHttpRequest withUserHeader(ServerHttpRequest request, String userId) {
+        return request.mutate().header(TokenKeys.USER_ID_HEADER, userId).build();
     }
 
     @Override

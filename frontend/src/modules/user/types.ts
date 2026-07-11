@@ -11,3 +11,8 @@ export interface Profile {
 export interface AuthResult {
   token: string
 }
+
+export interface SetPasswordResult {
+  profile: Profile
+  token: string
+}
