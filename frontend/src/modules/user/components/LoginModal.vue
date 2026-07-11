@@ -14,7 +14,7 @@
         <!-- Tab 切换 -->
         <div class="tabs" role="tablist" aria-label="登录方式">
           <button type="button" role="tab" :class="{ active: mode === 'email' }" @click="mode = 'email'">邮箱验证码登录</button>
-          <button type="button" role="tab" :class="{ active: mode === 'password' }" @click="mode = 'password'">密码登录</button>
+          <button type="button" role="tab" :class="{ active: mode === 'password' }" @click="mode = 'password'">账号密码登录</button>
         </div>
 
         <!-- 邮箱验证码登录 -->
@@ -52,7 +52,7 @@
         <!-- 密码登录 -->
         <template v-else>
           <label class="field">
-            <input v-model="username" type="text" placeholder="请输入用户名" maxlength="32" autocomplete="username" />
+            <input v-model="username" type="text" placeholder="用户名或已绑定邮箱" maxlength="128" autocomplete="username" />
           </label>
           <label class="field">
             <input

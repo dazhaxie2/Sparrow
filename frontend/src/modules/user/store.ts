@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Profile } from './types'
 import { fetchMe } from './api'
-import { login as apiLogin, register as apiRegister, loginByEmail as apiLoginByEmail } from './api'
+import { bindEmail as apiBindEmail, login as apiLogin, register as apiRegister, loginByEmail as apiLoginByEmail } from './api'
 import { useChatStore } from '../ai/store/chat'
 
 export const useUserStore = defineStore('user', () => {
@@ -20,8 +20,8 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  async function login(username: string, password: string) {
-    const res = await apiLogin(username, password)
+  async function login(identifier: string, password: string) {
+    const res = await apiLogin(identifier, password)
     token.value = res.token
     localStorage.setItem('sparrow_token', res.token)
     await loadProfile()
@@ -42,6 +42,10 @@ export const useUserStore = defineStore('user', () => {
     await loadProfile()
   }
 
+  async function bindEmail(email: string, code: string) {
+    profile.value = await apiBindEmail(email, code)
+  }
+
   function logout() {
     token.value = null
     profile.value = null
@@ -53,5 +57,5 @@ export const useUserStore = defineStore('user', () => {
   const isLoggedIn = () => !!token.value
   const isAdmin = () => profile.value?.role === 'admin'
 
-  return { profile, token, loadProfile, login, register, loginByEmail, logout, isLoggedIn, isAdmin }
+  return { profile, token, loadProfile, login, register, loginByEmail, bindEmail, logout, isLoggedIn, isAdmin }
 })

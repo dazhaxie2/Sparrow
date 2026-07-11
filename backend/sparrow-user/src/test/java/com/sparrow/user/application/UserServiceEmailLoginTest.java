@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.lang.reflect.Field;
 
@@ -120,6 +121,50 @@ class UserServiceEmailLoginTest {
 
         assertThat(token).isNotBlank();
         verify(userMapper, never()).insert(any(User.class));
+    }
+
+    @Test
+    void passwordLoginAcceptsRegisteredEmail() {
+        User existing = new User();
+        setId(existing, 9L);
+        existing.setEmail("owner@example.com");
+        existing.setPasswordHash(new BCryptPasswordEncoder().encode("secret12"));
+        when(userMapper.selectOne(any())).thenReturn(existing);
+
+        String token = service.login("OWNER@EXAMPLE.COM", "secret12");
+
+        assertThat(token).isNotBlank();
+        verify(valueOps).set(org.mockito.ArgumentMatchers.startsWith("sparrow:token:"),
+                eq("9"), any());
+    }
+
+    @Test
+    void bindEmailUsesPurposeScopedCodeAndPromotesConfiguredAdmin() {
+        User existing = new User();
+        setId(existing, 12L);
+        existing.setUsername("legacy-user");
+        existing.setPasswordHash("hash");
+        when(userMapper.selectById(12L)).thenReturn(existing);
+        when(userMapper.selectOne(any())).thenReturn(null);
+        when(valueOps.get("sparrow:email-bind-code:13102373468@163.com")).thenReturn("246810");
+
+        User updated = service.bindEmail(12L, "13102373468@163.com", "246810");
+
+        assertThat(updated.getEmail()).isEqualTo("13102373468@163.com");
+        assertThat(updated.effectiveRole()).isEqualTo("admin");
+        verify(userMapper).updateById(existing);
+        verify(redis).delete("sparrow:email-bind-code:13102373468@163.com");
+    }
+
+    @Test
+    void bindEmailRejectsLoginPurposeCode() {
+        when(valueOps.get("sparrow:email-bind-code:user@example.com")).thenReturn(null);
+
+        assertThatThrownBy(() -> service.bindEmail(12L, "user@example.com", "123456"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("验证码");
+
+        verify(userMapper, never()).updateById(any(User.class));
     }
 
     /** User 实体 id 由 MyBatis 自增,无 setter;测试用反射写入。 */

@@ -12,9 +12,10 @@ const router = createRouter({
 })
 
 // 管理端路由守卫:meta.requiresAdmin 时校验角色,非 admin 跳首页。
-router.beforeEach(to => {
+router.beforeEach(async to => {
   if (to.meta.requiresAdmin) {
     const user = useUserStore()
+    if (user.token && !user.profile) await user.loadProfile()
     if (!user.isLoggedIn() || !user.isAdmin()) {
       return { path: '/' }
     }

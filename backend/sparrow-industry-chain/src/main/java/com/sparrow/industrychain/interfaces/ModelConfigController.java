@@ -43,7 +43,8 @@ public class ModelConfigController {
     /** 列出全部配置(api_key 脱敏)。 */
     @GetMapping
     public ApiResponse<List<ModelConfig>> list() {
-        UserContext.require();
+        long operatorId = UserContext.require();
+        service.requireAdmin(operatorId);
         return ApiResponse.ok(service.list());
     }
 
@@ -76,7 +77,8 @@ public class ModelConfigController {
     @GetMapping("/audits")
     public ApiResponse<List<AuditRow>> audits(@RequestParam(defaultValue = "50")
                                               @Min(1) @Max(200) int limit) {
-        UserContext.require();
+        long operatorId = UserContext.require();
+        service.requireAdmin(operatorId);
         return ApiResponse.ok(service.audits(limit));
     }
 }

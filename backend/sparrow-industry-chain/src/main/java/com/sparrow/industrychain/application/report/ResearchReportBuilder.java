@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.application.report;
 
+import com.sparrow.industrychain.application.config.IndustryAgentConfigService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparrow.industrychain.application.report.ir.Block;
@@ -16,6 +17,7 @@ import com.sparrow.common.exception.BizException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -44,11 +46,17 @@ public class ResearchReportBuilder {
     private final ChatModelProvider chat;
     private final ObjectMapper objectMapper;
     private final IrValidator validator;
+    private IndustryAgentConfigService agentConfigs;
 
     public ResearchReportBuilder(ChatModelProvider chat, ObjectMapper objectMapper, IrValidator validator) {
         this.chat = chat;
         this.objectMapper = objectMapper;
         this.validator = validator;
+    }
+
+    @Autowired(required = false)
+    void setAgentConfigs(IndustryAgentConfigService agentConfigs) {
+        this.agentConfigs = agentConfigs;
     }
 
     /** 构建报告。返回 IR JSON 字符串与降级 Markdown。 */
@@ -57,7 +65,8 @@ public class ResearchReportBuilder {
         if (!chat.available()) throw new BizException(503, "AI 服务未配置，无法生成报告");
         Set<String> validRefs = new HashSet<>(sources.stream().map(SearchSource::sourceRef).toList());
 
-        String irJson = chat.chat(buildIrPrompt(title, evidence, graphJson, sources, forumDigest));
+        String irJson = chat.chat(reportPrompt() + "\n\n"
+                + buildIrPrompt(title, evidence, graphJson, sources, forumDigest));
         DocumentIr ir = parseIr(irJson, validRefs);
         if (ir == null) {
             String repaired = chat.chat("修复下面内容为符合 schema 的 Document IR JSON，"
@@ -75,7 +84,7 @@ public class ResearchReportBuilder {
         String irString = writeJson(ir);
 
         // 降级 Markdown：让 LLM 基于同一证据产出，并附来源附录
-        String markdown = chat.chat("""
+        String markdown = chat.chat(reportPrompt() + "\n\n" + """
                 你是产业链报告 Agent。基于已核验事实和关系图，输出中文 Markdown 深度报告，
                 必须包含：摘要、范围与方法、上游、中游、下游、核心企业与竞争、风险、机会与趋势、待核验事项。
                 所有关键结论都要使用 [S1] 形式引用来源；不得引入材料之外的事实。
@@ -101,6 +110,11 @@ public class ResearchReportBuilder {
                 LocalDateTime.now().toString(), ir.metadata().query(),
                 ir.metadata().toc() == null || ir.metadata().toc().isEmpty() ? toc : ir.metadata().toc());
         return new DocumentIr(meta, ir.chapters());
+    }
+
+    private String reportPrompt() {
+        return agentConfigs == null ? "你是产业链深度报告 Agent。"
+                : agentConfigs.requireEnabled(IndustryAgentConfigService.REPORT_WRITER).systemPrompt();
     }
 
     private String buildIrPrompt(String title, String evidence, JsonNode graphJson,

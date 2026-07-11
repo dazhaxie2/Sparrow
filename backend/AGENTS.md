@@ -34,6 +34,8 @@ This directory is a Java 21 Maven reactor. The root `AGENTS.md` still applies.
 - AI chat endpoints must use the shared `AiHarness` metadata contract while keeping
   context assembly and execution inside the owning service. Persist complete turns
   atomically after output validation.
+- Agent prompts and runtime bounds live with the executing service, require a
+  server-side admin check and retain reviewed code defaults for recovery.
 
 ## Verification
 

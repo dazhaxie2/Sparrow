@@ -22,4 +22,7 @@ public interface UserClient {
      */
     @GetMapping("/{userId}/membership")
     ApiResponse<Map<String, Object>> membership(@PathVariable("userId") Long userId);
+
+    @GetMapping("/{userId}/profile")
+    ApiResponse<Map<String, Object>> profile(@PathVariable("userId") Long userId);
 }

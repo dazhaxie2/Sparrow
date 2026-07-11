@@ -1,11 +1,13 @@
 package com.sparrow.industrychain.application.graph;
 
+import com.sparrow.industrychain.application.config.IndustryAgentConfigService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.industrychain.infrastructure.llm.ChatModelProvider;
 import com.sparrow.industrychain.infrastructure.llm.WebSearchClient.SearchSource;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 
@@ -15,6 +17,7 @@ public class ResearchGraphExtractor {
     private final ChatModelProvider chat;
     private final ObjectMapper objectMapper;
     private final ResearchGraphValidator validator;
+    private IndustryAgentConfigService agentConfigs;
 
     public ResearchGraphExtractor(ChatModelProvider chat, ObjectMapper objectMapper,
                                   ResearchGraphValidator validator) {
@@ -23,8 +26,15 @@ public class ResearchGraphExtractor {
         this.validator = validator;
     }
 
+    @Autowired(required = false)
+    void setAgentConfigs(IndustryAgentConfigService agentConfigs) {
+        this.agentConfigs = agentConfigs;
+    }
+
     public JsonNode extract(String title, String evidence, List<SearchSource> sources) {
-        String raw = chat.chat(prompt(title, evidence, sources));
+        String configuredPrompt = agentConfigs == null ? "你是产业链关系抽取 Agent。"
+                : agentConfigs.requireEnabled(IndustryAgentConfigService.GRAPH_EXTRACTOR).systemPrompt();
+        String raw = chat.chat(configuredPrompt + "\n\n" + prompt(title, evidence, sources));
         JsonNode graph = parseJson(raw);
         if (!validator.valid(graph, sources)) {
             String repaired = chat.chat("修复下面内容为严格符合原 schema 的 JSON。删除无来源关系，"

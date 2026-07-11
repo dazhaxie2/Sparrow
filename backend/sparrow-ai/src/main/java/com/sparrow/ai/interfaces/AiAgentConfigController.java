@@ -1,0 +1,50 @@
+package com.sparrow.ai.interfaces;
+
+import com.sparrow.ai.application.config.AiAgentConfigService;
+import com.sparrow.ai.application.config.AiAgentConfigService.SaveRequest;
+import com.sparrow.ai.infrastructure.persistence.AiAgentConfigRepository.AuditRow;
+import com.sparrow.common.ai.AiAgentProfile;
+import com.sparrow.common.api.ApiResponse;
+import com.sparrow.common.security.UserContext;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/ai/admin/agent-configs")
+@Validated
+public class AiAgentConfigController {
+
+    private final AiAgentConfigService service;
+
+    public AiAgentConfigController(AiAgentConfigService service) {
+        this.service = service;
+    }
+
+    @GetMapping
+    public ApiResponse<List<AiAgentProfile>> list() {
+        long operatorId = UserContext.require();
+        return ApiResponse.ok(service.list(operatorId));
+    }
+
+    @PostMapping
+    public ApiResponse<AiAgentProfile> save(@RequestBody SaveRequest request) {
+        long operatorId = UserContext.require();
+        return ApiResponse.ok(service.save(operatorId, request));
+    }
+
+    @GetMapping("/audits")
+    public ApiResponse<List<AuditRow>> audits(@RequestParam(defaultValue = "50")
+                                              @Min(1) @Max(200) int limit) {
+        long operatorId = UserContext.require();
+        return ApiResponse.ok(service.audits(operatorId, limit));
+    }
+}

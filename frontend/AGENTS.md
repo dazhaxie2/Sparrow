@@ -24,6 +24,8 @@ This directory is Vue 3 + TypeScript + Vite. The root `AGENTS.md` still applies.
 - AI chat clients must handle `harness`, `reset`, `done` and structured `error`
   events. A connection close without terminal metadata is an interruption, not
   success.
+- Admin Agent pages aggregate service APIs but never store prompts as browser
+  authority or expose credentials; server-side role checks remain mandatory.
 
 ## Verification
 

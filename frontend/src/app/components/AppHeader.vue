@@ -10,7 +10,8 @@
     <nav class="top-nav" aria-label="Primary">
       <button class="nav-item" :class="{ active: $route.path === '/' && graphMode === 'map' }" type="button" @click="activate('graph')">图谱</button>
       <router-link class="nav-item" :class="{ active: $route.path.startsWith('/chains') }" to="/chains">产业链</router-link>
-      <router-link v-if="user.isAdmin()" class="nav-item" :class="{ active: $route.path.startsWith('/admin') }" to="/admin/models">模型配置</router-link>
+      <router-link v-if="user.isAdmin()" class="nav-item" :class="{ active: $route.path === '/admin/agents' }" to="/admin/agents">Agent 配置</router-link>
+      <router-link v-if="user.isAdmin()" class="nav-item" :class="{ active: $route.path === '/admin/models' }" to="/admin/models">模型</router-link>
       <button class="nav-item" type="button" @click="activate('member')">会员</button>
     </nav>
 
@@ -37,6 +38,7 @@
           <ChevronDown :size="14" />
         </button>
         <div v-if="menuOpen" class="user-dropdown">
+          <button v-if="!user.profile?.email" type="button" @click="openBindEmail"><Mail :size="15" />绑定邮箱</button>
           <button type="button" @click="select('openLearning')"><GraduationCap :size="15" />我的学习</button>
           <button type="button" @click="select('openMember')"><Crown :size="15" />{{ user.profile.member ? '会员续期' : '开通会员' }}</button>
           <button type="button" @click="select('openSettings')"><Settings :size="15" />设置</button>
@@ -51,7 +53,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Bot, ChevronDown, Crown, GraduationCap, LogOut, Settings } from '@lucide/vue'
+import { Bot, ChevronDown, Crown, GraduationCap, LogOut, Mail, Settings } from '@lucide/vue'
 import { useUserStore } from '../../modules/user/store'
 
 const user = useUserStore()
@@ -69,6 +71,7 @@ const emit = defineEmits<{
   openMember: []
   openLearning: []
   openSettings: []
+  openBindEmail: []
 }>()
 const menuOpen = ref(false)
 
@@ -100,6 +103,15 @@ function select(action: 'openLearning' | 'openMember' | 'openSettings') {
 function logout() {
   menuOpen.value = false
   user.logout()
+}
+
+function openBindEmail() {
+  menuOpen.value = false
+  if (route.path !== '/') {
+    void router.push({ path: '/', query: { open: 'bind-email' } })
+  } else {
+    emit('openBindEmail')
+  }
 }
 
 function closeMenu(event: MouseEvent) {

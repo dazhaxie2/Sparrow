@@ -2,21 +2,147 @@
   "schemaVersion": 1,
   "id": "admin-agent-and-email-auth",
   "title": "Admin agent configuration and email identity",
-  "status": "draft",
-  "objective": "",
+  "status": "completed",
+  "objective": "Let administrators safely manage prompts and bounded runtime parameters for every user-facing Agent, allow password login by username or registered email, let legacy username-only accounts bind a verified email, and grant the designated email account administrator access.",
   "scope": {
-    "in": [],
-    "out": []
+    "in": [
+      "Username or registered-email password login in sparrow-user",
+      "Verified email binding for authenticated users without an email",
+      "Idempotent promotion of 13102373468@163.com to admin without storing a password",
+      "Service-owned Agent prompt and bounded runtime parameter persistence in sparrow-ai and sparrow-industry-chain",
+      "Server-side admin authorization, audit records and a unified frontend Agent management page",
+      "Additive database migrations, focused tests, frontend build and harness verification"
+    ],
+    "out": [
+      "Creating or resetting the designated administrator password",
+      "Moving business-service configuration into a shared database",
+      "Exposing model API keys or decrypted secrets to the browser",
+      "Replacing the existing industry-chain model provider configuration page"
+    ]
   },
-  "acceptanceCriteria": [],
-  "steps": [],
-  "decisions": [],
+  "acceptanceCriteria": [
+    {
+      "id": "AC-1",
+      "description": "Password login accepts either a username or an already-bound email and preserves generic credential errors.",
+      "status": "passed",
+      "evidence": [
+        "UserService passwordLoginAcceptsRegisteredEmail test passes and the password endpoint retains the legacy username request alias."
+      ]
+    },
+    {
+      "id": "AC-2",
+      "description": "An authenticated account without email can bind a uniquely owned email only after a purpose-specific verification code succeeds.",
+      "status": "passed",
+      "evidence": [
+        "UserService tests verify the bind-only Redis code namespace, unique ownership checks, atomic user update and code deletion after success."
+      ]
+    },
+    {
+      "id": "AC-3",
+      "description": "The account bound to 13102373468@163.com receives the admin role through idempotent startup and runtime paths without a committed password or token.",
+      "status": "passed",
+      "evidence": [
+        "Startup migration, email registration and verified binding promote the configurable designated email; migration SQL contains no password or token."
+      ]
+    },
+    {
+      "id": "AC-4",
+      "description": "Every user-facing Agent has a service-owned persisted prompt/config profile, admin-only CRUD and audit, and runtime execution consumes the active values with safe defaults.",
+      "status": "passed",
+      "evidence": [
+        "sparrow-ai and sparrow-industry-chain own separate Agent configuration/audit tables and admin APIs.",
+        "Focused service tests verify admin authorization and audited updates; runtime chat/research tests pass with persisted profiles and safe defaults."
+      ]
+    },
+    {
+      "id": "AC-5",
+      "description": "Administrators can manage all Agent profiles from one page, while non-admin routes remain blocked and users without email can reach the binding flow.",
+      "status": "passed",
+      "evidence": [
+        "Frontend production build includes AgentConfigView and BindEmailModal.",
+        "Browser QA verifies username-or-email password input, no console errors, and unauthenticated /admin/agents redirect to the home page."
+      ]
+    },
+    {
+      "id": "AC-6",
+      "description": "Additive migrations, focused backend tests, frontend build and repository guards pass without overwriting pre-existing user changes.",
+      "status": "passed",
+      "evidence": [
+        "node tools/harness.mjs changed passed both guards, all seven backend modules with 142 tests, and the frontend production build.",
+        "Both schema changes have idempotent migration scripts and git diff --check reports no whitespace errors."
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "S-1",
+      "description": "Inventory authentication, role, Agent prompts/configuration and frontend administration routes.",
+      "status": "completed",
+      "verification": "Existing user, AI, industry-chain and frontend implementations inspected; pre-existing changes recorded."
+    },
+    {
+      "id": "S-2",
+      "description": "Implement email-aware password login, verified email binding and designated administrator promotion.",
+      "status": "completed",
+      "verification": "sparrow-user and shared tests passed (51 total); additive user migration reviewed."
+    },
+    {
+      "id": "S-3",
+      "description": "Implement service-owned Agent prompt/config persistence, admin APIs, audit and runtime consumption.",
+      "status": "completed",
+      "verification": "sparrow-ai 24 tests and sparrow-industry-chain 40 tests passed with shared tests."
+    },
+    {
+      "id": "S-4",
+      "description": "Build unified Agent administration and verified email-binding frontend flows.",
+      "status": "completed",
+      "verification": "Vite production build passed; browser verified password identifier UI and admin route guard without console errors."
+    },
+    {
+      "id": "S-5",
+      "description": "Document ownership and operations, run full change-aware verification and record evidence.",
+      "status": "completed",
+      "verification": "node tools/harness.mjs changed passed both guards, 142 backend tests and the frontend production build."
+    }
+  ],
+  "decisions": [
+    "sparrow-user remains authoritative for identity and roles; downstream services authorize administrators through internal profile calls.",
+    "sparrow-ai and sparrow-industry-chain each own their Agent configuration and audit tables; the frontend aggregates their public admin APIs.",
+    "Verification codes are purpose-scoped so a login code cannot be replayed to bind an email.",
+    "The designated administrator email is a non-secret configurable bootstrap identity; no password, token or API key is committed.",
+    "Authenticated live API, SMTP delivery and the populated administrator page remain deployment smoke checks because local backend infrastructure was not running."
+  ],
   "blockers": [],
   "verification": {
-    "lastRunAt": null,
-    "commands": []
+    "lastRunAt": "2026-07-11T02:32:34.4836679Z",
+    "commands": [
+      {
+        "command": "mvn -pl sparrow-user -am test",
+        "result": "PASS: shared 39 and sparrow-user 12 tests."
+      },
+      {
+        "command": "mvn -pl sparrow-ai,sparrow-industry-chain -am test",
+        "result": "PASS: shared 39, sparrow-ai 24 and sparrow-industry-chain 40 tests."
+      },
+      {
+        "command": "npm run build",
+        "result": "PASS: Vite production build completed."
+      },
+      {
+        "command": "In-app browser local frontend QA",
+        "result": "PASS: username-or-email input visible, no console errors, unauthenticated admin route redirected."
+      },
+      {
+        "command": "git diff --check",
+        "result": "PASS: no whitespace errors; line-ending normalization warnings only."
+      },
+      {
+        "command": "node tools/harness.mjs changed",
+        "result": "PASS: both guards, full seven-module backend reactor with 142 tests, and frontend production build."
+      }
+    ]
   },
-  "nextAction": "Define objective, scope and observable acceptance criteria",
+  "nextAction": "Apply the two additive migrations in deployment, sign in with the designated email, then smoke-test email binding and one audited Agent update.",
   "createdAt": "2026-07-10T17:37:20.707Z",
-  "updatedAt": "2026-07-10T17:37:20.707Z"
+  "updatedAt": "2026-07-11T02:32:34.4836679Z"
 }

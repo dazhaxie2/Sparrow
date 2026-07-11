@@ -1,5 +1,13 @@
 import { get, post } from '../../shared/api/request'
-import type { ModelConfig, ModelConfigAudit, SaveConfigPayload, TestConfigPayload, TestResult } from './types'
+import type {
+  AgentProfile,
+  ModelConfig,
+  ModelConfigAudit,
+  SaveAgentProfilePayload,
+  SaveConfigPayload,
+  TestConfigPayload,
+  TestResult,
+} from './types'
 
 /** 列出全部模型配置(api_key 脱敏)。 */
 export function listModelConfigs() {
@@ -24,4 +32,19 @@ export function activateModelConfig(configId: number) {
 /** 审计记录。 */
 export function listAudits(limit = 50) {
   return get<ModelConfigAudit[]>(`/api/chains/admin/model-configs/audits?limit=${limit}`)
+}
+
+export async function listAgentProfiles() {
+  const [general, industry] = await Promise.all([
+    get<AgentProfile[]>('/api/ai/admin/agent-configs'),
+    get<AgentProfile[]>('/api/chains/admin/agent-configs'),
+  ])
+  return [...general, ...industry]
+}
+
+export function saveAgentProfile(service: AgentProfile['service'], payload: SaveAgentProfilePayload) {
+  const path = service === 'sparrow-ai'
+    ? '/api/ai/admin/agent-configs'
+    : '/api/chains/admin/agent-configs'
+  return post<AgentProfile>(path, payload)
 }

@@ -2,6 +2,7 @@ package com.sparrow.ai.application;
 
 import com.sparrow.ai.application.harness.AiChatHarness;
 import com.sparrow.ai.application.harness.AiChatHarness.Prepared;
+import com.sparrow.ai.application.config.AiAgentConfigService;
 import com.sparrow.ai.infrastructure.agent.TechTreeAgent;
 import com.sparrow.ai.infrastructure.client.GraphClient;
 import com.sparrow.ai.infrastructure.client.GraphViews.NodeBrief;
@@ -13,6 +14,7 @@ import com.sparrow.ai.infrastructure.persistence.ChatHistoryRepository;
 import com.sparrow.ai.infrastructure.rag.MilvusStore;
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.ai.AiHarness;
+import com.sparrow.common.ai.AiAgentProfile;
 import com.sparrow.common.ai.AiHarness.Metadata;
 import com.sparrow.common.exception.BizException;
 import dev.langchain4j.data.embedding.Embedding;
@@ -26,6 +28,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -132,6 +135,7 @@ public class AiService {
     private final ObjectProvider<TechTreeAgent> agentProvider;
     private final ChatHistoryRepository chatHistory;
     private final AiChatHarness chatHarness;
+    private AiAgentConfigService agentConfigs;
 
     /**
      * 构造函数。
@@ -161,6 +165,15 @@ public class AiService {
         this.agentProvider = agentProvider;
         this.chatHistory = chatHistory;
         this.chatHarness = new AiChatHarness(chatHistory);
+    }
+
+    @Autowired(required = false)
+    void setAgentConfigs(AiAgentConfigService agentConfigs) {
+        this.agentConfigs = agentConfigs;
+    }
+
+    private AiAgentProfile agentProfile() {
+        return agentConfigs == null ? AiAgentConfigService.defaultProfile() : agentConfigs.runtime();
     }
 
     /**
@@ -194,11 +207,11 @@ public class AiService {
     public AskResult ask(Long userId, String question, Long sessionId, String surface) {
         AiHarness.Run harness = AiHarness.start(surface);
         try {
-            Prepared prepared = chatHarness.prepare(harness, userId, sessionId, question);
+            Prepared prepared = chatHarness.prepare(harness, userId, sessionId, question, agentProfile());
             long remaining = consumeQuota(userId);
             String intent = classifyIntent(prepared.question());
 
-            Retrieved retrieved = retrieve(prepared.question());
+            Retrieved retrieved = retrieve(prepared.question(), prepared.profile().maxSteps());
             List<SourceRef> sources = buildSources(retrieved);
             harness.checkpoint(AiHarness.Stage.RETRIEVAL,
                     sources.isEmpty() ? "上下文检索完成，未命中可引用来源" : "上下文检索与来源装配完成");
@@ -220,7 +233,7 @@ public class AiService {
             if (llmConfigured()) {
                 try {
                     harness.checkpoint(AiHarness.Stage.EXECUTION, "使用 RAG 模型生成回答");
-                    String answer = chatModel.chat(systemPrompt() + "\n\n"
+                    String answer = chatModel.chat(prepared.profile().systemPrompt() + "\n\n"
                             + ragUserMessage(prepared.question(), retrieved.nodes(), retrieved.chunks(),
                             prepared.conversationContext()));
                     return finish(prepared, userId, sessionId, answer, "rag", intent, sources,
@@ -253,7 +266,8 @@ public class AiService {
     private AskResult finish(Prepared prepared, long userId, Long sessionId, String rawAnswer,
                              String mode, String intent, List<SourceRef> sources,
                              List<AgentStep> steps, long remaining) {
-        String answer = chatHarness.validateAnswer(prepared.run(), rawAnswer);
+        String answer = chatHarness.validateAnswer(prepared.run(), rawAnswer,
+                prepared.profile().maxOutputChars());
         try {
             chatHarness.persistExchange(prepared.run(), userId, sessionId,
                     prepared.question(), answer, mode);
@@ -317,13 +331,13 @@ public class AiService {
 
     private void askStreamInternal(Long userId, String question, Long sessionId, StreamSink sink,
                                    AiHarness.Run harness) {
-        Prepared prepared = chatHarness.prepare(harness, userId, sessionId, question);
+        Prepared prepared = chatHarness.prepare(harness, userId, sessionId, question, agentProfile());
         emitHarness(sink, harness);
         long remaining = consumeQuota(userId);
         String intent = classifyIntent(prepared.question());
 
         // 检索上下文(三种模式共用),来源/步骤先于正文推给前端,UI 可先渲染来源卡片。
-        Retrieved retrieved = retrieve(prepared.question());
+        Retrieved retrieved = retrieve(prepared.question(), prepared.profile().maxSteps());
         List<SourceRef> sources = buildSources(retrieved);
         harness.checkpoint(AiHarness.Stage.RETRIEVAL,
                 sources.isEmpty() ? "上下文检索完成，未命中可引用来源" : "上下文检索与来源装配完成");
@@ -379,14 +393,16 @@ public class AiService {
                 buildSteps(intent, "关键词匹配图谱与会话上下文", "规则引擎生成统一回答", sources.isEmpty()),
                 remaining, harness);
         sink.emit("meta", meta);
-        String validated = chatHarness.validateAnswer(harness, answer);
+        String validated = chatHarness.validateAnswer(harness, answer,
+                prepared.profile().maxOutputChars());
         sink.emit("delta", Map.of("text", validated));
         finishValidatedStream(prepared, userId, sessionId, sink, validated, "rules", intent);
     }
 
     private void finishStream(Prepared prepared, long userId, Long sessionId, StreamSink sink,
                               String rawAnswer, String mode, String intent) {
-        String validated = chatHarness.validateAnswer(prepared.run(), rawAnswer);
+        String validated = chatHarness.validateAnswer(prepared.run(), rawAnswer,
+                prepared.profile().maxOutputChars());
         if (rawAnswer == null || rawAnswer.isBlank()) {
             sink.emit("delta", Map.of("text", validated));
         }
@@ -425,7 +441,7 @@ public class AiService {
     /** 用流式模型直接生成 RAG 回答;逐 token 推 delta,reasoning 推 thinking。返回 true=成功,false=降级。 */
     private boolean streamRag(Prepared prepared, Retrieved retrieved, StreamSink sink,
                               StringBuilder answer, StringBuilder thinking) {
-        String prompt = systemPrompt() + "\n\n"
+        String prompt = prepared.profile().systemPrompt() + "\n\n"
                 + ragUserMessage(prepared.question(), retrieved.nodes(), retrieved.chunks(),
                 prepared.conversationContext());
         return streamWithString(prompt, sink, answer, thinking, "RAG");
@@ -655,12 +671,13 @@ public class AiService {
      * @param question 用户问题
      * @return 检索结果(节点和语料块)
      */
-    private Retrieved retrieve(String question) {
+    private Retrieved retrieve(String question, int configuredLimit) {
+        int limit = Math.max(1, Math.min(configuredLimit, 20));
         if (llmConfigured() && milvus.ready()) {
             try {
                 float[] vec = embed(List.of(question)).get(0);
-                List<Long> ids = milvus.search(vec, 5);
-                List<MilvusStore.ChunkHit> chunks = milvus.searchChunks(vec, 4);
+                List<Long> ids = milvus.search(vec, limit);
+                List<MilvusStore.ChunkHit> chunks = milvus.searchChunks(vec, limit);
 
                 Map<Long, NodeBrief> byId = nodesById();
                 List<NodeBrief> nodes = new ArrayList<>(
@@ -741,16 +758,6 @@ public class AiService {
      *
      * @return 系统提示词
      */
-    private String systemPrompt() {
-        return "你是 Sparrow 科技图的 AI 向导。请基于提供的科技图资料回答用户问题," +
-                "自然地讲清技术之间的依赖关系与历史脉络;资料不足以回答时,如实说明。" +
-                "回答用中文,像聊天那样自然、口语化,直接说重点;" +
-                "内容要充分、有信息量,给足背景和关键的年代、数字、事实与例子,把「为什么」讲透,宁可多展开也别敷衍带过;" +
-                "可以顺着内容自然分层,必要时用小标题或列表理清脉络," +
-                "但不要套用「结论/关键依据/学习路径/下一步」这类与内容无关的固定模板;" +
-                "不要使用 emoji,不要输出代码块。";
-    }
-
     /**
      * 构建 RAG 模式的用户消息,包含科技图资料和相关词条。
      *

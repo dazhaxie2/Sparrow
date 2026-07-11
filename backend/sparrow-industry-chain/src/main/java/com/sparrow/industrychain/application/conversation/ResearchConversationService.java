@@ -8,6 +8,8 @@ import com.sparrow.industrychain.application.card.ResearchCardViews.MessageView;
 import com.sparrow.industrychain.application.workflow.IndustryChainResearchOrchestrator;
 import com.sparrow.industrychain.application.harness.IndustryChatHarness;
 import com.sparrow.industrychain.application.harness.IndustryChatHarness.Prepared;
+import com.sparrow.industrychain.application.config.IndustryAgentConfigService;
+import com.sparrow.common.ai.AiAgentProfile;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository.CardRow;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository.MessageRow;
@@ -15,6 +17,7 @@ import com.sparrow.industrychain.infrastructure.persistence.IndustryChainReposit
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 
@@ -26,12 +29,18 @@ public class ResearchConversationService {
     private final IndustryChainRepository repository;
     private final IndustryChainResearchOrchestrator orchestrator;
     private final IndustryChatHarness chatHarness;
+    private IndustryAgentConfigService agentConfigs;
 
     public ResearchConversationService(IndustryChainRepository repository,
                                        IndustryChainResearchOrchestrator orchestrator) {
         this.repository = repository;
         this.orchestrator = orchestrator;
         this.chatHarness = new IndustryChatHarness(repository);
+    }
+
+    @Autowired(required = false)
+    void setAgentConfigs(IndustryAgentConfigService agentConfigs) {
+        this.agentConfigs = agentConfigs;
     }
 
     public MessageReply message(long userId, long cardId, String content) {
@@ -41,10 +50,15 @@ public class ResearchConversationService {
             if (repository.activeRun(userId, cardId).isPresent()) {
                 throw new BizException(409, "调研运行中，请等待完成后继续对话");
             }
-            Prepared prepared = chatHarness.prepare(harness, content, repository.messages(userId, cardId));
+            AiAgentProfile profile = agentConfigs == null ? null
+                    : agentConfigs.requireEnabled(IndustryAgentConfigService.PLANNING_CHAT);
+            Prepared prepared = profile == null
+                    ? chatHarness.prepare(harness, content, repository.messages(userId, cardId))
+                    : chatHarness.prepare(harness, content, repository.messages(userId, cardId), profile);
             harness.checkpoint(AiHarness.Stage.EXECUTION, "规划 Agent 正在基于卡片与历史上下文回复");
             String rawReply = orchestrator.reply(card.title(), card.brief(), prepared.history(), prepared.question());
-            String reply = chatHarness.validateAnswer(harness, rawReply);
+            String reply = chatHarness.validateAnswer(harness, rawReply,
+                    prepared.profile().maxOutputChars());
             MessageIds ids = chatHarness.persistExchange(harness, userId, cardId, prepared.question(), reply);
             List<MessageRow> next = repository.messages(userId, cardId);
             MessageRow userRow = next.stream().filter(item -> item.id() == ids.userMessageId()).findFirst().orElseThrow();

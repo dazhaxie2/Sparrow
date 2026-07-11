@@ -58,3 +58,28 @@ export const MODEL_CONFIG_ACTION = {
   SAVE: 'SAVE',
   ACTIVATE: 'ACTIVATE',
 } as const
+
+export interface AgentProfile {
+  service: 'sparrow-ai' | 'sparrow-industry-chain'
+  agentKey: string
+  displayName: string
+  description: string
+  systemPrompt: string
+  enabled: boolean
+  maxContextMessages: number
+  maxContextChars: number
+  maxOutputChars: number
+  maxSteps: number
+  updatedBy: number | null
+  updatedAt: string | null
+}
+
+export interface SaveAgentProfilePayload {
+  agentKey: string
+  systemPrompt: string
+  enabled: boolean
+  maxContextMessages: number
+  maxContextChars: number
+  maxOutputChars: number
+  maxSteps: number
+}

@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.application.forum;
 
+import com.sparrow.industrychain.application.config.IndustryAgentConfigService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparrow.industrychain.infrastructure.event.IndustryChainEventHub;
 import com.sparrow.industrychain.infrastructure.llm.ChatModelProvider;
@@ -8,6 +9,7 @@ import dev.langchain4j.model.chat.ChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -46,6 +48,7 @@ public class ForumBus {
     // (旧实现构造时捕获 ChatModel 永不更新)。
     private final ChatModelProvider chatModelProvider;
     private final ObjectMapper objectMapper;
+    private IndustryAgentConfigService agentConfigs;
 
     /** 每次运行的事件缓冲(供主持人读取最近发言)与未结算计数器。 */
     private final Map<Long, Queue<ForumEvent>> buffers = new ConcurrentHashMap<>();
@@ -58,6 +61,11 @@ public class ForumBus {
         this.events = events;
         this.chatModelProvider = chatModelProvider;
         this.objectMapper = objectMapper;
+    }
+
+    @Autowired(required = false)
+    void setAgentConfigs(IndustryAgentConfigService agentConfigs) {
+        this.agentConfigs = agentConfigs;
     }
 
     /** Agent/系统 发言：写入 DB + 推送 SSE + 累计触发主持人。 */
@@ -153,7 +161,9 @@ public class ForumBus {
         for (ForumEvent s : speeches) {
             sb.append(s.sourceText()).append(": ").append(s.content()).append("\n\n");
         }
-        return chatModel.chat("""
+        String configuredPrompt = agentConfigs == null ? "你是产业链调研论坛主持人。"
+                : agentConfigs.requireEnabled(IndustryAgentConfigService.FORUM_HOST).systemPrompt();
+        return chatModel.chat(configuredPrompt + "\n\n" + """
                 你是产业链调研论坛的主持人。下面是多个调研 Agent 的最近发言。请生成一份不超过 600 字的中文总结，
                 分为四段，用 Markdown 二级/三级标题区分：① 关键发现时间线；② 观点整合与共识；③ 分歧与待核验问题；
                 ④ 给各 Agent 的下一轮引导问题(2-3 个)。不得编造发言中没有的事实，只做整合与引导。
@@ -176,5 +186,4 @@ public class ForumBus {
                 || ForumEvent.INSIGHT.equals(source);
     }
 }
-
 

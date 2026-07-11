@@ -43,6 +43,8 @@ behaviour. The repository, not chat history, is the source of truth.
   channel, not the only record of progress.
 - Every user-facing AI chat must follow `docs/harness/runtime-ai-chat.md`: bounded
   durable context, traceable lifecycle, validated output and recoverable failure.
+- User-facing Agent prompts and runtime bounds are service-owned, admin-authorized
+  and audited; see `docs/harness/admin-agent-config.md`.
 
 ## Work loop
 

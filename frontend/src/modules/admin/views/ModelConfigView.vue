@@ -308,7 +308,7 @@ function actionClass(action: string) {
 
 function formatTime(iso: string) {
   try {
-    return new Date(iso).toLocaleString('zh-CN', { hour12: false })
+    return new Date(iso).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
   } catch {
     return iso
   }

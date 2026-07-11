@@ -9,6 +9,7 @@
     @open-member="showMemberModal"
     @open-learning="showLearning = true"
     @open-settings="showSettings = true"
+    @open-bind-email="showBindEmail = true"
   />
 
   <main class="layout" :class="{ 'dialog-layout': graphMode === 'dialog' }">
@@ -107,6 +108,7 @@
 
   <LoginModal v-if="showLogin" @close="showLogin = false" />
   <MemberModal v-if="showMember" @close="showMember = false" />
+  <BindEmailModal v-if="showBindEmail" @close="showBindEmail = false" @bound="showBindEmail = false" />
 
   <GraphModals
     :show-learning="showLearning"
@@ -135,6 +137,7 @@ import CompareDock from '../components/CompareDock.vue'
 import GraphModals from '../components/GraphModals.vue'
 import AiChatPanel from '../../ai/components/AiChatPanel.vue'
 import LoginModal from '../../user/components/LoginModal.vue'
+import BindEmailModal from '../../user/components/BindEmailModal.vue'
 import MemberModal from '../../trade/components/MemberModal.vue'
 import { fetchClusterOverview, fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites, fetchApplications } from '../api'
 import type { Tree, NodeBrief, NodeDetail, Overview, EdgeBrief, GraphTile, ClusterOverview, ClusterNode } from '../types'
@@ -181,6 +184,7 @@ const nodeLoading = ref(false)
 const nodeError = ref('')
 const showLogin = ref(false)
 const showMember = ref(false)
+const showBindEmail = ref(false)
 const graphFullScreen = ref(false)
 // 右侧常驻 AI 对话栏：折叠状态记忆在 localStorage，与全屏沉浸互斥（全屏时整栏隐藏）。
 const aiRailCollapsed = ref(localStorage.getItem('sparrow_ai_rail_collapsed') === '1')
@@ -439,6 +443,7 @@ function consumeHeaderIntent() {
   else if (intent === 'member') showMemberModal()
   else if (intent === 'learning') showLearning.value = true
   else if (intent === 'settings') showSettings.value = true
+  else if (intent === 'bind-email') showBindEmail.value = true
 
   const nextQuery = { ...route.query }
   delete nextQuery.open

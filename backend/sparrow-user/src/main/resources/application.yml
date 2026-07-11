@@ -67,6 +67,8 @@ mybatis-plus:
 sparrow:
   auth:
     token-ttl-days: 7
+    # 非敏感的引导管理员身份；不会创建密码，只有注册/绑定该邮箱后才会生效。
+    bootstrap-admin-email: ${SPARROW_ADMIN_EMAIL:13102373468@163.com}
   events:
     enabled: ${KAFKA_ENABLED:false}
   mail:

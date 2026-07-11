@@ -22,20 +22,33 @@ import java.util.Map;
 @Validated
 public class UserController {
 
-    public record AuthRequest(@NotBlank @Size(min = 3, max = 32)
-                              @Pattern(regexp = "^[A-Za-z0-9_-]+$",
-                                      message = "只能包含字母、数字、下划线或短横线")
-                              String username,
-                              @NotBlank @Size(min = 6, max = 64) String password) {
+    public record RegisterRequest(
+            @NotBlank @Size(min = 3, max = 32)
+            @Pattern(regexp = "^[A-Za-z0-9_-]+$",
+                    message = "只能包含字母、数字、下划线或短横线")
+            String username,
+            @NotBlank @Size(min = 6, max = 64) String password) {
     }
 
-    public record EmailCodeRequest(@NotBlank
-                                   @Pattern(regexp = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
-                                           message = "邮箱格式不正确")
-                                   String email) {
+    /** username is retained as a compatibility alias for older clients. */
+    public record PasswordLoginRequest(String identifier, String username,
+                                       @NotBlank @Size(min = 6, max = 64) String password) {
+        public String resolvedIdentifier() {
+            return identifier == null || identifier.isBlank() ? username : identifier;
+        }
+    }
+
+    public record EmailCodeRequest(
+            @NotBlank
+            @Pattern(regexp = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+                    message = "邮箱格式不正确")
+            String email) {
     }
 
     public record EmailLoginRequest(@NotBlank String email, @NotBlank String code) {
+    }
+
+    public record EmailBindRequest(@NotBlank String email, @NotBlank String code) {
     }
 
     public record Profile(Long id, String username, String email, String role,
@@ -49,32 +62,46 @@ public class UserController {
     }
 
     @PostMapping("/register")
-    public ApiResponse<Map<String, String>> register(@RequestBody @Validated AuthRequest req) {
+    public ApiResponse<Map<String, String>> register(@RequestBody @Validated RegisterRequest req) {
         return ApiResponse.ok(Map.of("token", userService.register(req.username(), req.password())));
     }
 
     @PostMapping("/login")
-    public ApiResponse<Map<String, String>> login(@RequestBody @Validated AuthRequest req) {
-        return ApiResponse.ok(Map.of("token", userService.login(req.username(), req.password())));
+    public ApiResponse<Map<String, String>> login(@RequestBody @Validated PasswordLoginRequest req) {
+        return ApiResponse.ok(Map.of("token",
+                userService.login(req.resolvedIdentifier(), req.password())));
     }
 
-    /** 发送邮箱验证码。 */
     @PostMapping("/send-email-code")
     public ApiResponse<Map<String, Object>> sendEmailCode(@RequestBody @Validated EmailCodeRequest req) {
         userService.sendEmailCode(req.email());
         return ApiResponse.ok(Map.of("ok", true));
     }
 
-    /** 邮箱验证码登录(邮箱未注册时自动注册)。 */
     @PostMapping("/login-by-email")
     public ApiResponse<Map<String, String>> loginByEmail(@RequestBody @Validated EmailLoginRequest req) {
         return ApiResponse.ok(Map.of("token", userService.loginByEmail(req.email(), req.code())));
     }
 
+    @PostMapping("/email/bind/code")
+    public ApiResponse<Map<String, Object>> sendBindEmailCode(@RequestBody @Validated EmailCodeRequest req) {
+        userService.sendBindEmailCode(UserContext.require(), req.email());
+        return ApiResponse.ok(Map.of("ok", true));
+    }
+
+    @PostMapping("/email/bind")
+    public ApiResponse<Profile> bindEmail(@RequestBody @Validated EmailBindRequest req) {
+        return ApiResponse.ok(toProfile(userService.bindEmail(
+                UserContext.require(), req.email(), req.code())));
+    }
+
     @GetMapping("/me")
     public ApiResponse<Profile> me() {
-        User user = userService.getById(UserContext.require());
-        return ApiResponse.ok(new Profile(user.getId(), user.getUsername(), user.getEmail(),
-                user.effectiveRole(), user.memberActive(), user.getMemberExpireAt()));
+        return ApiResponse.ok(toProfile(userService.getById(UserContext.require())));
+    }
+
+    private static Profile toProfile(User user) {
+        return new Profile(user.getId(), user.getUsername(), user.getEmail(),
+                user.effectiveRole(), user.memberActive(), user.getMemberExpireAt());
     }
 }

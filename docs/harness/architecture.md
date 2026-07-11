@@ -38,6 +38,10 @@ Every user-facing AI conversation follows the shared lifecycle contract in
 `runtime-ai-chat.md`. Execution and memory stay in the owning service; only sanitized
 Harness metadata is shared through `sparrow-common`.
 
+Administrator-managed Agent prompts and runtime bounds remain in the database of
+the service that executes the Agent. `sparrow-user` alone owns the administrator
+role; downstream services verify it through `/internal/user/{id}/profile`.
+
 ## Enforced constraints
 
 `tools/harness-guard.mjs` checks these rules with actionable remediation:

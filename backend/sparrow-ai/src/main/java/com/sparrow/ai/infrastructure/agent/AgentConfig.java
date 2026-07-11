@@ -1,5 +1,6 @@
 package com.sparrow.ai.infrastructure.agent;
 
+import com.sparrow.ai.application.config.AiAgentConfigService;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
@@ -47,6 +48,7 @@ public class AgentConfig {
                                        GraphQueryTool graphQueryTool,
                                        VectorSearchTool vectorSearchTool,
                                        UserProgressTool userProgressTool,
+                                       AiAgentConfigService agentConfigService,
                                        @Value("${sparrow.ai.agent.max-sessions:500}") int maxSessions) {
         if (chatModel == null) {
             return null;
@@ -62,6 +64,7 @@ public class AgentConfig {
                 });
         AiServices<TechTreeAgent> builder = AiServices.builder(TechTreeAgent.class)
                 .chatModel(chatModel)
+                .systemMessageProvider(memoryId -> agentConfigService.runtime().systemPrompt())
                 .tools(graphQueryTool, vectorSearchTool, userProgressTool)
                 .chatMemoryProvider(memoryId -> {
                     String key = (String) memoryId;

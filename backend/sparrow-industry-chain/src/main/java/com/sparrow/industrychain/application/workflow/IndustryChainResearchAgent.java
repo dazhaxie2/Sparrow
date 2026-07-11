@@ -35,6 +35,7 @@ public class IndustryChainResearchAgent {
     private final String role;
     private final String roleText;
     private final String systemPrompt;
+    private final int maxReflections;
     private final ChatModel chatModel;
     private final WebSearchClient webSearch;
     private final ForumBus forum;
@@ -50,9 +51,19 @@ public class IndustryChainResearchAgent {
                               ChatModel chatModel, WebSearchClient webSearch, ForumBus forum,
                               BiConsumer<String, String> thinkingSink,
                               com.sparrow.industrychain.infrastructure.llm.ChatModelProvider chatProvider) {
+        this(role, roleText, systemPrompt, chatModel, webSearch, forum,
+                thinkingSink, chatProvider, MAX_REFLECTIONS);
+    }
+
+    public IndustryChainResearchAgent(String role, String roleText, String systemPrompt,
+                              ChatModel chatModel, WebSearchClient webSearch, ForumBus forum,
+                              BiConsumer<String, String> thinkingSink,
+                              com.sparrow.industrychain.infrastructure.llm.ChatModelProvider chatProvider,
+                              int maxReflections) {
         this.role = role;
         this.roleText = roleText;
         this.systemPrompt = systemPrompt;
+        this.maxReflections = Math.max(1, Math.min(maxReflections, 20));
         this.chatModel = chatModel;
         this.webSearch = webSearch;
         this.forum = forum;
@@ -110,7 +121,7 @@ public class IndustryChainResearchAgent {
         publish(publishToForum, role, firstSummary);
 
         // 反思循环：基于缺口分析 + 主持人引导做深挖
-        for (int round = 1; round <= MAX_REFLECTIONS; round++) {
+        for (int round = 1; round <= maxReflections; round++) {
             String hostSpeech = forum.latestHostSpeech(publishToForum.runId());
             thinking("反思第 " + round + " 轮 · 分析缺口");
             String reflection;
@@ -278,5 +289,4 @@ public class IndustryChainResearchAgent {
     public record PublishContext(long cardId, long runId, long userId) {
     }
 }
-
 

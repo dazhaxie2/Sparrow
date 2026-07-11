@@ -1,28 +1,29 @@
 package com.sparrow.user.infrastructure.persistence;
 
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-import jakarta.annotation.PostConstruct;
+import java.util.Locale;
 
-/**
- * t_user 平滑升级：为既有库补 email / role 列,并在无管理员时把最小 id 用户提为 admin。
- *
- * <p>schema.sql 仅对全新库生效;线上既有库需靠本迁移器幂等补列。
- */
+/** Additive, idempotent upgrades for identity and administrator bootstrap data. */
 @Component
 public class SchemaMigrator {
 
     private static final Logger log = LoggerFactory.getLogger(SchemaMigrator.class);
 
     private final JdbcTemplate jdbc;
+    private final String bootstrapAdminEmail;
 
-    @Autowired
-    public SchemaMigrator(JdbcTemplate jdbc) {
+    public SchemaMigrator(JdbcTemplate jdbc,
+                          @Value("${sparrow.auth.bootstrap-admin-email:13102373468@163.com}")
+                          String bootstrapAdminEmail) {
         this.jdbc = jdbc;
+        this.bootstrapAdminEmail = bootstrapAdminEmail == null
+                ? "" : bootstrapAdminEmail.trim().toLowerCase(Locale.ROOT);
     }
 
     @PostConstruct
@@ -30,49 +31,40 @@ public class SchemaMigrator {
         addColumnIfMissing("t_user", "email", "VARCHAR(128) NULL AFTER password_hash");
         addColumnIfMissing("t_user", "role", "VARCHAR(16) NOT NULL DEFAULT 'user' AFTER email");
         addUniqueIndexIfMissing("t_user", "uk_email", "email");
-        promoteFirstUserAsAdminIfNone();
+        promoteConfiguredAdministrator();
     }
 
-    /** 幂等加列：列已存在时忽略异常。 */
     private void addColumnIfMissing(String table, String column, String definition) {
         try {
             jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
-            log.info("迁移: {} 新增列 {}", table, column);
+            log.info("Schema migration added {}.{}", table, column);
         } catch (Exception ignored) {
-            // 列已存在
+            // Existing column is the expected idempotent path.
         }
     }
 
-    /** 幂等加唯一索引：索引已存在时忽略异常。 */
     private void addUniqueIndexIfMissing(String table, String indexName, String column) {
         try {
             jdbc.execute("ALTER TABLE " + table + " ADD UNIQUE KEY " + indexName + " (" + column + ")");
-            log.info("迁移: {} 新增唯一索引 {}", table, indexName);
+            log.info("Schema migration added index {} on {}", indexName, table);
         } catch (Exception ignored) {
-            // 索引已存在
+            // Existing index is the expected idempotent path.
         }
     }
 
-    /** 既有库无 admin 时,把最小 id 用户提为 admin(让管理端可立即使用)。 */
-    private void promoteFirstUserAsAdminIfNone() {
+    private void promoteConfiguredAdministrator() {
+        if (bootstrapAdminEmail.isBlank()) {
+            return;
+        }
         try {
-            Integer adminCount = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM t_user WHERE role = 'admin'", Integer.class);
-            if (adminCount != null && adminCount > 0) {
-                return;
-            }
-            Integer total = jdbc.queryForObject("SELECT COUNT(*) FROM t_user", Integer.class);
-            if (total == null || total == 0) {
-                return;
-            }
             int updated = jdbc.update(
-                    "UPDATE t_user SET role = 'admin' WHERE id = (SELECT min_id FROM "
-                            + "(SELECT MIN(id) AS min_id FROM t_user) t)");
+                    "UPDATE t_user SET role='admin' WHERE LOWER(email)=? AND role<>'admin'",
+                    bootstrapAdminEmail);
             if (updated > 0) {
-                log.warn("迁移: 未发现管理员,已将最小 id 用户提为 admin(共 {} 个用户)", total);
+                log.info("Promoted configured administrator account by verified email");
             }
-        } catch (Exception e) {
-            log.warn("迁移 promoteFirstUserAsAdminIfNone 失败(可忽略): {}", e.getMessage());
+        } catch (Exception error) {
+            log.warn("Configured administrator promotion was not applied: {}", error.getMessage());
         }
     }
 }

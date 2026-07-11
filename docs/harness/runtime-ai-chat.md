@@ -34,9 +34,10 @@ payloads or stack traces.
 
 ## Context and state
 
-- General chat validates session ownership and loads at most 12 persisted messages
-  / 6000 characters.
-- Industry planning loads at most 12 persisted card messages / 8000 characters.
+- General chat defaults to 12 persisted messages / 6000 characters; the owning
+  service applies the administrator-configured bounds for new requests.
+- Industry planning defaults to 12 persisted card messages / 8000 characters and
+  applies its own service-owned administrator configuration.
 - Graph workbench creates a server-side chat session on its first question so later
   turns have real memory rather than browser-only appearance.
 - The current question is not written before generation. A successful user/assistant
@@ -75,4 +76,5 @@ The frontend must not count it as a successful persisted exchange.
 Any new AI input surface must declare a stable `surface`, use an owning service's
 runtime Harness, provide bounded durable context, validate output, persist complete
 turns atomically, expose retryability, and add a focused test for its recovery path.
-
+It must also register a service-owned Agent profile as described in
+`admin-agent-config.md`; hard-coded prompts are only reviewed fallback defaults.
