@@ -22,4 +22,13 @@ router.beforeEach(async to => {
   }
 })
 
+// 记忆最后访问的产业链工作台,供顶栏"产业链"导航回到它而非列表页。
+// 用 sessionStorage:同一会话内有效(含刷新),关浏览器后清空,符合"最近上下文"语义。
+router.afterEach(to => {
+  const match = /^\/chains\/(\d+)$/.exec(to.path)
+  if (match) {
+    sessionStorage.setItem('sparrow_last_chain_id', match[1])
+  }
+})
+
 export default router

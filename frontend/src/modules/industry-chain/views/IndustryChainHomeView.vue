@@ -33,7 +33,7 @@
       </section>
     </main>
 
-    <div v-if="editorOpen" class="modal-backdrop" @click.self="closeEditor">
+    <div v-if="editorOpen" class="modal-backdrop" @mousedown="dismissEditor.onMaskMousedown" @mouseup="dismissEditor.onMaskMouseup">
       <form class="card-editor" @submit.prevent="saveCard">
         <div class="modal-title"><div><span>MULTI-AGENT</span><h2>{{ editingId ? '编辑产业链调研' : '新建产业链调研' }}</h2></div><button type="button" @click="closeEditor"><X :size="17" /></button></div>
         <label>调研主题<input v-model="formTitle" maxlength="120" required placeholder="例如：中国人形机器人产业链" /></label>
@@ -43,7 +43,7 @@
       </form>
     </div>
 
-    <div v-if="deletingCard" class="modal-backdrop" @click.self="deletingCard = null">
+    <div v-if="deletingCard" class="modal-backdrop" @mousedown="dismissDelete.onMaskMousedown" @mouseup="dismissDelete.onMaskMouseup">
       <section class="delete-dialog"><AlertTriangle :size="22" /><h2>删除“{{ deletingCard.title }}”？</h2><p>对话、调研报告、图谱和来源将一并删除，且无法恢复。</p><div class="modal-actions"><button type="button" @click="deletingCard = null">取消</button><button class="delete" type="button" :disabled="saving" @click="removeCard">确认删除</button></div></section>
     </div>
   </div>
@@ -56,6 +56,7 @@ import { AlertTriangle, ArrowRight, LoaderCircle, Pencil, Plus, Sparkles, Trash2
 import { useUserStore } from '../../user/store'
 import { createResearchCard, deleteResearchCard, fetchResearchCards, updateResearchCard } from '../api'
 import type { ResearchCardSummary } from '../model/types'
+import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 
 const router = useRouter()
 const user = useUserStore()
@@ -82,6 +83,9 @@ async function loadResearchCards() {
 function openCreate() { editingId.value = null; formTitle.value = ''; formBrief.value = ''; editorError.value = ''; editorOpen.value = true }
 function openEdit(card: ResearchCardSummary) { editingId.value = card.id; formTitle.value = card.title; formBrief.value = card.brief || ''; editorError.value = ''; editorOpen.value = true }
 function closeEditor() { if (!saving.value) editorOpen.value = false }
+
+const dismissEditor = useDismissableOverlay(closeEditor)
+const dismissDelete = useDismissableOverlay(() => { deletingCard.value = null })
 
 async function saveCard() {
   const title = formTitle.value.trim()

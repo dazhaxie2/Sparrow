@@ -10,6 +10,7 @@
     @open-learning="openIntent('learning')"
     @open-settings="openIntent('settings')"
     @open-bind-email="openIntent('bind-email')"
+    @open-set-password="openIntent('set-password')"
   />
   <main class="app-content">
     <router-view v-slot="{ Component }">

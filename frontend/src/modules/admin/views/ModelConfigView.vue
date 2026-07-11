@@ -53,7 +53,7 @@
       </section>
 
       <!-- 编辑/新建 弹层 -->
-      <div v-if="editorOpen" class="editor-overlay" @click.self="closeEditor">
+      <div v-if="editorOpen" class="editor-overlay" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
         <form class="editor-box" @submit.prevent="handleSave">
           <div class="editor-head">
             <h3>{{ editing?.id ? '编辑配置' : '新建配置' }}</h3>
@@ -111,6 +111,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { AlertTriangle, LoaderCircle, Pencil, Plug, Plus, Power } from '@lucide/vue'
 import { useToast } from '../../../shared/composables/useCommon'
+import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 import {
   activateModelConfig,
   listAudits,
@@ -211,6 +212,8 @@ function openEdit(c: ModelConfig) {
 function closeEditor() {
   editorOpen.value = false
 }
+
+const dismiss = useDismissableOverlay(closeEditor)
 
 async function handleTest() {
   editorError.value = ''

@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="mask" @click.self="emit('close')">
+    <div class="mask" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
       <form class="card" @submit.prevent="submit">
         <header><div><small>ACCOUNT SECURITY</small><h2>绑定邮箱</h2></div><button type="button" @click="emit('close')">×</button></header>
         <p>绑定后可以使用该邮箱和原密码登录。验证码仅用于本次绑定，不能作为登录验证码使用。</p>
@@ -18,9 +18,11 @@
 import { computed, onUnmounted, ref } from 'vue'
 import { sendBindEmailCode } from '../api'
 import { useUserStore } from '../store'
+import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 
 const emit = defineEmits<{ close: []; bound: [] }>()
 const user = useUserStore()
+const dismiss = useDismissableOverlay(() => emit('close'))
 const email = ref('')
 const code = ref('')
 const sending = ref(false)

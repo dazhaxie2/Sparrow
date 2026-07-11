@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="showLearning" class="lc-mask" @click.self="$emit('update:showLearning', false)">
+    <div v-if="showLearning" class="lc-mask" @mousedown="dismissLearning.onMaskMousedown" @mouseup="dismissLearning.onMaskMouseup">
       <div class="lc-modal">
         <header class="lc-head">
           <strong>我的学习</strong>
@@ -26,7 +26,7 @@
   </Teleport>
 
   <Teleport to="body">
-    <div v-if="showSettings" class="lc-mask" @click.self="$emit('update:showSettings', false)">
+    <div v-if="showSettings" class="lc-mask" @mousedown="dismissSettings.onMaskMousedown" @mouseup="dismissSettings.onMaskMouseup">
       <div class="lc-modal settings">
         <header class="lc-head">
           <strong>设置</strong>
@@ -51,6 +51,7 @@
 <script setup lang="ts">
 import { X } from '@lucide/vue'
 import { LEARNING_LABELS, type ProgressState } from '../composables/useLearningProgress'
+import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 
 type LearningGroups = Record<ProgressState, Array<{ id: number; name: string; era: string; yearLabel: string }>>
 
@@ -61,7 +62,7 @@ defineProps<{
   showEdgeLabels: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'update:showLearning': [value: boolean]
   'update:showSettings': [value: boolean]
   'update:showEdgeLabels': [value: boolean]
@@ -69,6 +70,9 @@ defineEmits<{
   removeProgress: [id: number]
   clearAllProgress: []
 }>()
+
+const dismissLearning = useDismissableOverlay(() => emit('update:showLearning', false))
+const dismissSettings = useDismissableOverlay(() => emit('update:showSettings', false))
 </script>
 
 <style scoped>

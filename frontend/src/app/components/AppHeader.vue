@@ -9,7 +9,7 @@
 
     <nav class="top-nav" aria-label="Primary">
       <button class="nav-item" :class="{ active: $route.path === '/' && graphMode === 'map' }" type="button" @click="activate('graph')">图谱</button>
-      <router-link class="nav-item" :class="{ active: $route.path.startsWith('/chains') }" to="/chains">产业链</router-link>
+      <button class="nav-item" :class="{ active: $route.path.startsWith('/chains') }" type="button" @click="goChains">产业链</button>
       <router-link v-if="user.isAdmin()" class="nav-item" :class="{ active: $route.path === '/admin/agents' }" to="/admin/agents">Agent 配置</router-link>
       <router-link v-if="user.isAdmin()" class="nav-item" :class="{ active: $route.path === '/admin/models' }" to="/admin/models">模型</router-link>
       <button class="nav-item" type="button" @click="activate('member')">会员</button>
@@ -42,6 +42,7 @@
           <button type="button" @click="select('openLearning')"><GraduationCap :size="15" />我的学习</button>
           <button type="button" @click="select('openMember')"><Crown :size="15" />{{ user.profile.member ? '会员续期' : '开通会员' }}</button>
           <button type="button" @click="select('openSettings')"><Settings :size="15" />设置</button>
+          <button type="button" @click="emit('openSetPassword')"><KeyRound :size="15" />{{ user.profile?.passwordSet ? '修改密码' : '设置密码' }}</button>
           <div class="menu-sep"></div>
           <button type="button" class="danger" @click="logout"><LogOut :size="15" />退出登录</button>
         </div>
@@ -53,7 +54,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Bot, ChevronDown, Crown, GraduationCap, LogOut, Mail, Settings } from '@lucide/vue'
+import { Bot, ChevronDown, Crown, GraduationCap, KeyRound, LogOut, Mail, Settings } from '@lucide/vue'
 import { useUserStore } from '../../modules/user/store'
 
 const user = useUserStore()
@@ -72,6 +73,7 @@ const emit = defineEmits<{
   openLearning: []
   openSettings: []
   openBindEmail: []
+  openSetPassword: []
 }>()
 const menuOpen = ref(false)
 
@@ -98,6 +100,16 @@ function select(action: 'openLearning' | 'openMember' | 'openSettings') {
   if (action === 'openLearning') activate('learning')
   else if (action === 'openMember') activate('member')
   else activate('settings')
+}
+
+/**
+ * 产业链导航:记忆最后访问的工作台。会话内只要进过某个 /chains/:id,
+ * 点"产业链"就回到那个工作台;从没进过任何工作台时才回列表页 /chains。
+ * 工作台页内有自己的"← 产业链"返回按钮可回到列表页切换其它工作台。
+ */
+function goChains() {
+  const lastId = sessionStorage.getItem('sparrow_last_chain_id')
+  void router.push(lastId ? `/chains/${lastId}` : '/chains')
 }
 
 function logout() {

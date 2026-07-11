@@ -123,6 +123,56 @@ jobs:
           Write-Host "AI changed: $aiChanged"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "ai_changed=$aiChanged"
 
+      # Path detection: did this push touch frontend or gateway code?
+      # The gateway image bakes frontend dist into /app/static at build time (backend/Dockerfile
+      # frontend-build stage), so any frontend OR gateway/common/pom/Dockerfile change must rebuild
+      # sparrow-gateway with --no-cache and --force-recreate the container. Without this, frontend
+      # edits never reach the server (BuildKit layer cache + up -d without --force-recreate = stale).
+      - name: Detect frontend/gateway changes
+        id: detect_gw
+        shell: powershell
+        run: |
+          # ASCII-only in this block: PS 5.1 on zh-CN mis-decodes UTF-8 CJK (see note above).
+          $before = '${{ github.event.before }}'
+          $after  = '${{ github.event.after }}'
+          $gwChanged = $false
+          if ([string]::IsNullOrWhiteSpace($before) -or $before -match '^0+$') {
+            $gwChanged = $true
+            Write-Host "no before baseline (manual/first push), will rebuild gateway"
+          } else {
+            $outFile = [System.IO.Path]::GetTempFileName()
+            $errFile = [System.IO.Path]::GetTempFileName()
+            try {
+              $p = Start-Process -FilePath cmd.exe -ArgumentList "/c git diff --name-only $before $after" `
+                    -NoNewWindow -Wait -PassThru `
+                    -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+              $rc = $p.ExitCode
+            } catch {
+              $rc = 1
+            }
+            if ($rc -ne 0) {
+              $gwChanged = $true
+              Write-Host "git diff failed (rc=$rc), will rebuild gateway"
+              Write-Host "stderr: $((Get-Content $errFile -Raw) -replace "`n",' ')"
+            } else {
+              $changed = Get-Content $outFile | Where-Object { $_.Trim() -ne '' }
+              # gateway/frontend-related paths: frontend source, gateway service, shared common,
+              # parent POM, the Dockerfile (frontend-build stage), compose/env config
+              $gwPaths = @('frontend/', 'backend/sparrow-gateway/', 'backend/sparrow-common/', 'backend/pom.xml', 'backend/Dockerfile', '.env.example', 'docker-compose.yml')
+              foreach ($p in $changed) {
+                foreach ($gp in $gwPaths) {
+                  if ($p -like "$gp*") { $gwChanged = $true; break }
+                }
+                if ($gwChanged) { break }
+              }
+              Write-Host "changed files:"
+              $changed | ForEach-Object { Write-Host "  $_" }
+            }
+            Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
+          }
+          Write-Host "frontend/gateway changed: $gwChanged"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "gw_changed=$gwChanged"
+
       - name: Architecture guard
         shell: powershell
         run: |
@@ -134,7 +184,17 @@ jobs:
         run: |
           Set-Location $env:DEPLOY_DIR
           # AI tier is core, built with the core stack (no separate --profile ai trigger)
-          docker compose build sparrow-gateway sparrow-user sparrow-graph sparrow-trade sparrow-industry-chain sparrow-ai
+          docker compose build sparrow-user sparrow-graph sparrow-trade sparrow-industry-chain sparrow-ai
+          # gateway bakes frontend dist into the image (backend/Dockerfile frontend-build stage).
+          # On frontend/gateway change, --no-cache forces the npm run build layer to re-execute,
+          # guaranteeing the new dist is baked in. BuildKit COPY-layer cache can otherwise mask
+          # frontend-only edits (file checksum unchanged after git's autocrlf normalization, etc.).
+          if ('${{ steps.detect_gw.outputs.gw_changed }}' -eq 'true') {
+            Write-Host "frontend/gateway changed, building sparrow-gateway with --no-cache"
+            docker compose build --no-cache sparrow-gateway
+          } else {
+            docker compose build sparrow-gateway
+          }
 
       - name: Deploy core stack (up -d)
         shell: powershell
@@ -157,6 +217,20 @@ jobs:
           # --no-deps keeps deps untouched; --force-recreate forces a new container
           docker compose up -d --no-deps --force-recreate sparrow-ai
           Write-Host "sparrow-ai rebuilt"
+
+      # Conditional gateway refresh: only when frontend/gateway-related paths changed.
+      # The core up -d above may have started gateway from a stale image if build hit cache, or may
+      # not have recreated the container at all (up -d without --force-recreate only recreates on
+      # image/config change). --no-deps + --force-recreate guarantees the new image (with fresh
+      # frontend dist) is actually running, mirroring the sparrow-ai refresh pattern.
+      - name: Refresh sparrow-gateway if frontend/gateway changed
+        if: steps.detect_gw.outputs.gw_changed == 'true'
+        shell: powershell
+        run: |
+          Set-Location $env:DEPLOY_DIR
+          Write-Host "frontend/gateway changes detected, recreating sparrow-gateway..."
+          docker compose up -d --no-deps --force-recreate sparrow-gateway
+          Write-Host "sparrow-gateway recreated with new frontend"
 
       - name: Apply DB migrations (idempotent)
         shell: powershell

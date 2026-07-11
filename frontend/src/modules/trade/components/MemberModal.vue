@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="modal" @click.self="$emit('close')">
+    <div class="modal" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
       <div class="modal-box">
         <div class="modal-head">
           <div>
@@ -40,8 +40,10 @@
 import { ref } from 'vue'
 import { createOrder } from '../api'
 import { useUserStore } from '../../user/store'
+import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 
 const emit = defineEmits<{ close: [] }>()
+const dismiss = useDismissableOverlay(() => emit('close'))
 const user = useUserStore()
 const errorMessage = ref('')
 

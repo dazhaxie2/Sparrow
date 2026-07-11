@@ -5,7 +5,6 @@
         <div class="heading">
           <router-link to="/chains"><ArrowLeft :size="15" />产业链</router-link>
           <h1>{{ detail?.card.title || '产业链深度调研' }}</h1>
-          <p>{{ detail?.card.brief || '通过对话收窄问题，然后启动联网 Multi-Agent 深度调研。' }}</p>
         </div>
         <div class="run-actions">
           <div v-if="researching" class="progress-copy">
@@ -632,7 +631,6 @@ onUnmounted(stopEvents)
 .heading a { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; text-decoration: none; }
 .heading a:hover { color: var(--accent); }
 .heading h1 { margin: 5px 0 0; font-size: 22px; }
-.heading p { margin: 4px 0 0; color: var(--ink-2); font-size: 12px; }
 .run-actions { flex: none; display: flex; align-items: center; gap: 10px; }
 .run-actions button, .page-state button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 13px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); cursor: pointer; }
 .run-actions .primary { border-color: var(--accent); background: var(--accent); color: #fff; }

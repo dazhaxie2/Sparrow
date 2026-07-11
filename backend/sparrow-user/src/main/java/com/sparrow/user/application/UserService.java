@@ -88,6 +88,24 @@ public class UserService {
         return issueToken(user.getId());
     }
 
+    /**
+     * 已登录用户设置或修改自己的密码。邮箱验证码注册的新账号初始为空密码,
+     * 用此方法补设后即可走密码登录。两次输入必须一致,长度 6-64(与注册一致)。
+     */
+    @Transactional
+    public User setPassword(long userId, String password, String confirmPassword) {
+        if (password == null || password.isBlank() || password.length() < 6 || password.length() > 64) {
+            throw new BizException("密码长度需在 6 到 64 个字符之间");
+        }
+        if (!password.equals(confirmPassword)) {
+            throw new BizException("两次输入的密码不一致");
+        }
+        User user = getById(userId);
+        user.setPasswordHash(encoder.encode(password));
+        userMapper.updateById(user);
+        return user;
+    }
+
     public void sendEmailCode(String email) {
         sendCode(email, EMAIL_LOGIN_CODE_KEY, "login:");
     }

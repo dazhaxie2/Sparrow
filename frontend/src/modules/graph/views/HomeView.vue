@@ -96,6 +96,7 @@
   <LoginModal v-if="showLogin" @close="showLogin = false" />
   <MemberModal v-if="showMember" @close="showMember = false" />
   <BindEmailModal v-if="showBindEmail" @close="showBindEmail = false" @bound="showBindEmail = false" />
+  <SetPasswordModal v-if="showSetPassword" @done="onSetPasswordDone" @skip="onSetPasswordSkip" />
 
   <GraphModals
     :show-learning="showLearning"
@@ -126,6 +127,7 @@ import GraphModals from '../components/GraphModals.vue'
 import AiChatPanel from '../../ai/components/AiChatPanel.vue'
 import LoginModal from '../../user/components/LoginModal.vue'
 import BindEmailModal from '../../user/components/BindEmailModal.vue'
+import SetPasswordModal from '../../user/components/SetPasswordModal.vue'
 import MemberModal from '../../trade/components/MemberModal.vue'
 import { fetchClusterOverview, fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites, fetchApplications } from '../api'
 import type { Tree, NodeBrief, NodeDetail, Overview, EdgeBrief, GraphTile, ClusterOverview, ClusterNode } from '../types'
@@ -176,6 +178,7 @@ const showMember = ref(false)
 const showBindEmail = ref(false)
 const showLearning = ref(false)
 const showSettings = ref(false)
+const showSetPassword = ref(false)
 
 let latestNodeRequest = 0
 let latestTreeRequest = 0
@@ -429,6 +432,7 @@ function consumeHeaderIntent() {
   else if (intent === 'learning') showLearning.value = true
   else if (intent === 'settings') showSettings.value = true
   else if (intent === 'bind-email') showBindEmail.value = true
+  else if (intent === 'set-password') showSetPassword.value = true
 
   const nextQuery = { ...route.query }
   delete nextQuery.open
@@ -762,6 +766,21 @@ function handleFocus() {
 }
 
 watch(showEdgeLabels, () => renderTree())
+
+// 邮箱验证码登录后,若账号无密码(新注册),引导设置密码。可跳过,跳过后本设备不再提示。
+watch(() => user.profile, profile => {
+  if (!profile || profile.passwordSet) { showSetPassword.value = false; return }
+  const dismissed = localStorage.getItem(`sparrow_pwd_skip_${profile.id}`)
+  if (!dismissed) showSetPassword.value = true
+})
+
+function onSetPasswordDone() {
+  showSetPassword.value = false
+}
+function onSetPasswordSkip() {
+  showSetPassword.value = false
+  if (user.profile) localStorage.setItem(`sparrow_pwd_skip_${user.profile.id}`, '1')
+}
 
 onMounted(async () => {
   loadProgress()

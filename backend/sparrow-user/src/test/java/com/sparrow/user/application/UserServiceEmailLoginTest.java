@@ -168,6 +168,45 @@ class UserServiceEmailLoginTest {
         verify(userMapper, never()).updateById(any(User.class));
     }
 
+    // ── setPassword ──
+
+    /** 两次密码一致且长度合法 → 设置成功,写入 passwordHash。 */
+    @Test
+    void setPasswordStoresHashWhenPasswordsMatch() {
+        User existing = new User();
+        setId(existing, 20L);
+        existing.setEmail("nopass@example.com");
+        existing.setPasswordHash("");
+        when(userMapper.selectById(20L)).thenReturn(existing);
+
+        User updated = service.setPassword(20L, "secret12", "secret12");
+
+        assertThat(updated.getPasswordHash()).isNotBlank();
+        verify(userMapper).updateById(existing);
+    }
+
+    /** 两次密码不一致 → 拒绝,不写库。 */
+    @Test
+    void setPasswordRejectsWhenConfirmMismatch() {
+        when(userMapper.selectById(20L)).thenReturn(new User());
+
+        assertThatThrownBy(() -> service.setPassword(20L, "secret12", "different1"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不一致");
+
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    /** 密码过短 → 拒绝。 */
+    @Test
+    void setPasswordRejectsTooShortPassword() {
+        assertThatThrownBy(() -> service.setPassword(20L, "abc", "abc"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("长度");
+
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
     /** User 实体 id 由 MyBatis 自增,无 setter;测试用反射写入。 */
     private static void setId(User user, long id) {
         try {

@@ -26,3 +26,8 @@ export function sendBindEmailCode(email: string) {
 export function bindEmail(email: string, code: string) {
   return post<Profile>('/api/user/email/bind', { email, code })
 }
+
+/** 已登录用户设置或修改密码(邮箱注册的空密码账号补设后即可用密码登录)。 */
+export function setPassword(password: string, confirmPassword: string) {
+  return post<Profile>('/api/user/set-password', { password, confirmPassword })
+}

@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="modal" @click.self="$emit('close')">
+    <div class="modal" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
       <form class="login-card" @submit.prevent="handleSubmit">
         <button class="close-btn" type="button" aria-label="关闭" @click="$emit('close')">×</button>
 
@@ -74,7 +74,7 @@
 
         <button class="primary-btn" type="submit" :disabled="submitting">
           <LoaderCircle v-if="submitting" class="spin" :size="16" />
-          <span>{{ submitting ? '登录中…' : '登录 / 注册' }}</span>
+          <span>{{ submitting ? '登录中…' : mode === 'password' ? '登录' : '登录 / 注册' }}</span>
         </button>
 
         <p class="agreement">
@@ -90,9 +90,11 @@ import { computed, onUnmounted, ref } from 'vue'
 import { LoaderCircle } from '@lucide/vue'
 import { useUserStore } from '../store'
 import { sendEmailCode } from '../api'
+import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 
 const emit = defineEmits<{ close: [] }>()
 const user = useUserStore()
+const dismiss = useDismissableOverlay(() => emit('close'))
 
 type Mode = 'email' | 'password'
 // 默认邮箱验证码(产品主推方式)

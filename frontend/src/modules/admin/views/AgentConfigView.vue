@@ -41,7 +41,7 @@
       </section>
     </main>
 
-    <div v-if="editing" class="mask" @click.self="closeEditor">
+    <div v-if="editing" class="mask" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
       <form class="editor" @submit.prevent="save">
         <header>
           <div><small>{{ serviceLabel(editing.service) }}</small><h2>{{ editing.displayName }}</h2></div>
@@ -76,6 +76,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { listAgentProfiles, saveAgentProfile } from '../api'
 import type { AgentProfile, SaveAgentProfilePayload } from '../types'
+import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 
 type Filter = 'all' | AgentProfile['service']
 
@@ -118,6 +119,8 @@ function edit(agent: AgentProfile) {
 function closeEditor() {
   if (!saving.value) editing.value = null
 }
+
+const dismiss = useDismissableOverlay(closeEditor)
 
 async function save() {
   if (!editing.value) return

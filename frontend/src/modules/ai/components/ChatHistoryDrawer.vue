@@ -1,6 +1,6 @@
 <template>
   <transition name="drawer-fade">
-    <div v-if="store.historyOpen" class="history-mask" @click.self="close">
+    <div v-if="store.historyOpen" class="history-mask" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
       <aside class="history-panel" role="dialog" aria-label="历史对话">
         <header class="history-head">
           <span class="title"><History :size="14" /> 历史对话</span>
@@ -51,7 +51,7 @@
 
         <!-- 删除确认 -->
         <transition name="dialog-fade">
-          <div v-if="pendingDelete" class="confirm-mask" @click.self="!deleting && (pendingDelete = null)">
+          <div v-if="pendingDelete" class="confirm-mask" @mousedown="dismissDelete.onMaskMousedown" @mouseup="dismissDelete.onMaskMouseup">
             <div class="confirm-dialog">
               <p class="confirm-text">删除这个对话?删除后无法恢复。</p>
               <div v-if="deleteError" class="confirm-error">{{ deleteError }}</div>
@@ -74,8 +74,11 @@ import { ref } from 'vue'
 import { History, Plus, RefreshCw, Trash2, X } from '@lucide/vue'
 import type { ChatSession } from '../types'
 import { useChatStore } from '../store/chat'
+import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 
 const store = useChatStore()
+const dismiss = useDismissableOverlay(() => { store.historyOpen = false })
+const dismissDelete = useDismissableOverlay(() => { if (!deleting.value) pendingDelete.value = null })
 const emit = defineEmits<{ (e: 'select'): void }>()
 
 const pendingDelete = ref<ChatSession | null>(null)

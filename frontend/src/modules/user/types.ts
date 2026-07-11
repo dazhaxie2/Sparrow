@@ -5,6 +5,7 @@ export interface Profile {
   role: 'user' | 'admin'
   member: boolean
   memberExpireAt: string | null
+  passwordSet: boolean
 }
 
 export interface AuthResult {

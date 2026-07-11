@@ -51,8 +51,13 @@ public class UserController {
     public record EmailBindRequest(@NotBlank String email, @NotBlank String code) {
     }
 
+    public record SetPasswordRequest(
+            @NotBlank @Size(min = 6, max = 64) String password,
+            @NotBlank String confirmPassword) {
+    }
+
     public record Profile(Long id, String username, String email, String role,
-                          boolean member, LocalDateTime memberExpireAt) {
+                          boolean member, LocalDateTime memberExpireAt, boolean passwordSet) {
     }
 
     private final UserService userService;
@@ -95,6 +100,13 @@ public class UserController {
                 UserContext.require(), req.email(), req.code())));
     }
 
+    /** 已登录用户设置或修改密码(邮箱注册的空密码账号补设密码后即可用密码登录)。 */
+    @PostMapping("/set-password")
+    public ApiResponse<Profile> setPassword(@RequestBody @Validated SetPasswordRequest req) {
+        return ApiResponse.ok(toProfile(userService.setPassword(
+                UserContext.require(), req.password(), req.confirmPassword())));
+    }
+
     @GetMapping("/me")
     public ApiResponse<Profile> me() {
         return ApiResponse.ok(toProfile(userService.getById(UserContext.require())));
@@ -102,6 +114,7 @@ public class UserController {
 
     private static Profile toProfile(User user) {
         return new Profile(user.getId(), user.getUsername(), user.getEmail(),
-                user.effectiveRole(), user.memberActive(), user.getMemberExpireAt());
+                user.effectiveRole(), user.memberActive(), user.getMemberExpireAt(),
+                user.getPasswordHash() != null && !user.getPasswordHash().isBlank());
     }
 }
