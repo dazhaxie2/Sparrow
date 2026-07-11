@@ -124,12 +124,32 @@ public class ModelConfigRepository {
     /** 新增配置,返回自增 id。 */
     public long insert(String name, String baseUrl, String modelName, String apiKeyEncrypted,
                        int maxTokens, int timeoutSeconds, int maxRetries, Long createdBy) {
+        return insertWithActive(name, baseUrl, modelName, apiKeyEncrypted,
+                maxTokens, timeoutSeconds, maxRetries, createdBy, false);
+    }
+
+    /**
+     * 新增配置并立即激活(用于环境变量引导:首次启动把 env 配置导入为 active 记录)。
+     * created_by 传 null,因为引导发生在无人交互的启动阶段。
+     */
+    public long insertActive(String name, String baseUrl, String modelName, String apiKeyEncrypted,
+                             int maxTokens, int timeoutSeconds, int maxRetries) {
+        long id = insertWithActive(name, baseUrl, modelName, apiKeyEncrypted,
+                maxTokens, timeoutSeconds, maxRetries, null, false);
+        // 引导记录直接置为 active(此时表为空,setActive 的全表置 0 不会误伤其它配置)
+        setActive(id);
+        return id;
+    }
+
+    private long insertWithActive(String name, String baseUrl, String modelName, String apiKeyEncrypted,
+                                  int maxTokens, int timeoutSeconds, int maxRetries,
+                                  Long createdBy, boolean active) {
         GeneratedKeyHolder key = new GeneratedKeyHolder();
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
                     "INSERT INTO model_config(name,base_url,model_name,api_key_encrypted,"
                             + "max_tokens,timeout_seconds,max_retries,active,created_by) "
-                            + "VALUES(?,?,?,?,?,?,?,0,?)", Statement.RETURN_GENERATED_KEYS);
+                            + "VALUES(?,?,?,?,?,?,?,?,?)", Statement.RETURN_GENERATED_KEYS);
             ps.setString(1, name);
             ps.setString(2, baseUrl);
             ps.setString(3, modelName);
@@ -137,7 +157,8 @@ public class ModelConfigRepository {
             ps.setInt(5, maxTokens);
             ps.setInt(6, timeoutSeconds);
             ps.setInt(7, maxRetries);
-            ps.setObject(8, createdBy);
+            ps.setInt(8, active ? 1 : 0);
+            ps.setObject(9, createdBy);
             return ps;
         }, key);
         return key.getKey() == null ? 0L : key.getKey().longValue();

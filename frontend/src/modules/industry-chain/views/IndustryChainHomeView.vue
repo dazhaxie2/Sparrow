@@ -1,11 +1,6 @@
 <template>
   <div class="chain-list-shell">
     <main class="chain-list-page">
-      <header class="page-header">
-        <h1>产业链调研</h1>
-        <p>围绕产品、企业、地区和时间范围创建调研工作台，通过 Multi-Agent 生成带来源的互动图谱和深度报告。</p>
-      </header>
-
       <section class="my-research">
         <div class="section-heading">
           <div><span>MULTI-AGENT RESEARCH</span><h2>我的调研工作台</h2></div>
@@ -13,7 +8,7 @@
         </div>
         <div v-if="!user.profile" class="research-login">
           <Sparkles :size="23" />
-          <div><strong>登录后创建自己的产业链工作台</strong><p>与 Multi-Agent 对话、联网调研，并持续维护带来源的互动图谱和深度报告。</p></div>
+          <div><strong>登录后创建自己的产业链工作台</strong></div>
           <button type="button" @click="goLogin">登录 / 注册</button>
         </div>
         <div v-else-if="researchLoading" class="state-box"><LoaderCircle class="spin" :size="20" /><span>加载我的调研卡片</span></div>
@@ -134,8 +129,6 @@ onMounted(() => { void loadResearchCards() })
 <style scoped>
 .chain-list-shell { min-height: 100%; background: var(--surface); }
 .chain-list-page { max-width: 1080px; margin: 0 auto; padding: 40px 24px 60px; }
-.page-header h1 { font-size: 28px; letter-spacing: -0.01em; }
-.page-header p { margin-top: 10px; color: var(--ink-2); font-size: 14px; line-height: 1.8; }
 .section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-top: 32px; }
 .section-heading span { color: var(--accent); font-size: 9px; font-weight: 900; letter-spacing: .14em; }
 .section-heading h2 { margin-top: 3px; font-size: 17px; }

@@ -1,17 +1,9 @@
 <template>
   <div class="admin-shell">
     <main class="admin-page">
-      <header class="page-header">
-        <div>
-          <span class="eyebrow">ADMIN · MODEL CONFIG</span>
-          <h1>模型配置</h1>
-        </div>
+      <div class="page-actions">
         <button class="btn primary" type="button" @click="openCreate"><Plus :size="15" />新建配置</button>
-      </header>
-      <p class="page-desc">
-        管理产业链调研使用的 LLM。保存后点击「测试连接」,通过后「激活」即可热切换,
-        新请求立即生效,进行中的调研继续用旧模型。API Key 以 AES-GCM 加密存储,仅显示脱敏值。
-      </p>
+      </div>
 
       <section v-if="loading" class="state-box"><LoaderCircle class="spin" :size="20" /><span>加载配置…</span></section>
       <section v-else-if="loadError" class="state-box error">
@@ -325,32 +317,10 @@ function formatTime(iso: string) {
   padding: 28px 24px 60px;
 }
 
-.page-header {
+.page-actions {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 8px;
-}
-
-.eyebrow {
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-}
-
-.page-header h1 {
-  margin-top: 6px;
-  font-size: 28px;
-}
-
-.page-desc {
-  color: var(--ink-2);
-  font-size: 13px;
-  line-height: 1.7;
-  margin: 8px 0 28px;
-  max-width: 720px;
+  justify-content: flex-end;
+  margin-bottom: 18px;
 }
 
 .btn {

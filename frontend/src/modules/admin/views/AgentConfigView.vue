@@ -1,15 +1,6 @@
 <template>
   <div class="admin-shell">
     <main class="admin-page">
-      <header class="page-head">
-        <div>
-          <span class="eyebrow">ADMIN · AGENT CONTROL</span>
-          <h1>Agent 配置中心</h1>
-          <p>统一管理所有面向用户的 Agent。保存后，新请求会读取最新提示词与运行边界。</p>
-        </div>
-        <router-link class="model-link" to="/admin/models">模型与 API 配置</router-link>
-      </header>
-
       <div class="toolbar">
         <button
           v-for="option in filters"
@@ -19,6 +10,7 @@
           @click="filter = option.value"
         >{{ option.label }}</button>
         <button class="refresh" type="button" :disabled="loading" @click="load">刷新</button>
+        <router-link class="refresh" to="/admin/models">模型与 API 配置</router-link>
       </div>
 
       <section v-if="loading" class="state">正在加载 Agent 配置…</section>
@@ -43,7 +35,6 @@
             <div><dt>最大步骤</dt><dd>{{ agent.maxSteps }}</dd></div>
           </dl>
           <footer>
-            <small>{{ updateLabel(agent) }}</small>
             <button type="button" @click="edit(agent)">编辑配置</button>
           </footer>
         </article>
@@ -71,7 +62,6 @@
           <label class="field"><span>输出字符上限</span><input v-model.number="editing.maxOutputChars" type="number" min="500" max="100000" /></label>
           <label class="field"><span>最大步骤/检索数</span><input v-model.number="editing.maxSteps" type="number" min="1" max="20" /></label>
         </div>
-        <p class="hint">最大步骤在科技图 Agent 中控制检索数量，在调研角色 Agent 中控制反思/执行深度。</p>
         <p v-if="editorError" class="editor-error">{{ editorError }}</p>
         <footer>
           <button type="button" @click="closeEditor">取消</button>
@@ -162,28 +152,16 @@ async function save() {
 function serviceLabel(service: AgentProfile['service']) {
   return service === 'sparrow-ai' ? '科技图 AI' : '产业链调研'
 }
-
-function updateLabel(agent: AgentProfile) {
-  if (!agent.updatedAt) return '使用系统默认配置'
-  const time = new Date(agent.updatedAt).toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai', hour12: false,
-  })
-  return `更新：${time}${agent.updatedBy ? ` · #${agent.updatedBy}` : ''}`
-}
 </script>
 
 <style scoped>
 .admin-shell { min-height: 100%; background: var(--bg); }
 .admin-page { max-width: 1180px; margin: 0 auto; padding: 30px 24px 64px; }
-.page-head { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
-.eyebrow, .service { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
-h1 { margin: 5px 0 8px; font-size: 29px; }
-.page-head p { color: var(--ink-2); font-size: 13px; }
-.model-link { border: 1px solid var(--line-strong); color: var(--ink); padding: 9px 12px; text-decoration: none; font-size: 12px; }
+.service { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
 .toolbar { display: flex; gap: 6px; margin: 25px 0 18px; }
 .toolbar button { border: 1px solid var(--line); background: var(--panel); padding: 8px 12px; cursor: pointer; }
 .toolbar button.active { border-color: var(--ink); background: var(--ink); color: white; }
-.toolbar .refresh { margin-left: auto; }
+.toolbar .refresh { margin-left: auto; border: 1px solid var(--line); background: var(--panel); padding: 8px 12px; cursor: pointer; text-decoration: none; color: inherit; font-size: inherit; }
 .state { padding: 32px; border: 1px solid var(--line); color: var(--ink-2); }
 .state.error { color: var(--danger); }
 .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
@@ -210,9 +188,8 @@ dt { color: var(--muted); font-size: 9px; } dd { margin-top: 3px; font-size: 12p
 textarea, input[type='number'] { width: 100%; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); padding: 10px; font: inherit; }
 textarea { resize: vertical; line-height: 1.55; }
 .numbers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-top: 14px; }
-.hint { margin-top: 8px; line-height: 1.5; }
 .editor-error { margin-top: 12px; color: var(--danger); font-size: 12px; }
 .editor > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .editor footer .primary { background: var(--ink); color: white; }
-@media (max-width: 700px) { .page-head { display: grid; } .numbers, dl { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 700px) { .numbers, dl { grid-template-columns: repeat(2, 1fr); } }
 </style>

@@ -54,7 +54,26 @@ public class IndustryChainAiConfig {
                 log.warn("数据库激活配置建模型失败,回退到环境变量: {}", e.getMessage());
             }
         }
-        // 2) 数据库无配置且环境变量已配置:用 env/Nacos 配置
+        // 2) 数据库为空且环境变量已配置:把 env 配置作为初始记录导入(bootstrap)。
+        //    真实企业做法:env 是一次性引导源,导入后 DB 成为唯一事实来源,管理端可见可改可审计。
+        //    仅在表空时导入,保证重启幂等,不会与管理员后续手动配置冲突。
+        if (props.llmConfigured() && modelConfigRepository.count() == 0
+                && modelConfigRepository.encryptionReady()) {
+            long seeded = seedFromEnv();
+            active = modelConfigRepository.findActiveDecrypted().orElse(null);
+            if (active != null && active.apiKeyPlain() != null && !active.apiKeyPlain().isBlank()) {
+                try {
+                    chatModelProvider.init(buildFrom(active));
+                    chatModelProvider.initStreaming(buildStreamingFrom(active));
+                    log.info("LLM 初始化自环境变量引导记录(已写入 model_config): {} ({})",
+                            active.name(), active.modelName());
+                    return;
+                } catch (Exception e) {
+                    log.warn("环境变量引导记录建模型失败,回退到内存 env 模型: {}", e.getMessage());
+                }
+            }
+        }
+        // 3) 环境变量已配置(但无法/未导入 DB,如未配置主密钥):用 env/Nacos 配置建内存模型
         if (props.llmConfigured()) {
             chatModelProvider.init(buildFromProps());
             chatModelProvider.initStreaming(buildStreamingFromProps());
@@ -62,6 +81,19 @@ public class IndustryChainAiConfig {
         } else {
             log.warn("LLM 未配置(sparrow.industry-chain.* 与 model_config 均无有效配置),AI 功能将不可用");
         }
+    }
+
+    /**
+     * 把环境变量(sparrow.industry-chain.*)的 LLM 配置作为初始记录写入 model_config 并激活。
+     * 仅在表为空时调用(由 initModel 保证)。API Key 以 AES-GCM 密文入库,与管理端手动新增一致。
+     */
+    private long seedFromEnv() {
+        String encryptedKey = modelConfigRepository.encryptApiKey(props.apiKey());
+        long id = modelConfigRepository.insertActive(
+                "环境变量引导配置", props.baseUrl(), props.chatModel(), encryptedKey,
+                3000, props.effectiveRequestTimeoutSeconds(), props.effectiveMaxRetries());
+        log.info("已将环境变量 LLM 配置引导写入 model_config (id={}): {} ({})", id, props.baseUrl(), props.chatModel());
+        return id;
     }
 
     public ChatModel buildFromProps() {
