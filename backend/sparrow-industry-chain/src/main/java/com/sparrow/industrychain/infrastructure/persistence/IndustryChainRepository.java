@@ -308,9 +308,10 @@ public class IndustryChainRepository {
 
     /** 读取运行检查点；空值表示尚未完成任何可复用阶段。 */
     public String runCheckpoint(long userId, long cardId, long runId) {
-        return jdbc.query("SELECT checkpoint_json FROM research_run WHERE id=? AND card_id=? AND user_id=?",
-                (rs, n) -> rs.getString("checkpoint_json"), runId, cardId, userId)
-                .stream().findFirst().orElse(null);
+        List<String> checkpoints = jdbc.query(
+                "SELECT checkpoint_json FROM research_run WHERE id=? AND card_id=? AND user_id=?",
+                (rs, n) -> rs.getString("checkpoint_json"), runId, cardId, userId);
+        return checkpoints.isEmpty() ? null : checkpoints.get(0);
     }
 
     /** 原子保存最近完成阶段的检查点。 */

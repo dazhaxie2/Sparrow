@@ -106,6 +106,8 @@ public class ModelConfigService {
                     .maxTokens(16)
                     .timeout(Duration.ofSeconds(req.timeoutSeconds() <= 0 ? 30 : req.timeoutSeconds()))
                     .maxRetries(0)
+                    .customParameters(IndustryChainAiConfig.providerCustomParameters(
+                            req.baseUrl(), req.modelName()))
                     .build();
             String reply = probe.chat("ping");
             long latency = System.currentTimeMillis() - started;

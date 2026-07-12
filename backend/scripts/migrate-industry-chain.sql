@@ -50,6 +50,21 @@ CREATE TABLE IF NOT EXISTS sparrow_ai.chain_research_run (
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+SET @has_chain_checkpoint := (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'sparrow_ai'
+      AND TABLE_NAME = 'chain_research_run'
+      AND COLUMN_NAME = 'checkpoint_json'
+);
+SET @ddl := IF(
+    @has_chain_checkpoint = 0,
+    'ALTER TABLE sparrow_ai.chain_research_run ADD COLUMN checkpoint_json LONGTEXT NULL AFTER error_message',
+    'SELECT 1'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 CREATE TABLE IF NOT EXISTS sparrow_ai.chain_research_source (
     id BIGINT NOT NULL AUTO_INCREMENT, card_id BIGINT NOT NULL, user_id BIGINT NOT NULL,
     source_ref VARCHAR(16) NOT NULL, title VARCHAR(300) NOT NULL,
@@ -104,6 +119,21 @@ CREATE TABLE IF NOT EXISTS research_run (
     KEY idx_research_run_card (card_id, id), KEY idx_research_run_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+SET @has_checkpoint := (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = 'sparrow_industry_chain'
+      AND TABLE_NAME = 'research_run'
+      AND COLUMN_NAME = 'checkpoint_json'
+);
+SET @ddl := IF(
+    @has_checkpoint = 0,
+    'ALTER TABLE sparrow_industry_chain.research_run ADD COLUMN checkpoint_json LONGTEXT NULL AFTER error_message',
+    'SELECT 1'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 CREATE TABLE IF NOT EXISTS research_source (
     id BIGINT NOT NULL AUTO_INCREMENT, card_id BIGINT NOT NULL, user_id BIGINT NOT NULL,
     source_ref VARCHAR(16) NOT NULL, title VARCHAR(300) NOT NULL,
@@ -151,12 +181,13 @@ ON DUPLICATE KEY UPDATE
     role = VALUES(role), agent = VALUES(agent), content = VALUES(content);
 
 INSERT INTO research_run
-    (id, card_id, user_id, status, current_stage, progress, error_message, started_at, finished_at)
-SELECT id, card_id, user_id, status, current_stage, progress, error_message, started_at, finished_at
+    (id, card_id, user_id, status, current_stage, progress, error_message, checkpoint_json, started_at, finished_at)
+SELECT id, card_id, user_id, status, current_stage, progress, error_message, checkpoint_json, started_at, finished_at
 FROM sparrow_ai.chain_research_run
 ON DUPLICATE KEY UPDATE
     status = VALUES(status), current_stage = VALUES(current_stage), progress = VALUES(progress),
-    error_message = VALUES(error_message), finished_at = VALUES(finished_at);
+    error_message = VALUES(error_message), checkpoint_json = VALUES(checkpoint_json),
+    finished_at = VALUES(finished_at);
 
 INSERT INTO research_source (id, card_id, user_id, source_ref, title, url, publisher, snippet, created_at)
 SELECT id, card_id, user_id, source_ref, title, url, publisher, snippet, created_at

@@ -10,6 +10,8 @@ import com.sparrow.industrychain.application.report.ir.DocumentIr;
 import com.sparrow.industrychain.application.report.ir.DocumentIr.Metadata;
 import com.sparrow.industrychain.application.report.ir.DocumentIr.TocEntry;
 import com.sparrow.industrychain.application.report.ir.ChapterIr;
+import com.sparrow.industrychain.application.report.ir.InlineRun;
+import com.sparrow.industrychain.application.report.ir.InlineRun.Mark;
 import com.sparrow.industrychain.application.report.ir.IrValidator;
 import com.sparrow.industrychain.infrastructure.llm.ChatModelProvider;
 import com.sparrow.industrychain.infrastructure.llm.WebSearchClient.SearchSource;
@@ -74,7 +76,10 @@ public class ResearchReportBuilder {
                     + compact(irJson, 8000));
             ir = parseIr(repaired, validRefs);
         }
-        if (ir == null) throw new BizException(502, "报告 Agent 产出的 IR 无法解析");
+        if (ir == null) {
+            log.warn("报告 Agent 连续两次产出的 IR 无法解析，使用已核验证据生成安全降级 IR");
+            ir = fallbackIr(title, evidence, validRefs);
+        }
 
         List<String> errors = validator.validate(ir, validRefs);
         if (!errors.isEmpty()) {
@@ -84,18 +89,57 @@ public class ResearchReportBuilder {
         String irString = writeJson(ir);
 
         // 降级 Markdown：让 LLM 基于同一证据产出，并附来源附录
-        String markdown = chat.chat(reportPrompt() + "\n\n" + """
+        String markdownFallback = "# " + title + "\n\n## 已核验证据\n\n"
+                + (evidence == null || evidence.isBlank() ? "暂无可展示的已核验证据。" : evidence.trim());
+        String markdown = chat.chatOr(reportPrompt() + "\n\n" + """
                 你是产业链报告 Agent。基于已核验事实和关系图，输出中文 Markdown 深度报告，
                 必须包含：摘要、范围与方法、上游、中游、下游、核心企业与竞争、风险、机会与趋势、待核验事项。
                 所有关键结论都要使用 [S1] 形式引用来源；不得引入材料之外的事实。
 
                 核验证据：%s
                 关系图 JSON：%s
-                """.formatted(compact(evidence, 8000), compact(graphJson == null ? "" : graphJson.toString(), 5000)));
-        if (markdown == null || markdown.isBlank()) markdown = "（报告生成失败，请查看互动图谱与来源）";
+                """.formatted(compact(evidence, 8000), compact(graphJson == null ? "" : graphJson.toString(), 5000)),
+                markdownFallback);
+        if (markdown == null || markdown.isBlank()) markdown = markdownFallback;
         markdown = markdown.trim() + sourceAppendix(sources);
 
         return new ReportResult(irString, markdown);
+    }
+
+    /** LLM 的结构化输出不可用时，只复用已核验证据，不引入任何新事实。 */
+    private DocumentIr fallbackIr(String title, String evidence, Set<String> validRefs) {
+        String anchor = "verified-evidence";
+        List<InlineRun> evidenceRuns = evidenceInlines(
+                evidence == null || evidence.isBlank() ? "暂无可展示的已核验证据。" : compact(evidence, 8000),
+                validRefs);
+        Block notice = Block.callout("warning", "结构化报告已降级",
+                List.of(Block.paragraph(List.of(new InlineRun(
+                        "模型输出未通过结构校验，以下内容仅来自本轮已核验证据。", List.of())))));
+        ChapterIr chapter = new ChapterIr("c1", "已核验证据", anchor, 10,
+                "本章节由已核验证据安全降级生成。",
+                List.of(notice, Block.paragraph(evidenceRuns)));
+        Metadata metadata = new Metadata(title, "结构化报告降级视图",
+                LocalDateTime.now().toString(), title,
+                List.of(new TocEntry(1, chapter.title(), anchor)));
+        return new DocumentIr(metadata, List.of(chapter));
+    }
+
+    private List<InlineRun> evidenceInlines(String evidence, Set<String> validRefs) {
+        List<InlineRun> runs = new ArrayList<>();
+        Matcher matcher = SOURCE_REFERENCE.matcher(evidence);
+        int cursor = 0;
+        while (matcher.find()) {
+            if (matcher.start() > cursor) {
+                runs.add(new InlineRun(evidence.substring(cursor, matcher.start()), List.of()));
+            }
+            String ref = matcher.group(1);
+            runs.add(new InlineRun(matcher.group(), validRefs.contains(ref)
+                    ? List.of(Mark.source(ref)) : List.of()));
+            cursor = matcher.end();
+        }
+        if (cursor < evidence.length()) runs.add(new InlineRun(evidence.substring(cursor), List.of()));
+        if (runs.isEmpty()) runs.add(new InlineRun(evidence, List.of()));
+        return runs;
     }
 
     /** 补全目录：若无 toc 则按章节标题自动生成。 */

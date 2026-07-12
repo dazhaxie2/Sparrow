@@ -14,6 +14,8 @@ import org.springframework.context.event.EventListener;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * 产业链调研专用 LLM 配置。
@@ -104,6 +106,7 @@ public class IndustryChainAiConfig {
                 .maxTokens(3000)
                 .timeout(Duration.ofSeconds(props.effectiveRequestTimeoutSeconds()))
                 .maxRetries(props.effectiveMaxRetries())
+                .customParameters(providerCustomParameters(props.baseUrl(), props.chatModel()))
                 .build();
     }
 
@@ -115,6 +118,7 @@ public class IndustryChainAiConfig {
                 .maxTokens(config.maxTokens())
                 .timeout(Duration.ofSeconds(config.timeoutSeconds()))
                 .maxRetries(config.maxRetries())
+                .customParameters(providerCustomParameters(config.baseUrl(), config.modelName()))
                 .build();
     }
 
@@ -129,6 +133,7 @@ public class IndustryChainAiConfig {
                 .modelName(props.chatModel())
                 .maxTokens(3000)
                 .timeout(Duration.ofSeconds(props.effectiveRequestTimeoutSeconds()))
+                .customParameters(providerCustomParameters(props.baseUrl(), props.chatModel()))
                 .build();
     }
 
@@ -139,6 +144,20 @@ public class IndustryChainAiConfig {
                 .modelName(config.modelName())
                 .maxTokens(config.maxTokens())
                 .timeout(Duration.ofSeconds(config.timeoutSeconds()))
+                .customParameters(providerCustomParameters(config.baseUrl(), config.modelName()))
                 .build();
+    }
+
+    /**
+     * GLM-4.7 默认强制深度思考，产业链工作流的规划、检索和 Agent 轮次会因此长时间无首包。
+     * 仅对智谱 GLM 的 OpenAI 兼容端点关闭 thinking，避免把供应商私有参数发送给其他模型服务。
+     */
+    public static Map<String, Object> providerCustomParameters(String baseUrl, String modelName) {
+        String normalizedUrl = baseUrl == null ? "" : baseUrl.toLowerCase(Locale.ROOT);
+        String normalizedModel = modelName == null ? "" : modelName.toLowerCase(Locale.ROOT);
+        if (normalizedUrl.contains("bigmodel.cn") && normalizedModel.startsWith("glm-")) {
+            return Map.of("thinking", Map.of("type", "disabled"));
+        }
+        return Map.of();
     }
 }
