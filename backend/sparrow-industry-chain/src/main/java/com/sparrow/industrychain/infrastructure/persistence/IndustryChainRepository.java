@@ -399,6 +399,22 @@ public class IndustryChainRepository {
         }
     }
 
+    /**
+     * 服务启动时收口上一个进程遗留的运行中任务。检查点和当前进度保持不变，
+     * 用户可通过断点续跑继续；不能把已丢失执行线程的任务继续伪装成运行中。
+     */
+    @Transactional
+    public int failInterruptedRuns(String error) {
+        String safe = error == null ? "服务重启导致调研中断" : error.substring(0, Math.min(error.length(), 1000));
+        jdbc.update("UPDATE research_card c SET status='FAILED',last_error=? "
+                        + "WHERE c.status='RESEARCHING' AND EXISTS (SELECT 1 FROM research_run r "
+                        + "WHERE r.card_id=c.id AND r.user_id=c.user_id AND r.status='RUNNING')",
+                safe);
+        return jdbc.update("UPDATE research_run SET status='FAILED',error_message=?,finished_at=NOW() "
+                        + "WHERE status='RUNNING'",
+                safe);
+    }
+
     /** 查询卡片的调研来源列表。 */
     public List<SourceRow> sources(long userId, long cardId) {
         return jdbc.query("SELECT id,card_id,source_ref,title,url,publisher,snippet FROM research_source "

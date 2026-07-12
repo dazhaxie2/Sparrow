@@ -30,7 +30,7 @@ class ForumTimestampTest {
     void publishesAgentTimeWithChinaOffset() {
         IndustryChainRepository repository = mock(IndustryChainRepository.class);
         IndustryChainEventHub events = mock(IndustryChainEventHub.class);
-        ForumBus forum = new ForumBus(repository, events, providerWithoutModel(), new ObjectMapper());
+        ForumBus forum = new ForumBus(repository, events, providerWithoutModel(), new ObjectMapper(), Runnable::run);
 
         forum.publish(1, 2, 3, ForumEvent.SYSTEM, "started");
 
@@ -46,7 +46,7 @@ class ForumTimestampTest {
     void convertsPersistedUtcHistoryToChinaTime() {
         IndustryChainRepository repository = mock(IndustryChainRepository.class);
         IndustryChainEventHub events = mock(IndustryChainEventHub.class);
-        ForumBus forum = new ForumBus(repository, events, providerWithoutModel(), new ObjectMapper());
+        ForumBus forum = new ForumBus(repository, events, providerWithoutModel(), new ObjectMapper(), Runnable::run);
         when(repository.forumEvents(1L, 2L)).thenReturn(List.of(
                 new IndustryChainRepository.ForumEventRow(
                         1L, 1L, 2L, 3L, ForumEvent.SYSTEM, "saved",

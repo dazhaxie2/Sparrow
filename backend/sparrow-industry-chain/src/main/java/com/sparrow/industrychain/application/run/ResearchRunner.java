@@ -41,7 +41,7 @@ public class ResearchRunner {
     }
 
     /** 异步执行产业链深度调研：读取用户附件，调用 orchestrator.research，处理进度更新与结果持久化。 */
-    @Async("industryChainResearchExecutor")
+    @Async("industryChainRunExecutor")
     public void run(long userId, long cardId, long runId, boolean resumed) {
         try {
             var card = repository.findCard(userId, cardId)

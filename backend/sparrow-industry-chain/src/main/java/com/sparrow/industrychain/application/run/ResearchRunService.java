@@ -39,14 +39,14 @@ public class ResearchRunService {
             repository.cancelRun(userId, cardId, runId);
             throw error;
         }
-        runner.run(userId, cardId, runId, false);
+        submit(userId, cardId, runId, false, true);
         return new StartRunResult(runId, remaining);
     }
 
     public ResumeRunResult resume(long userId, long cardId) {
         owned(userId, cardId);
         RunRow run = repository.resumeLastFailed(userId, cardId);
-        runner.run(userId, cardId, run.id(), true);
+        submit(userId, cardId, run.id(), true, false);
         return new ResumeRunResult(run.id(), run.currentStage(), run.progress());
     }
 
@@ -83,5 +83,16 @@ public class ResearchRunService {
     private RunView runView(RunRow run) {
         return new RunView(run.id(), run.status(), run.currentStage(), run.progress(), run.errorMessage(),
                 run.startedAt(), run.finishedAt());
+    }
+
+    private void submit(long userId, long cardId, long runId, boolean resumed, boolean refundQuota) {
+        try {
+            runner.run(userId, cardId, runId, resumed);
+        } catch (RuntimeException error) {
+            String message = "当前调研任务较多，任务未能进入执行队列，请稍后重试。";
+            repository.fail(userId, cardId, runId, message);
+            if (refundQuota) quotaService.refund(userId);
+            throw new BizException(503, message);
+        }
     }
 }

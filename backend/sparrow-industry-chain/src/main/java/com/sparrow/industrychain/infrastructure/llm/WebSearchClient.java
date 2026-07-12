@@ -30,7 +30,7 @@ public class WebSearchClient {
 
     /**
      * 联网检索/富化专用的有界线程池。这些是阻塞 IO(搜狗搜索页抓取 + 各来源页正文下载),
-     * 不应占用调研主执行器(industryChainResearchExecutor,负责 LLM 调用)。
+     * 不应占用调研编排与 Agent 执行器(industryChainRunExecutor / industryChainAgentExecutor)。
      * 限并发以兼顾速度与搜索引擎反爬:同一 host 瞬时并发过高易被限流。
      */
     private static final int SEARCH_CONCURRENCY = 3;

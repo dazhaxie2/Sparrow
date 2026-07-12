@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -19,6 +20,7 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -28,10 +30,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>对照 BettaFish 的 {@code ForumEngine/monitor.py} + {@code utils/forum_reader.py}：
  * <ul>
  *   <li>Agent 发言写入论坛(内存队列 + DB 持久化 + SSE 实时推送)；</li>
- *   <li>每攒够 {@link #HOST_TRIGGER_THRESHOLD} 条 Agent 发言，同步触发主持人 LLM 生成四段式总结，写入论坛；</li>
+ *   <li>每攒够 {@link #HOST_TRIGGER_THRESHOLD} 条 Agent 发言，异步触发主持人 LLM 生成四段式总结，写入论坛；</li>
  *   <li>Agent 反思总结前可读取「最新主持人发言」注入 prompt(软耦合)。</li>
  * </ul>
- * 主持人串行生成(AtomicBoolean 守卫)，避免并发重复触发。
+ * 主持人按单次运行串行生成(AtomicBoolean 守卫)，不同运行互不阻塞。
  */
 @Component
 public class ForumBus {
@@ -48,19 +50,20 @@ public class ForumBus {
     // (旧实现构造时捕获 ChatModel 永不更新)。
     private final ChatModelProvider chatModelProvider;
     private final ObjectMapper objectMapper;
+    private final Executor hostExecutor;
     private IndustryAgentConfigService agentConfigs;
 
-    /** 每次运行的事件缓冲(供主持人读取最近发言)与未结算计数器。 */
-    private final Map<Long, Queue<ForumEvent>> buffers = new ConcurrentHashMap<>();
-    private final Map<Long, AtomicInteger> pendingCounts = new ConcurrentHashMap<>();
-    private final Map<Long, AtomicBoolean> hostGenerating = new ConcurrentHashMap<>();
+    /** 每次运行独立的事件缓冲、未结算计数和主持人生成状态。 */
+    private final Map<Long, ForumState> states = new ConcurrentHashMap<>();
 
     public ForumBus(IndustryChainRepository repository, IndustryChainEventHub events,
-                    ChatModelProvider chatModelProvider, ObjectMapper objectMapper) {
+                    ChatModelProvider chatModelProvider, ObjectMapper objectMapper,
+                    @Qualifier("industryChainForumExecutor") Executor hostExecutor) {
         this.repository = repository;
         this.events = events;
         this.chatModelProvider = chatModelProvider;
         this.objectMapper = objectMapper;
+        this.hostExecutor = hostExecutor;
     }
 
     @Autowired(required = false)
@@ -69,27 +72,27 @@ public class ForumBus {
     }
 
     /** Agent/系统 发言：写入 DB + 推送 SSE + 累计触发主持人。 */
-    public synchronized void publish(long cardId, long runId, long userId, String source, String content) {
+    public void publish(long cardId, long runId, long userId, String source, String content) {
         String timestamp = ZonedDateTime.now(CHINA_ZONE).toOffsetDateTime().toString();
         ForumEvent event = new ForumEvent(cardId, runId, source, content, timestamp);
         repository.addForumEvent(userId, cardId, runId, source, content);
-        buffers.computeIfAbsent(runId, k -> new ConcurrentLinkedQueue<>()).add(event);
+        ForumState state = states.computeIfAbsent(runId, ignored -> new ForumState());
+        state.events.add(event);
         emitForum(cardId, runId, event);
         if (isAgent(source)) {
-            int pending = pendingCounts.computeIfAbsent(runId, k -> new AtomicInteger())
-                    .incrementAndGet();
+            int pending = state.pending.incrementAndGet();
             if (pending >= HOST_TRIGGER_THRESHOLD) {
-                triggerHost(cardId, runId, userId);
+                scheduleHost(cardId, runId, userId, state);
             }
         }
     }
 
     /** 读取本次运行最新的主持人发言，供 Agent 反思总结时注入 prompt。无则返回空串。 */
     public String latestHostSpeech(long runId) {
-        Queue<ForumEvent> queue = buffers.get(runId);
-        if (queue == null) return "";
+        ForumState state = states.get(runId);
+        if (state == null) return "";
         ForumEvent latest = null;
-        for (ForumEvent event : queue) {
+        for (ForumEvent event : state.events) {
             if (ForumEvent.HOST.equals(event.source())) latest = event;
         }
         return latest == null ? "" : latest.content();
@@ -124,33 +127,49 @@ public class ForumBus {
 
     /** 运行结束时清理本次运行的内存状态。 */
     public void reset(long runId) {
-        buffers.remove(runId);
-        pendingCounts.remove(runId);
-        hostGenerating.remove(runId);
+        ForumState state = states.remove(runId);
+        if (state != null) state.active.set(false);
     }
 
-    private void triggerHost(long cardId, long runId, long userId) {
-        AtomicBoolean guard = hostGenerating.computeIfAbsent(runId, k -> new AtomicBoolean());
-        if (!guard.compareAndSet(false, true)) return;
+    private void scheduleHost(long cardId, long runId, long userId, ForumState state) {
+        if (!state.active.get() || state.pending.get() < HOST_TRIGGER_THRESHOLD
+                || !state.hostGenerating.compareAndSet(false, true)) return;
         try {
-            Queue<ForumEvent> queue = buffers.get(runId);
-            if (queue == null) return;
+            hostExecutor.execute(() -> generateHost(cardId, runId, userId, state));
+        } catch (RuntimeException error) {
+            state.hostGenerating.set(false);
+            log.warn("论坛主持人任务提交失败: runId={}", runId, error);
+        }
+    }
+
+    private void generateHost(long cardId, long runId, long userId, ForumState state) {
+        try {
+            if (!isCurrent(runId, state)) return;
+            int claimed = state.pending.getAndUpdate(value ->
+                    value >= HOST_TRIGGER_THRESHOLD ? value - HOST_TRIGGER_THRESHOLD : value);
+            if (claimed < HOST_TRIGGER_THRESHOLD) return;
             // 取最近 HOST_TRIGGER_THRESHOLD 条 Agent 发言
-            List<ForumEvent> recent = queue.stream()
+            List<ForumEvent> recent = state.events.stream()
                     .filter(e -> isAgent(e.source())).toList();
             int from = Math.max(0, recent.size() - HOST_TRIGGER_THRESHOLD);
             List<ForumEvent> batch = recent.subList(from, recent.size());
             if (batch.isEmpty()) return;
             String hostSpeech = generateHostSpeech(batch);
-            if (hostSpeech != null && !hostSpeech.isBlank()) {
-                pendingCounts.get(runId).set(0);
+            if (isCurrent(runId, state) && hostSpeech != null && !hostSpeech.isBlank()) {
                 publish(cardId, runId, userId, ForumEvent.HOST, hostSpeech);
             }
         } catch (Exception error) {
             log.warn("论坛主持人发言生成失败: runId={}", runId, error);
         } finally {
-            guard.set(false);
+            state.hostGenerating.set(false);
+            if (isCurrent(runId, state) && state.pending.get() >= HOST_TRIGGER_THRESHOLD) {
+                scheduleHost(cardId, runId, userId, state);
+            }
         }
+    }
+
+    private boolean isCurrent(long runId, ForumState state) {
+        return state.active.get() && states.get(runId) == state;
     }
 
     /** 主持人 LLM：基于最近一批 Agent 发言生成四段式总结(时间线/观点整合/分歧/引导问题)。 */
@@ -185,5 +204,11 @@ public class ForumBus {
         return ForumEvent.INDUSTRY.equals(source) || ForumEvent.QUERY.equals(source)
                 || ForumEvent.INSIGHT.equals(source);
     }
-}
 
+    private static final class ForumState {
+        private final Queue<ForumEvent> events = new ConcurrentLinkedQueue<>();
+        private final AtomicInteger pending = new AtomicInteger();
+        private final AtomicBoolean hostGenerating = new AtomicBoolean();
+        private final AtomicBoolean active = new AtomicBoolean(true);
+    }
+}

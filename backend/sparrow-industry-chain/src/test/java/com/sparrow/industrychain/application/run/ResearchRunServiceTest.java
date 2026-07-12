@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.application.run;
 
+import com.sparrow.common.exception.BizException;
 import com.sparrow.industrychain.infrastructure.event.IndustryChainEventHub;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository;
 import com.sparrow.industrychain.infrastructure.persistence.IndustryChainRepository.CardRow;
@@ -10,6 +11,8 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -38,5 +41,29 @@ class ResearchRunServiceTest {
         assertThat(result.progress()).isEqualTo(58);
         verify(runner).run(7L, 11L, 21L, true);
         verify(quota, never()).consume(7L);
+    }
+
+    @Test
+    void startFailsRunAndRefundsQuotaWhenExecutorRejectsSubmission() {
+        IndustryChainRepository repository = mock(IndustryChainRepository.class);
+        ResearchRunner runner = mock(ResearchRunner.class);
+        ResearchQuotaService quota = mock(ResearchQuotaService.class);
+        IndustryChainEventHub events = mock(IndustryChainEventHub.class);
+        ResearchRunService service = new ResearchRunService(repository, runner, quota, events);
+        LocalDateTime now = LocalDateTime.now();
+        when(repository.findCard(7L, 11L)).thenReturn(Optional.of(new CardRow(
+                11L, 7L, "机器人", null, "DRAFT", null, 0,
+                0, 0, null, null, null, null, now, now)));
+        when(repository.createRun(7L, 11L)).thenReturn(21L);
+        when(quota.consume(7L)).thenReturn(9);
+        doThrow(new IllegalStateException("executor saturated"))
+                .when(runner).run(7L, 11L, 21L, false);
+
+        BizException error = assertThrows(BizException.class, () -> service.start(7L, 11L));
+
+        assertThat(error.getCode()).isEqualTo(503);
+        verify(repository).fail(7L, 11L, 21L,
+                "当前调研任务较多，任务未能进入执行队列，请稍后重试。");
+        verify(quota).refund(7L);
     }
 }

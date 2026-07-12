@@ -15,6 +15,7 @@ import com.sparrow.industrychain.infrastructure.llm.WebSearchClient.SearchSource
 import com.sparrow.common.exception.BizException;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -47,14 +48,14 @@ public class IndustryChainResearchOrchestrator {
                                      WebSearchClient webSearch, ForumBus forum,
                                      ResearchGraphExtractor graphExtractor,
                                      ResearchReportBuilder reportBuilder,
-                                     Executor industryChainResearchExecutor) {
+                                     @Qualifier("industryChainAgentExecutor") Executor industryChainAgentExecutor) {
         this.chat = chat;
         this.objectMapper = objectMapper;
         this.webSearch = webSearch;
         this.forum = forum;
         this.graphExtractor = graphExtractor;
         this.reportBuilder = reportBuilder;
-        this.executor = industryChainResearchExecutor;
+        this.executor = industryChainAgentExecutor;
     }
 
     @Autowired(required = false)

@@ -193,6 +193,7 @@ import {
   cancelResearchRun,
   fetchForumEvents,
   fetchResearchCard,
+  fetchResearchRun,
   resumeResearchRun,
   sendResearchMessage,
   startResearchRun,
@@ -402,8 +403,8 @@ async function startRun() {
     if (detail.value) {
       detail.value.card.status = 'RESEARCHING'
       detail.value.card.currentStage = 'planning'
-      detail.value.card.progress = 3
-      detail.value.activeRun = { id: result.runId, status: 'RUNNING', currentStage: 'planning', progress: 3, errorMessage: null, startedAt: new Date().toISOString(), finishedAt: null }
+      detail.value.card.progress = 5
+      detail.value.activeRun = { id: result.runId, status: 'RUNNING', currentStage: 'planning', progress: 5, errorMessage: null, startedAt: new Date().toISOString(), finishedAt: null }
     }
     railMode.value = 'planning'
     tab.value = 'forum'
@@ -464,14 +465,21 @@ async function cancelRun() {
 
 function applyProgress(data: Record<string, unknown>) {
   if (!detail.value) return
-  if (typeof data.stage === 'string') detail.value.card.currentStage = data.stage
-  if (typeof data.progress === 'number') detail.value.card.progress = data.progress
+  if (typeof data.stage === 'string') {
+    detail.value.card.currentStage = data.stage
+    if (detail.value.activeRun) detail.value.activeRun.currentStage = data.stage
+  }
+  if (typeof data.progress === 'number') {
+    detail.value.card.progress = data.progress
+    if (detail.value.activeRun) detail.value.activeRun.progress = data.progress
+  }
 }
 
 function connectEvents() {
   if (streamController || !researching.value) return
   const controller = new AbortController()
   streamController = controller
+  startPolling()
   void streamResearchEvents(props.id, async (event, data) => {
     if (event === 'forum') {
       appendForumEvent(data as unknown as ForumSsePayload)
@@ -504,6 +512,11 @@ function connectEvents() {
       return
     }
     applyProgress(data)
+    if (event === 'snapshot' && typeof data.status === 'string' && data.status !== 'RESEARCHING') {
+      stopEvents()
+      await load(true)
+      return
+    }
     if (event === 'completed' || event === 'failed') {
       liveThinking.value = null
       streamBubbles.value = {}
@@ -511,10 +524,8 @@ function connectEvents() {
       await load(true)
       if (event === 'completed') tab.value = 'report'
     }
-  }, controller.signal).then(() => {
-    if (!controller.signal.aborted && researching.value) startPolling()
-  }).catch(() => {
-    if (!controller.signal.aborted && researching.value) startPolling()
+  }, controller.signal).catch(() => {
+    // SSE 是实时增强；持久化状态轮询会继续接管进度与终态恢复。
   }).finally(() => {
     if (streamController === controller) streamController = null
   })
@@ -581,12 +592,29 @@ async function exportReportPdf() {
   }
 }
 
+async function pollRunState() {
+  const current = detail.value?.activeRun
+  if (!current || !researching.value) return
+  try {
+    const run = await fetchResearchRun(props.id, current.id)
+    if (!detail.value) return
+    detail.value.activeRun = run
+    applyProgress({ stage: run.currentStage, progress: run.progress })
+    if (run.status !== 'RUNNING' && run.status !== 'QUEUED') {
+      const completed = run.status === 'COMPLETED'
+      stopEvents()
+      await load(true)
+      if (completed) tab.value = 'report'
+    }
+  } catch {
+    // 短暂网络失败不覆盖 SSE 状态；下一个轮询周期继续从持久化状态恢复。
+  }
+}
+
 function startPolling() {
   if (pollTimer != null) return
-  pollTimer = window.setInterval(async () => {
-    await load(true)
-    if (!researching.value) stopEvents()
-  }, 2500)
+  void pollRunState()
+  pollTimer = window.setInterval(() => void pollRunState(), 3000)
 }
 
 function stopEvents() {

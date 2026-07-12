@@ -68,7 +68,7 @@ class IndustryChainResearchOrchestratorTest {
         IndustryChainRepository repo = mock(IndustryChainRepository.class);
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
         ChatModelProvider forumProvider = new ChatModelProvider(chatModel);
-        forum = new ForumBus(repo, hub, forumProvider, MAPPER);
+        forum = new ForumBus(repo, hub, forumProvider, MAPPER, Runnable::run);
 
         orchestrator = new IndustryChainResearchOrchestrator(chat, MAPPER, webSearch, forum,
                 graphExtractor, reportBuilder, syncExecutor);

@@ -9,7 +9,14 @@ import com.sparrow.industrychain.infrastructure.persistence.IndustryChainReposit
 import dev.langchain4j.model.chat.ChatModel;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -42,7 +49,7 @@ class ForumBusTest {
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyString())).thenReturn("主持人总结");
-        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER);
+        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER, Runnable::run);
 
         for (int i = 0; i < 5; i++) bus.publish(1, 10, 1, ForumEvent.INDUSTRY, "发言 " + i);
         verify(model, times(1)).chat(anyString());
@@ -58,7 +65,7 @@ class ForumBusTest {
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyString())).thenReturn("最新主持人引导");
-        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER);
+        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER, Runnable::run);
 
         assertThat(bus.latestHostSpeech(10)).isEmpty();
         for (int i = 0; i < 5; i++) bus.publish(1, 10, 1, ForumEvent.INDUSTRY, "发言 " + i);
@@ -71,7 +78,7 @@ class ForumBusTest {
         IndustryChainRepository repo = mock(IndustryChainRepository.class);
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
         ChatModel model = mock(ChatModel.class);
-        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER);
+        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER, Runnable::run);
 
         for (int i = 0; i < 6; i++) bus.publish(1, 10, 1, ForumEvent.SYSTEM, "系统 " + i);
         verify(model, times(0)).chat(anyString());
@@ -84,12 +91,46 @@ class ForumBusTest {
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyString())).thenReturn("host 内容");
-        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER);
+        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER, Runnable::run);
 
         for (int i = 0; i < 5; i++) bus.publish(1, 10, 1, ForumEvent.INSIGHT, "i" + i);
         // 6 条落库(5 Agent + 1 Host)，全部广播
         verify(repo, atLeast(6)).addForumEvent(eq(1L), eq(1L), eq(10L), anyString(), anyString());
         verify(hub, atLeast(6)).forum(eq(1L), eq(10L), any());
+    }
+
+    /** 一个运行的主持人模型阻塞时，不能阻塞其他运行写入论坛首帧。 */
+    @Test
+    void slowHostDoesNotBlockAnotherResearchRun() throws Exception {
+        IndustryChainRepository repo = mock(IndustryChainRepository.class);
+        IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
+        ChatModel model = mock(ChatModel.class);
+        CountDownLatch hostEntered = new CountDownLatch(1);
+        CountDownLatch releaseHost = new CountDownLatch(1);
+        when(model.chat(anyString())).thenAnswer(invocation -> {
+            hostEntered.countDown();
+            releaseHost.await(2, TimeUnit.SECONDS);
+            return "主持人总结";
+        });
+        ExecutorService hostExecutor = Executors.newSingleThreadExecutor();
+        ForumBus bus = new ForumBus(repo, hub, providerWith(model), MAPPER, hostExecutor);
+        try {
+            assertTimeoutPreemptively(Duration.ofMillis(300), () -> {
+                for (int i = 0; i < 5; i++) {
+                    bus.publish(1, 10, 1, ForumEvent.INDUSTRY, "发言 " + i);
+                }
+            });
+            assertThat(hostEntered.await(1, TimeUnit.SECONDS)).isTrue();
+
+            assertTimeoutPreemptively(Duration.ofMillis(300),
+                    () -> bus.publish(2, 20, 2, ForumEvent.SYSTEM, "新一轮调研启动"));
+
+            releaseHost.countDown();
+        } finally {
+            releaseHost.countDown();
+            hostExecutor.shutdown();
+            if (!hostExecutor.awaitTermination(1, TimeUnit.SECONDS)) hostExecutor.shutdownNow();
+        }
     }
 }
 
