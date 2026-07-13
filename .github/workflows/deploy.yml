@@ -337,8 +337,13 @@ jobs:
           }
           Write-Host "Deploy source still verified: $actual"
 
-          $industryContainer = (docker compose ps -q sparrow-industry-chain | Select-Object -First 1)
-          if ($LASTEXITCODE -ne 0 -or -not $industryContainer) {
+          # Capture the native exit code before using a PowerShell pipeline. On Windows
+          # PowerShell 5.1, piping docker output into Select-Object can leave LASTEXITCODE=-1
+          # even when docker returned a valid container id.
+          $industryContainers = @(docker compose ps -q sparrow-industry-chain)
+          $composeExit = $LASTEXITCODE
+          $industryContainer = $industryContainers | Select-Object -First 1
+          if ($composeExit -ne 0 -or -not $industryContainer) {
             Write-Host "sparrow-industry-chain container not found"
             exit 1
           }
