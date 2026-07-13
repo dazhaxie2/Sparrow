@@ -16,6 +16,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CancellationException;
 
 @Component
@@ -73,8 +74,11 @@ public class ResearchRunner {
             log.error("产业链调研失败: cardId={} runId={}", cardId, runId, error);
             repository.fail(userId, cardId, runId, message);
             try {
+                String recoveryNotice = checkpointAvailable(userId, cardId, runId)
+                        ? " 本轮已完成的调研记录和检查点已保留，可从中断点继续。"
+                        : " 本轮尚未形成可恢复检查点，请处理模型配置后重新调研。";
                 repository.addForumEvent(userId, cardId, runId, ForumEvent.SYSTEM,
-                        message + " 本轮已完成的调研记录和检查点已保留，可从中断点继续。");
+                        message + recoveryNotice);
             } catch (RuntimeException persistError) {
                 log.warn("保存调研失败提示时出错: cardId={} runId={}", cardId, runId, persistError);
             }
@@ -102,10 +106,24 @@ public class ResearchRunner {
         }
     }
 
-    private String userFacingFailure(Throwable error) {
+    private boolean checkpointAvailable(long userId, long cardId, long runId) {
+        try {
+            String checkpoint = repository.runCheckpoint(userId, cardId, runId);
+            return checkpoint != null && !checkpoint.isBlank();
+        } catch (RuntimeException error) {
+            log.warn("读取失败任务检查点时出错: cardId={} runId={}", cardId, runId, error);
+            return false;
+        }
+    }
+
+    static String userFacingFailure(Throwable error) {
         Throwable cause = error;
         while (cause != null) {
-            String text = cause.getMessage() == null ? "" : cause.getMessage().toLowerCase();
+            String text = cause.getMessage() == null ? "" : cause.getMessage().toLowerCase(Locale.ROOT);
+            if (text.contains("\"code\":\"1113\"") || text.contains("余额不足")
+                    || text.contains("insufficient balance") || text.contains("resource package")) {
+                return "AI 模型账户余额不足或无可用资源包，请充值或切换可用模型配置后重试。";
+            }
             if (text.contains("timeout") || text.contains("timed out") || text.contains("超时")) {
                 return "AI 服务响应超时，调研任务已安全停止。";
             }
