@@ -59,14 +59,61 @@ jobs:
       # 固定部署目录:.env 与具名卷(COMPOSE_PROJECT_NAME=sparrow)稳定,
       # 不用 actions/checkout 的临时 _work 目录(那会换项目名→换卷→丢数据)
       DEPLOY_DIR: C:\Users\hai\Desktop\Sparrow
+      SPARROW_DEPLOY_SHA: ${{ github.sha }}
     steps:
-      - name: Sync repo to latest origin/main
+      - name: Sync repo to triggering commit
         shell: powershell
         run: |
+          # ASCII-only: this runs in Windows PowerShell 5.1 on a zh-CN host.
           Set-Location $env:DEPLOY_DIR
-          git fetch --prune origin
-          git reset --hard origin/main
-          git log -1 --oneline
+          $expected = '${{ github.sha }}'
+          $git = (Get-Command git.exe -ErrorAction Stop).Source
+
+          function Invoke-GitChecked {
+            param(
+              [Parameter(Mandatory = $true)][string[]]$GitArgs,
+              [int]$MaxAttempts = 1
+            )
+
+            for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+              $outFile = [System.IO.Path]::GetTempFileName()
+              $errFile = [System.IO.Path]::GetTempFileName()
+              try {
+                $p = Start-Process -FilePath $git -ArgumentList $GitArgs `
+                      -NoNewWindow -Wait -PassThru `
+                      -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+                $stdout = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+                $stderr = Get-Content $errFile -Raw -ErrorAction SilentlyContinue
+                if ($stdout) { Write-Host $stdout.TrimEnd() }
+                if ($p.ExitCode -eq 0) { return }
+                $errorText = if ($stderr) { $stderr.Trim() } else { '<no stderr>' }
+                Write-Warning "git $($GitArgs -join ' ') failed (attempt $attempt/$MaxAttempts, rc=$($p.ExitCode)): $errorText"
+              } finally {
+                Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
+              }
+
+              if ($attempt -lt $MaxAttempts) {
+                Start-Sleep -Seconds ([Math]::Min(5 * $attempt, 20))
+              }
+            }
+
+            throw "git $($GitArgs -join ' ') failed after $MaxAttempts attempt(s)"
+          }
+
+          # Force-refresh the remote tracking ref. HTTP/1.1 avoids intermittent HTTP/2
+          # connection resets observed on this Windows host.
+          Invoke-GitChecked -MaxAttempts 5 -GitArgs @(
+            '-c', 'http.version=HTTP/1.1', 'fetch', '--no-tags', '--prune', 'origin',
+            '+refs/heads/main:refs/remotes/origin/main'
+          )
+          Invoke-GitChecked -GitArgs @('cat-file', '-e', "$expected^{commit}")
+          Invoke-GitChecked -GitArgs @('reset', '--hard', $expected)
+
+          $actual = (& $git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $expected) {
+            throw "deploy source mismatch: expected=$expected actual=$actual"
+          }
+          Write-Host "Deploy source verified: $actual"
 
       # Path detection: did this push touch AI-related code? Rebuild sparrow-ai only if so,
       # otherwise skip - saves build time and avoids repeated large-image builds on a 16G machine.
@@ -185,6 +232,7 @@ jobs:
           Set-Location $env:DEPLOY_DIR
           # AI tier is core, built with the core stack (no separate --profile ai trigger)
           docker compose build sparrow-user sparrow-graph sparrow-trade sparrow-industry-chain sparrow-ai
+          if ($LASTEXITCODE -ne 0) { throw "core image build failed" }
           # gateway bakes frontend dist into the image (backend/Dockerfile frontend-build stage).
           # On frontend/gateway change, --no-cache forces the npm run build layer to re-execute,
           # guaranteeing the new dist is baked in. BuildKit COPY-layer cache can otherwise mask
@@ -195,6 +243,7 @@ jobs:
           } else {
             docker compose build sparrow-gateway
           }
+          if ($LASTEXITCODE -ne 0) { throw "gateway image build failed" }
 
       - name: Deploy core stack (up -d)
         shell: powershell
@@ -203,6 +252,7 @@ jobs:
           # AI tier (sparrow-ai/milvus/etcd/minio/sentinel) starts with up -d by default;
           # spider/layout stay in their own profile and are not started here.
           docker compose up -d
+          if ($LASTEXITCODE -ne 0) { throw "core stack deploy failed" }
 
       # Conditional AI app-tier rebuild: only when AI-related paths changed, rebuild the sparrow-ai container.
       # Avoids a full build on every deploy. The AI tier already started in the core up -d; this only refreshes when code changed.
@@ -214,8 +264,10 @@ jobs:
           Set-Location $env:DEPLOY_DIR
           Write-Host "AI changes detected, rebuilding sparrow-ai..."
           docker compose build sparrow-ai
+          if ($LASTEXITCODE -ne 0) { throw "sparrow-ai image build failed" }
           # --no-deps keeps deps untouched; --force-recreate forces a new container
           docker compose up -d --no-deps --force-recreate sparrow-ai
+          if ($LASTEXITCODE -ne 0) { throw "sparrow-ai recreate failed" }
           Write-Host "sparrow-ai rebuilt"
 
       # Conditional gateway refresh: only when frontend/gateway-related paths changed.
@@ -230,6 +282,7 @@ jobs:
           Set-Location $env:DEPLOY_DIR
           Write-Host "frontend/gateway changes detected, recreating sparrow-gateway..."
           docker compose up -d --no-deps --force-recreate sparrow-gateway
+          if ($LASTEXITCODE -ne 0) { throw "sparrow-gateway recreate failed" }
           Write-Host "sparrow-gateway recreated with new frontend"
 
       - name: Apply DB migrations (idempotent)
@@ -259,7 +312,9 @@ jobs:
           Set-Location $env:DEPLOY_DIR
           # build and start the AI tier with --profile ai alongside the core stack
           docker compose --profile ai build sparrow-ai
+          if ($LASTEXITCODE -ne 0) { throw "optional AI image build failed" }
           docker compose --profile ai up -d
+          if ($LASTEXITCODE -ne 0) { throw "optional AI tier deploy failed" }
 
       - name: Ensure restart policy (auto-recover on reboot)
         shell: powershell
@@ -269,10 +324,38 @@ jobs:
         shell: powershell
         run: docker image prune -f
 
-      - name: Health check (gateway :8080 + AI registered in Nacos)
+      - name: Health check (source + gateway + required services)
         shell: powershell
         run: |
-          # 1) wait for gateway to listen on 8080 (4xx/5xx still counts as process alive)
+          # 1) fail if another process changed the source during this deployment.
+          Set-Location $env:DEPLOY_DIR
+          $expected = '${{ github.sha }}'
+          $actual = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $expected) {
+            Write-Host "Deploy source mismatch: expected=$expected actual=$actual"
+            exit 1
+          }
+          Write-Host "Deploy source still verified: $actual"
+
+          $industryContainer = (docker compose ps -q sparrow-industry-chain | Select-Object -First 1)
+          if ($LASTEXITCODE -ne 0 -or -not $industryContainer) {
+            Write-Host "sparrow-industry-chain container not found"
+            exit 1
+          }
+          $containerEnv = docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' $industryContainer
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "could not inspect sparrow-industry-chain container"
+            exit 1
+          }
+          $shaEntry = $containerEnv | Where-Object { $_ -like 'SPARROW_DEPLOY_SHA=*' } | Select-Object -First 1
+          $containerSha = if ($shaEntry) { $shaEntry.Substring('SPARROW_DEPLOY_SHA='.Length).Trim() } else { '' }
+          if ($containerSha -ne $expected) {
+            Write-Host "industry-chain container source mismatch: expected=$expected actual=$containerSha"
+            exit 1
+          }
+          Write-Host "industry-chain container source verified: $containerSha"
+
+          # 2) wait for gateway to listen on 8080 (4xx/5xx still counts as process alive)
           $deadline = (Get-Date).AddMinutes(8)
           $gatewayUp = $false
           while ((Get-Date) -lt $deadline) {
@@ -296,22 +379,32 @@ jobs:
           }
           if (-not $gatewayUp) { Write-Host "Gateway health check timed out after 8 min"; exit 1 }
 
-          # 2) wait for sparrow-ai to register to Nacos (AI is core; not registered = deploy incomplete)
-          $aiDeadline = (Get-Date).AddMinutes(3)
-          while ((Get-Date) -lt $aiDeadline) {
-            try {
-              $resp = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=sparrow-ai"
-              $json = $resp.Content | ConvertFrom-Json
-              $healthy = $json.hosts | Where-Object { $_.healthy -eq $true }
-              if ($healthy) {
-                Write-Host "sparrow-ai registered & healthy in Nacos"
-                exit 0
+          # 3) require every user-facing AI/research service to register healthy in Nacos.
+          function Wait-NacosService {
+            param([string]$ServiceName, [int]$TimeoutMinutes = 3)
+            $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+            while ((Get-Date) -lt $deadline) {
+              try {
+                $url = "http://localhost:8848/nacos/v1/ns/instance/list?serviceName=$ServiceName"
+                $resp = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 $url
+                $json = $resp.Content | ConvertFrom-Json
+                $healthy = $json.hosts | Where-Object { $_.healthy -eq $true }
+                if ($healthy) {
+                  Write-Host "$ServiceName registered & healthy in Nacos"
+                  return $true
+                }
+                Write-Host "$ServiceName not yet healthy in Nacos, retrying..."
+              } catch {
+                Write-Host "Nacos query for $ServiceName failed: $($_.Exception.Message)"
               }
-              Write-Host "sparrow-ai not yet healthy in Nacos, retrying..."
-            } catch {
-              Write-Host "Nacos query failed: $($_.Exception.Message)"
+              Start-Sleep -Seconds 10
             }
-            Start-Sleep -Seconds 10
+            return $false
           }
-          Write-Host "sparrow-ai did not register healthy in Nacos within 3 min after gateway up"
-          exit 1
+
+          foreach ($service in @('sparrow-ai', 'sparrow-industry-chain')) {
+            if (-not (Wait-NacosService -ServiceName $service)) {
+              Write-Host "$service did not register healthy in Nacos within 3 min after gateway up"
+              exit 1
+            }
+          }
