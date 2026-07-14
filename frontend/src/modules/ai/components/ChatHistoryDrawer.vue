@@ -52,7 +52,7 @@
         <!-- 删除确认 -->
         <transition name="dialog-fade">
           <div v-if="pendingDelete" class="confirm-mask" @mousedown="dismissDelete.onMaskMousedown" @mouseup="dismissDelete.onMaskMouseup">
-            <div class="confirm-dialog">
+            <div class="sparrow-modal confirm-dialog">
               <p class="confirm-text">删除这个对话?删除后无法恢复。</p>
               <div v-if="deleteError" class="confirm-error">{{ deleteError }}</div>
               <div class="confirm-actions">
@@ -365,10 +365,6 @@ function relativeTime(ts: number): string {
 .confirm-dialog {
   width: 100%;
   max-width: 280px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
   padding: 16px;
 }
 .confirm-text {

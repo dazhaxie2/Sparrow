@@ -2,7 +2,7 @@
   <div class="admin-shell">
     <main class="admin-page">
       <div class="page-actions">
-        <button class="btn primary" type="button" @click="openCreate"><Plus :size="15" />新建配置</button>
+        <button class="btn primary" type="button" @click="openCreate()"><Plus :size="15" />新建配置</button>
       </div>
 
       <section v-if="loading" class="state-box"><LoaderCircle class="spin" :size="20" /><span>加载配置…</span></section>
@@ -10,32 +10,45 @@
         <AlertTriangle :size="20" /><span>{{ loadError }}</span>
         <button type="button" @click="loadAll">重试</button>
       </section>
-      <section v-else-if="!configs.length" class="empty-box">
-        <span>暂无模型配置,点击「新建配置」创建第一个。</span>
-      </section>
-
-      <!-- 配置列表 -->
-      <section v-else class="config-grid">
-        <article v-for="c in configs" :key="c.id" class="config-card" :class="{ active: c.active }">
-          <div class="card-head">
+      <!-- 按固定场景分组的模型池 -->
+      <section v-else class="model-pool">
+        <section v-for="group in configGroups" :key="group.scene.value" class="scene-group">
+          <header class="scene-head">
             <div>
-              <span class="badge" v-if="c.active">当前激活</span>
-              <h3>{{ c.name }}</h3>
+              <h2>{{ group.scene.label }}</h2>
+              <span>{{ kindLabel(group.scene.kind) }} · {{ group.configs.length }} 个配置</span>
             </div>
-            <span class="card-id">#{{ c.id }}</span>
+            <button class="btn ghost" type="button" @click="openCreate(group.scene.value)">
+              <Plus :size="14" />添加
+            </button>
+          </header>
+          <div v-if="group.configs.length" class="config-grid">
+            <article v-for="c in group.configs" :key="c.id" class="config-card" :class="{ active: c.active }">
+              <div class="card-head">
+                <div>
+                  <span class="badge" v-if="c.active">当前激活</span>
+                  <h3>{{ c.name }}</h3>
+                </div>
+                <span class="card-id">#{{ c.id }}</span>
+              </div>
+              <dl class="card-fields">
+                <div><dt>类型</dt><dd>{{ kindLabel(c.modelKind) }}</dd></div>
+                <div><dt>Base URL</dt><dd>{{ c.baseUrl }}</dd></div>
+                <div><dt>模型</dt><dd>{{ c.modelName }}</dd></div>
+                <div><dt>API Key</dt><dd class="mono">{{ c.apiKeyMasked || '(未设置)' }}</dd></div>
+                <div><dt>超时 / 重试<span v-if="c.modelKind === 'chat'"> / maxTokens</span></dt>
+                  <dd>{{ c.timeoutSeconds }}s / {{ c.maxRetries }}<span v-if="c.modelKind === 'chat'"> / {{ c.maxTokens }}</span></dd>
+                </div>
+              </dl>
+              <div class="card-actions">
+                <button class="btn" type="button" @click="openEdit(c)"><Pencil :size="14" />编辑</button>
+                <button v-if="!c.active" class="btn accent" type="button" @click="handleActivate(c)"><Power :size="14" />激活</button>
+                <span v-else class="active-tag">已激活</span>
+              </div>
+            </article>
           </div>
-          <dl class="card-fields">
-            <div><dt>Base URL</dt><dd>{{ c.baseUrl }}</dd></div>
-            <div><dt>模型</dt><dd>{{ c.modelName }}</dd></div>
-            <div><dt>API Key</dt><dd class="mono">{{ c.apiKeyMasked || '(未设置)' }}</dd></div>
-            <div><dt>超时 / 重试 / maxTokens</dt><dd>{{ c.timeoutSeconds }}s / {{ c.maxRetries }} / {{ c.maxTokens }}</dd></div>
-          </dl>
-          <div class="card-actions">
-            <button class="btn" type="button" @click="openEdit(c)"><Pencil :size="14" />编辑</button>
-            <button v-if="!c.active" class="btn accent" type="button" @click="handleActivate(c)"><Power :size="14" />激活</button>
-            <span v-else class="active-tag">已激活</span>
-          </div>
-        </article>
+          <p v-else class="empty-scene">该场景尚无配置。</p>
+        </section>
       </section>
 
       <!-- 审计 -->
@@ -53,8 +66,8 @@
       </section>
 
       <!-- 编辑/新建 弹层 -->
-      <div v-if="editorOpen" class="editor-overlay" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
-        <form class="editor-box" @submit.prevent="handleSave">
+      <div v-if="editorOpen" class="sparrow-overlay" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
+        <form class="sparrow-modal editor-box" @submit.prevent="handleSave">
           <div class="editor-head">
             <h3>{{ editing?.id ? '编辑配置' : '新建配置' }}</h3>
             <button type="button" class="icon-btn" @click="closeEditor">×</button>
@@ -63,6 +76,19 @@
           <label class="field"><span>名称</span>
             <input v-model="editing.name" type="text" maxlength="64" placeholder="如 GLM-4.5 生产" />
           </label>
+          <div class="field-row two">
+            <label class="field"><span>场景</span>
+              <select v-model="editing.scene" :disabled="editing.active" @change="syncKindFromScene">
+                <option v-for="scene in MODEL_SCENES" :key="scene.value" :value="scene.value">{{ scene.label }}</option>
+              </select>
+              <em v-if="editing.active" class="hint">激活配置不能移动场景</em>
+            </label>
+            <label class="field"><span>模型类型</span>
+              <select v-model="editing.modelKind" disabled>
+                <option v-for="kind in MODEL_KINDS" :key="kind.value" :value="kind.value">{{ kind.label }}</option>
+              </select>
+            </label>
+          </div>
           <label class="field"><span>Base URL</span>
             <input v-model="editing.baseUrl" type="text" placeholder="https://open.bigmodel.cn/api/paas/v4" />
           </label>
@@ -74,14 +100,14 @@
             <input v-model="editing.apiKey" type="password" autocomplete="off" :placeholder="editing.id ? '留空保留旧 Key' : 'sk-...'" />
           </label>
           <div class="field-row">
-            <label class="field"><span>maxTokens</span>
-              <input v-model.number="editing.maxTokens" type="number" min="1" max="32000" />
+            <label v-if="editing.modelKind === 'chat'" class="field"><span>maxTokens</span>
+              <input v-model.number="editing.maxTokens" type="number" min="100" max="100000" />
             </label>
             <label class="field"><span>超时(秒)</span>
-              <input v-model.number="editing.timeoutSeconds" type="number" min="1" max="600" />
+              <input v-model.number="editing.timeoutSeconds" type="number" min="5" max="600" />
             </label>
             <label class="field"><span>重试次数</span>
-              <input v-model.number="editing.maxRetries" type="number" min="0" max="5" />
+              <input v-model.number="editing.maxRetries" type="number" min="0" max="10" />
             </label>
           </div>
 
@@ -89,11 +115,13 @@
           <p v-if="editorInfo" class="form-info">{{ editorInfo }}</p>
 
           <div class="editor-actions">
-            <button class="btn" type="button" :disabled="testing" @click="handleTest">
-              <LoaderCircle v-if="testing" class="spin" :size="14" />
-              <Plug v-else :size="14" />测试连接
+            <button v-if="!testing" class="btn" type="button" :disabled="saving" @click="handleTest">
+              <Plug :size="14" />测试连接
             </button>
-            <button class="btn primary" type="submit" :disabled="saving">{{ saving ? '保存中…' : '保存' }}</button>
+            <button v-else class="btn danger" type="button" @click="cancelTest">
+              <X :size="14" />取消测试
+            </button>
+            <button class="btn primary" type="submit" :disabled="saving || testing">{{ saving ? '保存中…' : '保存' }}</button>
             <button class="btn ghost" type="button" @click="closeEditor">取消</button>
           </div>
         </form>
@@ -108,8 +136,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { AlertTriangle, LoaderCircle, Pencil, Plug, Plus, Power } from '@lucide/vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { AlertTriangle, LoaderCircle, Pencil, Plug, Plus, Power, X } from '@lucide/vue'
 import { useToast } from '../../../shared/composables/useCommon'
 import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 import {
@@ -120,13 +148,17 @@ import {
   testModelConfig,
 } from '../api'
 import type { ModelConfig, ModelConfigAudit, SaveConfigPayload, TestConfigPayload } from '../types'
-import { MODEL_CONFIG_ACTION } from '../types'
+import { MODEL_CONFIG_ACTION, MODEL_SCENES, MODEL_KINDS, kindForScene, kindLabel } from '../types'
 
 const configs = ref<ModelConfig[]>([])
 const audits = ref<ModelConfigAudit[]>([])
 const loading = ref(true)
 const loadError = ref('')
 const auditsLoading = ref(false)
+const configGroups = computed(() => MODEL_SCENES.map(scene => ({
+  scene,
+  configs: configs.value.filter(config => config.scene === scene.value),
+})))
 
 // 编辑器
 const editorOpen = ref(false)
@@ -135,6 +167,10 @@ const testing = ref(false)
 const saving = ref(false)
 const editorError = ref('')
 const editorInfo = ref('')
+const MODEL_TEST_TIMEOUT_SECONDS = 15
+const MODEL_TEST_CLIENT_TIMEOUT_MS = 18_000
+let testController: AbortController | null = null
+let testTimeoutHandle: number | null = null
 
 // toast(复用公共 useToast)
 const toast = useToast()
@@ -150,14 +186,19 @@ interface EditState {
   maxTokens: number
   timeoutSeconds: number
   maxRetries: number
+  scene: string
+  modelKind: string
+  active: boolean
 }
 
 function blankEdit(): EditState {
   return { id: null, name: '', baseUrl: '', modelName: '', apiKey: '', apiKeyMasked: '',
-    maxTokens: 3000, timeoutSeconds: 180, maxRetries: 2 }
+    maxTokens: 3000, timeoutSeconds: 180, maxRetries: 2,
+    scene: 'chain_planning', modelKind: 'chat', active: false }
 }
 
 onMounted(loadAll)
+onBeforeUnmount(() => stopTest('cancelled', false))
 
 async function loadAll() {
   loading.value = true
@@ -187,8 +228,10 @@ async function loadAudits() {
   }
 }
 
-function openCreate() {
+function openCreate(scene = 'chain_planning') {
   Object.assign(editing, blankEdit())
+  editing.scene = scene
+  syncKindFromScene()
   editorError.value = ''
   editorInfo.value = ''
   editorOpen.value = true
@@ -204,12 +247,22 @@ function openEdit(c: ModelConfig) {
   editing.maxTokens = c.maxTokens
   editing.timeoutSeconds = c.timeoutSeconds
   editing.maxRetries = c.maxRetries
+  editing.scene = c.scene
+  editing.modelKind = c.modelKind
+  editing.active = c.active
   editorError.value = ''
   editorInfo.value = ''
   editorOpen.value = true
 }
 
+function syncKindFromScene() {
+  editing.modelKind = kindForScene(editing.scene)
+  if (editing.modelKind === 'embedding') editing.maxTokens = 0
+  else if (editing.maxTokens < 100) editing.maxTokens = 3000
+}
+
 function closeEditor() {
+  stopTest('cancelled', false)
   editorOpen.value = false
 }
 
@@ -222,28 +275,68 @@ async function handleTest() {
     editorError.value = 'Base URL 与模型名称不能为空'
     return
   }
+  const controller = new AbortController()
+  testController = controller
   testing.value = true
+  editorInfo.value = `正在测试连接，最多等待 ${MODEL_TEST_TIMEOUT_SECONDS} 秒，可随时取消。`
+  testTimeoutHandle = window.setTimeout(() => {
+    if (testController === controller) stopTest('timeout')
+  }, MODEL_TEST_CLIENT_TIMEOUT_MS)
   try {
     const payload: TestConfigPayload = {
       name: editing.name,
       baseUrl: editing.baseUrl,
       modelName: editing.modelName,
       apiKey: editing.apiKey,
-      timeoutSeconds: editing.timeoutSeconds,
+      timeoutSeconds: MODEL_TEST_TIMEOUT_SECONDS,
+      scene: editing.scene,
+      modelKind: editing.modelKind,
     }
-    const result = await testModelConfig(payload)
+    const result = await testModelConfig(payload, controller.signal)
+    if (testController !== controller) return
     if (result.ok) {
       editorInfo.value = '✓ ' + result.message
       showToast('测试连接成功')
     } else {
       editorError.value = '✗ ' + result.message
     }
+    clearTestTimeout()
+    testController = null
+    testing.value = false
     await loadAudits()
   } catch (e: any) {
+    if (controller.signal.aborted) return
     editorError.value = e.message
   } finally {
-    testing.value = false
+    if (testController === controller) {
+      clearTestTimeout()
+      testController = null
+      testing.value = false
+    }
   }
+}
+
+function cancelTest() {
+  stopTest('cancelled')
+}
+
+function stopTest(reason: 'cancelled' | 'timeout', showFeedback = true) {
+  if (!testController) return
+  testController.abort()
+  testController = null
+  clearTestTimeout()
+  testing.value = false
+  if (!showFeedback) return
+  editorError.value = ''
+  editorInfo.value = reason === 'timeout'
+    ? '测试等待超时，已停止等待。请检查模型地址、网络或服务状态。'
+    : '已取消连接测试。'
+}
+
+function clearTestTimeout() {
+  if (testTimeoutHandle === null) return
+  window.clearTimeout(testTimeoutHandle)
+  testTimeoutHandle = null
 }
 
 async function handleSave() {
@@ -268,6 +361,8 @@ async function handleSave() {
       maxTokens: editing.maxTokens,
       timeoutSeconds: editing.timeoutSeconds,
       maxRetries: editing.maxRetries,
+      scene: editing.scene,
+      modelKind: editing.modelKind,
     }
     await saveModelConfig(payload)
     showToast('已保存')
@@ -282,10 +377,14 @@ async function handleSave() {
 
 async function handleActivate(c: ModelConfig) {
   if (!c.id) return
-  if (!confirm(`确定激活「${c.name}」吗?新请求将立即使用此配置,进行中的调研不受影响。`)) return
+  const delayed = c.scene.startsWith('sparrow_ai_')
+  const effect = delayed
+    ? '配置将成为权威激活项，并在 sparrow-ai 下次启动时装配。'
+    : '新请求将立即使用此配置，进行中的调研不受影响。'
+  if (!confirm(`确定激活「${c.name}」吗？${effect}`)) return
   try {
     await activateModelConfig(c.id)
-    showToast(`已激活: ${c.name}`)
+    showToast(delayed ? `已激活：${c.name}（重启 sparrow-ai 后生效）` : `已激活：${c.name}`)
     await loadConfigs()
     await loadAudits()
   } catch (e: any) {
@@ -344,6 +443,7 @@ function formatTime(iso: string) {
 
 .btn.primary { border-color: var(--ink); background: var(--ink); color: var(--bg); font-weight: 800; }
 .btn.accent { border-color: var(--accent); color: var(--accent); background: rgba(255, 87, 34, 0.08); }
+.btn.danger { border-color: var(--danger); color: var(--danger); background: rgba(220, 38, 38, 0.06); }
 .btn.ghost { background: transparent; }
 
 .icon-btn {
@@ -374,6 +474,23 @@ function formatTime(iso: string) {
   color: var(--ink-2);
   font-size: 13px;
 }
+
+.model-pool { display: grid; gap: 24px; }
+
+.scene-group { display: grid; gap: 10px; }
+
+.scene-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 8px;
+}
+
+.scene-head h2 { font-size: 17px; }
+.scene-head span { color: var(--muted); font-size: 11px; }
+.empty-scene { border: 1px dashed var(--line); color: var(--muted); padding: 14px; font-size: 12px; }
 
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -493,24 +610,8 @@ function formatTime(iso: string) {
 .empty-mini { color: var(--muted); font-size: 12px; }
 
 /* 编辑弹层 */
-.editor-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(2px);
-  z-index: 100;
-}
-
 .editor-box {
   width: min(520px, calc(100vw - 32px));
-  max-height: 88vh;
-  overflow-y: auto;
-  border: 1px solid var(--ink);
-  background: var(--panel);
-  box-shadow: var(--shadow-md);
   padding: 22px;
 }
 
@@ -536,7 +637,8 @@ function formatTime(iso: string) {
 
 .field .hint { color: var(--muted); font-weight: 400; font-style: normal; }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   height: 38px;
   border: 1px solid var(--line-strong);
@@ -548,12 +650,16 @@ function formatTime(iso: string) {
 }
 
 .field input:focus { border-color: var(--ink); background: var(--panel); }
+.field select:focus { border-color: var(--ink); background: var(--panel); }
+.field select:disabled { color: var(--ink-2); cursor: not-allowed; }
 
 .field-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
+
+.field-row.two { grid-template-columns: repeat(2, 1fr); }
 
 .form-error {
   margin-top: 12px;

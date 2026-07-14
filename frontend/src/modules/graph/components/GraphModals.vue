@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
-    <div v-if="showLearning" class="lc-mask" @mousedown="dismissLearning.onMaskMousedown" @mouseup="dismissLearning.onMaskMouseup">
-      <div class="lc-modal">
+    <div v-if="showLearning" class="sparrow-overlay" @mousedown="dismissLearning.onMaskMousedown" @mouseup="dismissLearning.onMaskMouseup">
+      <div class="sparrow-modal lc-modal">
         <header class="lc-head">
           <strong>我的学习</strong>
           <button type="button" @click="$emit('update:showLearning', false)"><X :size="16" /></button>
@@ -26,8 +26,8 @@
   </Teleport>
 
   <Teleport to="body">
-    <div v-if="showSettings" class="lc-mask" @mousedown="dismissSettings.onMaskMousedown" @mouseup="dismissSettings.onMaskMouseup">
-      <div class="lc-modal settings">
+    <div v-if="showSettings" class="sparrow-overlay" @mousedown="dismissSettings.onMaskMousedown" @mouseup="dismissSettings.onMaskMouseup">
+      <div class="sparrow-modal lc-modal settings">
         <header class="lc-head">
           <strong>设置</strong>
           <button type="button" @click="$emit('update:showSettings', false)"><X :size="16" /></button>
@@ -76,26 +76,12 @@ const dismissSettings = useDismissableOverlay(() => emit('update:showSettings', 
 </script>
 
 <style scoped>
-.lc-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 120;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(2px);
-}
-
 .lc-modal {
   width: min(480px, calc(100vw - 32px));
   max-height: 80vh;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--ink);
-  border-radius: var(--radius);
-  background: var(--panel);
-  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 

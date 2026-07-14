@@ -48,7 +48,7 @@ public class ModelConfigController {
         return ApiResponse.ok(service.list());
     }
 
-    /** 测试连接(不落库)。apiKey 为空时复用当前激活配置的 key。 */
+    /** 测试连接(不落库)。apiKey 为空时仅复用同场景当前激活配置的 key。 */
     @PostMapping("/test")
     public ApiResponse<TestResult> test(@RequestBody TestConfig req) {
         long operatorId = UserContext.require();

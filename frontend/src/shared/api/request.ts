@@ -27,8 +27,12 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
   return body.data
 }
 
-export function post<T>(path: string, data: unknown): Promise<T> {
-  return request<T>(path, { method: 'POST', body: JSON.stringify(data) })
+export function post<T>(
+  path: string,
+  data: unknown,
+  options?: Omit<RequestInit, 'method' | 'body'>,
+): Promise<T> {
+  return request<T>(path, { ...options, method: 'POST', body: JSON.stringify(data) })
 }
 
 export function get<T>(path: string): Promise<T> {

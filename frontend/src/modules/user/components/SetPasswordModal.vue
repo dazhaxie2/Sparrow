@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
-    <div class="modal" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
-      <form class="card" @submit.prevent="handleSubmit">
+    <div class="sparrow-overlay" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
+      <form class="sparrow-modal card" @submit.prevent="handleSubmit">
         <button class="close-btn" type="button" aria-label="跳过" @click="$emit('skip')">×</button>
 
         <div class="head">
@@ -116,24 +116,9 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.modal {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(6px);
-  z-index: 110;
-  padding: 16px;
-}
-
 .card {
   position: relative;
   width: min(380px, 100%);
-  background: var(--panel);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
   padding: 32px 28px 22px;
   display: flex;
   flex-direction: column;

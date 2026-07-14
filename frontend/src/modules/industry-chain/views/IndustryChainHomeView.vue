@@ -33,8 +33,8 @@
       </section>
     </main>
 
-    <div v-if="editorOpen" class="modal-backdrop" @mousedown="dismissEditor.onMaskMousedown" @mouseup="dismissEditor.onMaskMouseup">
-      <form class="card-editor" @submit.prevent="saveCard">
+    <div v-if="editorOpen" class="sparrow-overlay" @mousedown="dismissEditor.onMaskMousedown" @mouseup="dismissEditor.onMaskMouseup">
+      <form class="sparrow-modal card-editor" @submit.prevent="saveCard">
         <div class="modal-title"><div><span>MULTI-AGENT</span><h2>{{ editingId ? '编辑产业链调研' : '新建产业链调研' }}</h2></div><button type="button" @click="closeEditor"><X :size="17" /></button></div>
         <label>调研主题<input v-model="formTitle" maxlength="120" required placeholder="例如：中国人形机器人产业链" /></label>
         <label>初始范围<textarea v-model="formBrief" maxlength="2000" rows="5" placeholder="关注地区、时间范围、产品环节、重点公司或你想验证的问题…"></textarea></label>
@@ -43,8 +43,8 @@
       </form>
     </div>
 
-    <div v-if="deletingCard" class="modal-backdrop" @mousedown="dismissDelete.onMaskMousedown" @mouseup="dismissDelete.onMaskMouseup">
-      <section class="delete-dialog"><AlertTriangle :size="22" /><h2>删除“{{ deletingCard.title }}”？</h2><p>对话、调研报告、图谱和来源将一并删除，且无法恢复。</p><div class="modal-actions"><button type="button" @click="deletingCard = null">取消</button><button class="delete" type="button" :disabled="saving" @click="removeCard">确认删除</button></div></section>
+    <div v-if="deletingCard" class="sparrow-overlay" @mousedown="dismissDelete.onMaskMousedown" @mouseup="dismissDelete.onMaskMouseup">
+      <section class="sparrow-modal delete-dialog"><AlertTriangle :size="22" /><h2>删除“{{ deletingCard.title }}”？</h2><p>对话、调研报告、图谱和来源将一并删除，且无法恢复。</p><div class="modal-actions"><button type="button" @click="deletingCard = null">取消</button><button class="delete" type="button" :disabled="saving" @click="removeCard">确认删除</button></div></section>
     </div>
   </div>
 </template>
@@ -170,8 +170,7 @@ onMounted(() => { void loadResearchCards() })
 .research-login div { flex: 1; }
 .research-login p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 .research-login button { min-height: 34px; border: 1px solid var(--ink); background: var(--ink); color: white; padding: 0 13px; cursor: pointer; }
-.modal-backdrop { position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; padding: 20px; background: rgba(24,28,33,.38); backdrop-filter: blur(3px); }
-.card-editor, .delete-dialog { width: min(520px, 100%); display: grid; gap: 18px; padding: 22px; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: var(--shadow-md); }
+.card-editor, .delete-dialog { width: min(520px, 100%); display: grid; gap: 18px; padding: 22px; }
 .modal-title { display: flex; justify-content: space-between; gap: 12px; }
 .modal-title span { color: var(--accent); font-size: 9px; font-weight: 900; letter-spacing: .14em; }
 .modal-title h2, .delete-dialog h2 { margin: 3px 0 0; font-size: 20px; }

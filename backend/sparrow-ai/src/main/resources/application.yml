@@ -22,6 +22,13 @@ spring:
     listener:
       missing-topics-fatal: false
   cloud:
+    openfeign:
+      client:
+        config:
+          chainModelConfigClient:
+            connectTimeout: 2000
+            readTimeout: 3000
+            loggerLevel: none
     nacos:
       server-addr: ${NACOS_ADDR:localhost:8848}
       config:
@@ -54,6 +61,8 @@ spring:
       port: ${REDIS_PORT:6379}
 
 sparrow:
+  model-pool:
+    internal-token: ${SPARROW_MODEL_POOL_INTERNAL_TOKEN:}
   events:
     enabled: ${KAFKA_ENABLED:false}
   ai:

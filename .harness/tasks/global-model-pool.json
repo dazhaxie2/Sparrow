@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "id": "global-model-pool",
+  "title": "Complete cross-service global model pool",
+  "status": "completed",
+  "objective": "Complete the cross-service global model pool described by docs/harness/model-pool-design.md so every fixed AI scene has an owned, administrable model configuration; industry-chain supports per-scene hot swap; sparrow-ai resolves its chat and embedding models through a secure internal contract with a bounded local fallback; and the maintained design document records the deployed contract, failure behavior and verification evidence.",
+  "scope": {
+    "in": [
+      "Shared model scene, kind, configuration and validation contracts in sparrow-common",
+      "sparrow-industry-chain model configuration persistence, activation, bootstrap, hot swap and internal read contract",
+      "sparrow-ai startup/runtime model resolution for chat, streaming chat and embedding",
+      "Administrator model configuration types, form, grouping and activation behavior",
+      "Additive idempotent migration, focused tests, maintained design documentation and harness manifest"
+    ],
+    "out": [
+      "Moving model configuration persistence out of sparrow-industry-chain or sharing its database credentials",
+      "Introducing a new business service, shared LangChain4j dependency or distributed transaction",
+      "Changing public AI chat, RAG or industry-chain API contracts",
+      "Deploying to or mutating an external environment, production secrets or production model configurations",
+      "Unrelated user-owned frontend and backend edits already present in the dirty worktree"
+    ]
+  },
+  "acceptanceCriteria": [
+    {
+      "id": "AC-1",
+      "description": "The model_config schema and shared contracts represent every fixed scene and enforce scene-kind compatibility without adding a cross-service build dependency.",
+      "status": "passed",
+      "evidence": [
+        "ModelScene declares six fixed scenes and each scene's expected ModelKind; ModelConfigRules rejects unknown, mismatched and out-of-range configurations.",
+        "The additive runtime schema and migrate-model-config-scene.sql retain database ownership in sparrow-industry-chain; both business modules depend only on sparrow-common."
+      ]
+    },
+    {
+      "id": "AC-2",
+      "description": "sparrow-industry-chain loads, activates and hot-swaps chat models independently per scene while preserving encrypted keys, masking, audit and legacy defaults.",
+      "status": "passed",
+      "evidence": [
+        "ChatModelProvider holds per-scene atomic chat/streaming references and all four industry-chain consumers use explicit scenes.",
+        "ModelConfigService validates, encrypts, audits and performs local model swaps only after the activation/update transaction commits."
+      ]
+    },
+    {
+      "id": "AC-3",
+      "description": "sparrow-ai obtains only its chat and embedding scene configurations through a protected internal runtime contract and starts predictably when the owner is unavailable by using a bounded environment fallback.",
+      "status": "passed",
+      "evidence": [
+        "The /internal/chains/model-configs contract is outside gateway routes, permits only sparrow-ai scenes, requires a 32-character deployment token and never logs the response/key.",
+        "ModelPoolConfigResolver tests cover remote preference, kind mismatch, owner failure and missing-token environment fallback; focused sparrow-ai tests passed."
+      ]
+    },
+    {
+      "id": "AC-4",
+      "description": "The administrator UI can create, edit, group and activate configurations by fixed scene without exposing API keys or allowing an incompatible model kind.",
+      "status": "passed",
+      "evidence": [
+        "ModelConfigView groups all six scenes, derives kind from scene, uses embedding-specific fields/tests, prevents moving active configurations and states the actual activation timing.",
+        "The Vite production build passed; in-app browser visual verification was attempted but the browser plugin failed to initialize with Cannot redefine property: process."
+      ]
+    },
+    {
+      "id": "AC-5",
+      "description": "Focused backend tests, frontend production build, deterministic guards and change-aware verification pass; the design document matches the implemented ownership, security, fallback and rollout behavior.",
+      "status": "passed",
+      "evidence": [
+        "node tools/harness.mjs changed passed both deterministic guards, all seven backend modules with 187 tests and the frontend production build.",
+        "docs/harness/model-pool-design.md now records implemented ownership, fixed scenes, schema, token-protected internal contract, activation timing, fallback, rollback, smoke steps and known limitations.",
+        "git diff --check passed with line-ending normalization warnings only."
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "S-1",
+      "description": "Reconcile the existing partial implementation with repository boundaries and establish focused baseline evidence.",
+      "status": "completed",
+      "verification": "Baseline passed: 40 common tests, 56 industry-chain tests, frontend production build and both deterministic guards."
+    },
+    {
+      "id": "S-2",
+      "description": "Complete the shared contract, persistence, multi-scene provider, bootstrap and administrator UI slice.",
+      "status": "completed",
+      "verification": "Shared contract, strict scene-kind validation, schema, per-scene persistence/provider behavior and grouped UI were implemented; focused tests and frontend build passed."
+    },
+    {
+      "id": "S-3",
+      "description": "Add the protected internal configuration endpoint and integrate sparrow-ai chat, streaming and embedding model resolution with fallback.",
+      "status": "completed",
+      "verification": "Token-protected internal read contract and sparrow-ai remote-first startup selection with bounded environment fallback were implemented and tested."
+    },
+    {
+      "id": "S-4",
+      "description": "Add focused contract, failure-path and UI/build coverage and verify the real administrative flow where locally available.",
+      "status": "completed",
+      "verification": "Focused reactor passed 43 common, 30 sparrow-ai and 65 industry-chain tests; frontend production build passed. Browser visual verification was blocked by a plugin initialization fault."
+    },
+    {
+      "id": "S-5",
+      "description": "Update the maintained design document and task record, then run guards and change-aware verification.",
+      "status": "completed",
+      "verification": "The design/architecture documents and manifest were updated; change-aware validation passed 187 backend tests, frontend build and both guards; git diff --check passed."
+    }
+  ],
+  "decisions": [
+    "Keep model_config and key encryption in sparrow-industry-chain; sparrow-ai consumes a runtime contract and never connects to the owner database.",
+    "Keep ModelScene, ModelKind and data-only validation contracts in sparrow-common; keep LangChain4j model construction service-owned.",
+    "Use fixed code-owned scenes and reject scene-kind mismatches instead of accepting arbitrary scene text.",
+    "Treat environment configuration as a startup/recovery fallback for sparrow-ai, not as a second administrative source of truth."
+    ,"Protect the plaintext internal configuration response with an un-routed /internal path plus a deployment-provided token of at least 32 characters; fail closed and fall back when the token is absent."
+    ,"Keep sparrow-ai configuration as a startup snapshot in this version and state the restart requirement in the administrator UI and maintained design; runtime refresh remains a separately testable evolution."
+  ],
+  "blockers": [],
+  "verification": {
+    "lastRunAt": "2026-07-14T08:40:36.807Z",
+    "commands": [
+      {
+        "command": "mvn -f backend/pom.xml -B -ntp -pl sparrow-ai,sparrow-industry-chain -am test",
+        "result": "PASS: 43 common, 30 sparrow-ai and 65 sparrow-industry-chain tests."
+      },
+      {
+        "command": "npm run build",
+        "result": "PASS: Vite production build with the six-scene grouped model configuration UI."
+      },
+      {
+        "command": "node tools/harness.mjs changed",
+        "result": "PASS: both guards, all seven backend modules with 187 tests, and frontend production build."
+      },
+      {
+        "command": "git diff --check",
+        "result": "PASS: no whitespace errors; line-ending normalization warnings only."
+      },
+      {
+        "command": "In-app browser local preview",
+        "result": "BLOCKED: browser plugin initialization failed with Cannot redefine property: process; no alternative browser automation was used."
+      }
+    ]
+  },
+  "nextAction": "Deploy with matching SPARROW_MODEL_POOL_INTERNAL_TOKEN values, run the idempotent migration twice, create/activate all six scenes and execute the authenticated live-model smoke matrix documented in model-pool-design.md.",
+  "createdAt": "2026-07-14T08:15:12.359Z",
+  "updatedAt": "2026-07-14T08:40:36.807Z"
+}

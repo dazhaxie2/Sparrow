@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "id": "global-model-pool-deployment-smoke",
+  "title": "Deploy and live-smoke the global model pool",
+  "status": "in_progress",
+  "objective": "Configure a shared high-entropy internal model-pool token in the local deployment, apply the additive migration idempotently, and prove the six fixed scenes against the configured real model provider including remote selection, service flows, bounded fallback and recovery.",
+  "scope": {
+    "in": [
+      "Local ignored .env secret configuration and Docker Compose injection for sparrow-ai and sparrow-industry-chain",
+      "Local Docker Compose MySQL migration and model-pool runtime services",
+      "Six fixed model scenes, real-provider calls, owner outage fallback and recovery evidence"
+    ],
+    "out": [
+      "External or production deployments and credentials",
+      "Printing, committing or rotating unrelated secrets",
+      "Destructive database changes, volume deletion or unrelated service changes"
+    ]
+  },
+  "acceptanceCriteria": [
+    {
+      "id": "AC-1",
+      "description": "Both services receive the same deployment token of at least 32 characters without exposing or committing the value.",
+      "status": "passed",
+      "evidence": [
+        "A 64-character cryptographically random token is stored only in the git-ignored local .env.",
+        "Sanitized Compose resolution confirmed both services receive the same value and that it matches the local source without printing the value."
+      ]
+    },
+    {
+      "id": "AC-2",
+      "description": "The additive model_config migration succeeds twice and all six fixed scenes have one active, kind-compatible configuration.",
+      "status": "passed",
+      "evidence": [
+        "migrate-model-config-scene.sql completed twice against MySQL 8.0.46 when piped with explicit UTF-8 decoding.",
+        "Authenticated administrator API calls encrypted, saved and activated one matching configuration for each of the six scenes; sanitized IDs are 2 through 7."
+      ]
+    },
+    {
+      "id": "AC-3",
+      "description": "sparrow-ai selects both remote scenes and real-provider chat, streaming and embedding paths succeed without credential leakage.",
+      "status": "pending",
+      "evidence": [
+        "sparrow-ai startup logs selected configId 2 and 3 with source=remote, and sanitized log scans found neither the provider API key nor the internal token.",
+        "A retry of direct glm-4.7 inference returned HTTP 200 in 23778ms; authenticated /api/ai/ask then completed in real agent mode with 2360 response characters.",
+        "The authenticated SSE path completed with 282 delta events and one done event without an error event.",
+        "embedding-3 remains independently blocked by HTTP 429/code 1113 (no balance or applicable resource package)."
+      ]
+    },
+    {
+      "id": "AC-4",
+      "description": "Planning, extraction, report and Agent stream-summary consumers use their active real-model scenes, and owner outage fallback returns to remote after recovery.",
+      "status": "pending",
+      "evidence": [
+        "The owner assembled all four industry-chain scenes and the database has one active kind-compatible configuration for each fixed scene.",
+        "Stopping the owner and restarting sparrow-ai selected source=environment for both AI scenes; restoring the owner and restarting selected source=remote for both scenes.",
+        "A real chain_planning call completed with 584 characters in 44.742s.",
+        "A complete glm-4.7 workflow reached writing after planning/searching/verifying/mapping; chain_agent_stream hit provider code 1302 rate limiting and used its blocking fallback, then the final report timed out.",
+        "The owner now supports non-thinking deepseek-v4-* requests; activation and a complete mixed-provider run await secure local key injection."
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "S-1",
+      "description": "Inspect deployment inputs, add Compose injection and write a non-disclosed local token.",
+      "status": "completed",
+      "verification": "PASS: .env is ignored; token length is 64; owner_consumer_match and compose_matches_env are true."
+    },
+    {
+      "id": "S-2",
+      "description": "Start infrastructure, apply the migration twice and establish one active configuration per scene.",
+      "status": "completed",
+      "verification": "PASS: both migration runs succeeded; active_scene_count=6 and every scene-kind pair has exactly one active row."
+    },
+    {
+      "id": "S-3",
+      "description": "Build and restart the owner and consumer, then execute real-model smoke flows.",
+      "status": "in_progress",
+      "verification": "PARTIAL PASS: glm-4.7 direct/chat/SSE/planning succeed; the complete workflow reached writing but failed after Agent rate limiting and report timeout; embedding-3 remains quota-blocked."
+    },
+    {
+      "id": "S-4",
+      "description": "Exercise owner outage fallback, restore remote selection and record sanitized evidence.",
+      "status": "completed",
+      "verification": "PASS: both scenes switched remote -> environment -> remote across owner outage/recovery; owner and consumer ended running; no configured credential appeared in logs."
+    }
+  ],
+  "decisions": [
+    "Keep the generated token only in the repository-ignored local .env and pass the same variable reference to both Compose services.",
+    "Use the existing local real-provider credentials as migration/bootstrap source without reading them into logs or task evidence.",
+    "Keep chain_planning on glm-4.7 and create independent deepseek-v4-flash chat configurations for chain_agent_stream, chain_extraction and chain_report to remove the principal concurrent and late-stage load from the GLM account.",
+    "Drain active research runs before activation because model references are read per call, not snapshotted for an entire runId."
+  ],
+  "blockers": [
+    "The independent embedding-3 provider path remains quota-blocked with HTTP 429/code 1113 (no balance/resource package); the glm-4.7 inference resource package does not cover embedding."
+  ],
+  "verification": {
+    "lastRunAt": "2026-07-14T09:10:30.000Z",
+    "commands": [
+      {
+        "command": "docker compose config --format json (sanitized equality check)",
+        "result": "PASS: 64-character token resolved identically for both services without disclosure."
+      },
+      {
+        "command": "migrate-model-config-scene.sql piped with Get-Content -Encoding UTF8, twice",
+        "result": "PASS: both runs completed on MySQL 8.0.46."
+      },
+      {
+        "command": "Authenticated model-config save/activate and sanitized database invariant query",
+        "result": "PASS: all six scene-kind pairs have exactly one active configuration."
+      },
+      {
+        "command": "docker compose build/up and sanitized sparrow-ai/industry-chain log inspection",
+        "result": "PASS: owner assembled 4/4; AI chat and embedding selected source=remote; no API key or internal token leakage."
+      },
+      {
+        "command": "Owner stop, sparrow-ai restart, owner restore, sparrow-ai restart",
+        "result": "PASS: both scenes selected environment fallback during outage and remote after recovery."
+      },
+      {
+        "command": "Real chat/embedding provider probes",
+        "result": "BLOCKED: standard chat timeout; embedding HTTP 429/code 1113; Coding chat HTTP 429/code 1310 with provider reset time 2026-07-15 22:02:06."
+      },
+      {
+        "command": "node tools/harness.mjs guard; git diff --check; docker compose config --quiet",
+        "result": "PASS: both guards and Compose validation passed; diff check had line-ending warnings only."
+      },
+      {
+        "command": "Smoke identity/session cleanup and final sanitized database query",
+        "result": "PASS: three disposable users and their temporary session material were removed; six active model configurations remain."
+      },
+      {
+        "command": "Retry real glm-4.7 standard inference after resource-package confirmation",
+        "result": "PASS: HTTP 200 with a valid choices payload in 23778ms; embedding-3 independently remained HTTP 429/code 1113."
+      },
+      {
+        "command": "Authenticated /api/ai/ask and /api/ai/ask/stream",
+        "result": "PASS: synchronous agent mode returned 2360 characters; SSE completed with 282 deltas and done without an error event."
+      },
+      {
+        "command": "Real chain_planning call and complete glm-4.7 industry workflow",
+        "result": "PARTIAL: planning passed; the full run advanced to writing after a code 1302 Agent rate limit and fallback, then failed on final report timeout."
+      },
+      {
+        "command": "mvn -pl sparrow-industry-chain -am clean test; Docker image rebuild/recreate",
+        "result": "PASS: 110 tests passed and the rebuilt owner assembled 4/4 scenes with DeepSeek V4 non-thinking parameter support."
+      }
+    ]
+  },
+  "nextAction": "Read DEEPSEEK_API_KEY from the ignored local .env without disclosure, save and activate deepseek-v4-flash independently for Agent stream, extraction and report, then rerun the complete industry workflow and leave embedding-3/code 1113 as the only external blocker if successful.",
+  "createdAt": "2026-07-14T08:46:15.477Z",
+  "updatedAt": "2026-07-14T09:49:00.000Z"
+}

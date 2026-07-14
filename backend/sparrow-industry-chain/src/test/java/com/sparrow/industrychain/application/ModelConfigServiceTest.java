@@ -1,5 +1,8 @@
 package com.sparrow.industrychain.application;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sparrow.common.ai.model.ModelKind;
+import com.sparrow.common.ai.model.ModelScene;
 import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.industrychain.application.ModelConfigService.SaveConfig;
@@ -73,8 +76,8 @@ class ModelConfigServiceTest {
         assertThatThrownBy(() -> service.activate(10L, USER_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("管理员");
-        verify(repository, never()).setActive(anyLong());
-        verify(provider, never()).swap(any());
+        verify(repository, never()).setActiveByScene(anyLong(), any());
+        verify(provider, never()).swap(any(), any());
     }
 
     /** 管理员身份未知(Feign 返回 null)拒绝。 */
@@ -103,7 +106,8 @@ class ModelConfigServiceTest {
     void activateRejectsBlankApiKey() {
         asAdmin(ADMIN_ID);
         when(repository.findDecryptedById(5L)).thenReturn(Optional.of(
-                ModelConfig.decrypted(5L, "n", "http://u", "m", "", 3000, 180, 2, false)));
+                ModelConfig.decrypted(5L, "n", "http://u", "m", "", 3000, 180, 2, false,
+                        ModelScene.CHAIN_PLANNING, ModelKind.CHAT)));
         assertThatThrownBy(() -> service.activate(5L, ADMIN_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("API Key");
@@ -113,15 +117,16 @@ class ModelConfigServiceTest {
     @Test
     void activateSwapsAndBroadcastsOnSuccess() {
         asAdmin(ADMIN_ID);
-        ModelConfig cfg = ModelConfig.decrypted(5L, "glm", "http://u", "glm-4.5", "sk-key", 3000, 180, 2, false);
+        ModelConfig cfg = ModelConfig.decrypted(5L, "glm", "http://u", "glm-4.5", "sk-key",
+                3000, 180, 2, false, ModelScene.CHAIN_PLANNING, ModelKind.CHAT);
         when(repository.findDecryptedById(5L)).thenReturn(Optional.of(cfg));
         ChatModel built = mock(ChatModel.class);
         when(aiConfig.buildFrom(cfg)).thenReturn(built);
 
         service.activate(5L, ADMIN_ID);
 
-        verify(repository, times(1)).setActive(5L);
-        verify(provider, times(1)).swap(built);
+        verify(repository, times(1)).setActiveByScene(eq(5L), any());
+        verify(provider, times(1)).swap(any(), eq(built));
         verify(repository, times(1)).audit(eq(5L), any(), eq(ADMIN_ID), eq("ACTIVATE"), any(), any());
     }
 
@@ -129,15 +134,16 @@ class ModelConfigServiceTest {
     @Test
     void activateFailsSafelyWhenBuildThrows() {
         asAdmin(ADMIN_ID);
-        ModelConfig cfg = ModelConfig.decrypted(5L, "glm", "http://u", "glm-4.5", "sk-key", 3000, 180, 2, false);
+        ModelConfig cfg = ModelConfig.decrypted(5L, "glm", "http://u", "glm-4.5", "sk-key",
+                3000, 180, 2, false, ModelScene.CHAIN_PLANNING, ModelKind.CHAT);
         when(repository.findDecryptedById(5L)).thenReturn(Optional.of(cfg));
         when(aiConfig.buildFrom(cfg)).thenThrow(new RuntimeException("bad config"));
 
         assertThatThrownBy(() -> service.activate(5L, ADMIN_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("构建模型失败");
-        verify(repository, never()).setActive(anyLong());
-        verify(provider, never()).swap(any());
+        verify(repository, never()).setActiveByScene(anyLong(), any());
+        verify(provider, never()).swap(any(), any());
     }
 
     // ── 测试连接 ──
@@ -147,7 +153,7 @@ class ModelConfigServiceTest {
     void testRejectsMissingFields() {
         asAdmin(ADMIN_ID);
         assertThatThrownBy(() -> service.test(
-                new TestConfig("n", "", "m", "k", 30), ADMIN_ID))
+                new TestConfig("n", "", "m", "k", 30, null, null), ADMIN_ID))
                 .isInstanceOf(BizException.class);
     }
 
@@ -155,9 +161,9 @@ class ModelConfigServiceTest {
     @Test
     void testRejectsWhenNoKeyAndNoActiveConfig() {
         asAdmin(ADMIN_ID);
-        when(repository.findActiveDecrypted()).thenReturn(Optional.empty());
+        when(repository.findActiveDecrypted(any())).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.test(
-                new TestConfig("n", "http://u", "m", "", 30), ADMIN_ID))
+                new TestConfig("n", "http://u", "m", "", 30, null, null), ADMIN_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("API Key");
     }
@@ -165,14 +171,23 @@ class ModelConfigServiceTest {
     @Test
     void testNeverReusesActiveKeyForDifferentBaseUrl() {
         asAdmin(ADMIN_ID);
-        when(repository.findActiveDecrypted()).thenReturn(Optional.of(
+        when(repository.findActiveDecrypted(any())).thenReturn(Optional.of(
                 ModelConfig.decrypted(7L, "prod", "https://provider.example/v1", "m",
-                        "stored-secret", 3000, 180, 2, true)));
+                        "stored-secret", 3000, 180, 2, true,
+                        ModelScene.CHAIN_PLANNING, ModelKind.CHAT)));
 
         assertThatThrownBy(() -> service.test(
-                new TestConfig("probe", "https://attacker.example/v1", "m", "", 30), ADMIN_ID))
+                new TestConfig("probe", "https://attacker.example/v1", "m", "", 30,
+                        "chain_planning", "chat"), ADMIN_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("重新提供 API Key");
+    }
+
+    @Test
+    void connectionTestUsesShortTimeoutInsteadOfResearchTimeout() {
+        assertThat(ModelConfigService.modelTestTimeoutSeconds(180)).isEqualTo(15);
+        assertThat(ModelConfigService.modelTestTimeoutSeconds(5)).isEqualTo(5);
+        assertThat(ModelConfigService.modelTestTimeoutSeconds(0)).isEqualTo(15);
     }
 
     // ── 保存 ──
@@ -183,7 +198,7 @@ class ModelConfigServiceTest {
         asAdmin(ADMIN_ID);
         when(repository.encryptionReady()).thenReturn(false);
         assertThatThrownBy(() -> service.save(
-                new SaveConfig(null, "n", "http://u", "m", "sk", 3000, 180, 2), ADMIN_ID))
+                new SaveConfig(null, "n", "http://u", "m", "sk", 3000, 180, 2, null, null), ADMIN_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("主密钥");
     }
@@ -194,7 +209,7 @@ class ModelConfigServiceTest {
         asAdmin(ADMIN_ID);
         when(repository.encryptionReady()).thenReturn(true);
         assertThatThrownBy(() -> service.save(
-                new SaveConfig(null, "n", "http://u", "m", "", 3000, 180, 2), ADMIN_ID))
+                new SaveConfig(null, "n", "http://u", "m", "", 3000, 180, 2, null, null), ADMIN_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("API Key");
     }
@@ -205,12 +220,14 @@ class ModelConfigServiceTest {
         asAdmin(ADMIN_ID);
         when(repository.encryptionReady()).thenReturn(true);
         when(repository.findDecryptedById(8L)).thenReturn(Optional.of(
-                ModelConfig.decrypted(8L, "n", "http://u", "m", "old-key", 3000, 180, 2, false)));
+                ModelConfig.decrypted(8L, "n", "http://u", "m", "old-key", 3000, 180, 2, false,
+                        ModelScene.CHAIN_PLANNING, ModelKind.CHAT)));
 
-        service.save(new SaveConfig(8L, "n2", "http://u/", "m2", "", 4000, 120, 1), ADMIN_ID);
+        service.save(new SaveConfig(8L, "n2", "http://u/", "m2", "", 4000, 120, 1, null, null), ADMIN_ID);
 
         verify(repository, times(1)).update(eq(8L), eq("n2"), eq("http://u/"), eq("m2"),
-                eq(null), eq(4000), eq(120), eq(1));
+                eq(null), eq(4000), eq(120), eq(1),
+                eq(ModelScene.CHAIN_PLANNING), eq(ModelKind.CHAT));
     }
 
     @Test
@@ -219,15 +236,50 @@ class ModelConfigServiceTest {
         when(repository.encryptionReady()).thenReturn(true);
         when(repository.findDecryptedById(8L)).thenReturn(Optional.of(
                 ModelConfig.decrypted(8L, "n", "https://provider.example/v1", "m",
-                        "stored-secret", 3000, 180, 2, false)));
+                        "stored-secret", 3000, 180, 2, false,
+                        ModelScene.CHAIN_PLANNING, ModelKind.CHAT)));
 
         assertThatThrownBy(() -> service.save(new SaveConfig(8L, "n2",
-                "https://attacker.example/v1", "m2", "", 4000, 120, 1), ADMIN_ID))
+                "https://attacker.example/v1", "m2", "", 4000, 120, 1, null, null), ADMIN_ID))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("重新提供 API Key");
 
         verify(repository, never()).update(anyLong(), any(), any(), any(), any(),
-                anyInt(), anyInt(), anyInt());
+                anyInt(), anyInt(), anyInt(), any(), any());
+    }
+
+    @Test
+    void saveRejectsUnknownOrIncompatibleSceneKind() {
+        asAdmin(ADMIN_ID);
+        when(repository.encryptionReady()).thenReturn(true);
+
+        assertThatThrownBy(() -> service.save(new SaveConfig(null, "n", "https://provider.example/v1",
+                "m", "sk", 3000, 60, 1, "unknown", "chat"), ADMIN_ID))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("场景");
+        assertThatThrownBy(() -> service.save(new SaveConfig(null, "n", "https://provider.example/v1",
+                "m", "sk", 3000, 60, 1, "sparrow_ai_embedding", "chat"), ADMIN_ID))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("embedding");
+
+        verify(repository, never()).insert(any(), any(), any(), any(), anyInt(), anyInt(), anyInt(),
+                any(), any(), any());
+    }
+
+    @Test
+    void activatingSparrowAiEmbeddingChangesAuthorityWithoutBuildingIndustryChatModel() {
+        asAdmin(ADMIN_ID);
+        ModelConfig cfg = ModelConfig.decrypted(12L, "embed", "https://provider.example/v1",
+                "embedding-3", "sk-key", 0, 60, 1, false,
+                ModelScene.SPARROW_AI_EMBEDDING, ModelKind.EMBEDDING);
+        when(repository.findDecryptedById(12L)).thenReturn(Optional.of(cfg));
+
+        service.activate(12L, ADMIN_ID);
+
+        verify(repository).setActiveByScene(12L, ModelScene.SPARROW_AI_EMBEDDING);
+        verify(aiConfig, never()).buildFrom(any());
+        verify(aiConfig, never()).buildStreamingFrom(any());
+        verify(provider, never()).swap(any(), any());
     }
 
     // ── 脱敏 ──
@@ -245,12 +297,26 @@ class ModelConfigServiceTest {
     @Test
     void listReturnsMaskedViews() {
         ModelConfig view = ModelConfig.forView(1L, "n", "u", "m", "sk-1****cdef",
-                3000, 180, 2, true, null, null, null);
+                3000, 180, 2, true, ModelScene.CHAIN_PLANNING, ModelKind.CHAT,
+                null, null, null);
         when(repository.listAll()).thenReturn(List.of(view));
         List<ModelConfig> result = service.list();
         assertThat(result).hasSize(1);
         assertThat(result.get(0).apiKeyMasked()).isEqualTo("sk-1****cdef");
         assertThat(result.get(0).apiKeyPlain()).isNull();
+    }
+
+    @Test
+    void adminJsonUsesStableSceneAndModelKindWithoutPlainKey() throws Exception {
+        ModelConfig view = ModelConfig.forView(1L, "n", "u", "m", "sk-1****cdef",
+                3000, 180, 2, true, ModelScene.CHAIN_PLANNING, ModelKind.CHAT,
+                null, null, null);
+
+        String json = new ObjectMapper().writeValueAsString(view);
+
+        assertThat(json).contains("\"scene\":\"chain_planning\"")
+                .contains("\"modelKind\":\"chat\"")
+                .doesNotContain("apiKeyPlain");
     }
 
     /** 审计 limit 边界裁剪。 */

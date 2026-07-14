@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.application.workflow;
 
+import com.sparrow.common.ai.model.ModelScene;
 import com.sparrow.industrychain.application.forum.ForumBus;
 import com.sparrow.industrychain.application.forum.ForumEvent;
 import com.sparrow.industrychain.infrastructure.llm.WebSearchClient;
@@ -261,7 +262,7 @@ public class IndustryChainResearchAgent {
             }
         };
         try {
-            String full = chatProvider.stream(prompt, onToken, error -> { });
+            String full = chatProvider.stream(ModelScene.CHAIN_AGENT_STREAM, prompt, onToken, error -> { });
             // 最终推送一次完整文本,确保前端拿到结尾。
             forum.stream(ctx.cardId(), ctx.runId(), streamId, role, full);
             return full;

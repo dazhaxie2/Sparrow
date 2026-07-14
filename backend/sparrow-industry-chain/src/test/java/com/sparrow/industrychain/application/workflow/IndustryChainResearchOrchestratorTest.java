@@ -67,7 +67,8 @@ class IndustryChainResearchOrchestratorTest {
         // ChatModelProvider 用真实实例持有 mock 模型(ForumBus 经 provider.model() 取主持人模型)。
         IndustryChainRepository repo = mock(IndustryChainRepository.class);
         IndustryChainEventHub hub = mock(IndustryChainEventHub.class);
-        ChatModelProvider forumProvider = new ChatModelProvider(chatModel);
+        ChatModelProvider forumProvider = new ChatModelProvider();
+        forumProvider.init(com.sparrow.common.ai.model.ModelScene.CHAIN_PLANNING, chatModel);
         forum = new ForumBus(repo, hub, forumProvider, MAPPER, Runnable::run);
 
         orchestrator = new IndustryChainResearchOrchestrator(chat, MAPPER, webSearch, forum,

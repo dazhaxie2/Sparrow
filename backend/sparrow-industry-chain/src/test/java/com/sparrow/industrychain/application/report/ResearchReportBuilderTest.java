@@ -11,6 +11,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -21,9 +22,10 @@ class ResearchReportBuilderTest {
     @Test
     void fallsBackToVerifiedEvidenceWhenModelIrCannotBeParsed() throws Exception {
         ChatModelProvider chat = mock(ChatModelProvider.class);
-        when(chat.available()).thenReturn(true);
-        when(chat.chat(anyString())).thenReturn("not-json");
-        when(chat.chatOr(anyString(), anyString())).thenAnswer(call -> call.getArgument(1));
+        com.sparrow.common.ai.model.ModelScene scene = com.sparrow.common.ai.model.ModelScene.CHAIN_REPORT;
+        when(chat.available(eq(scene))).thenReturn(true);
+        when(chat.chat(eq(scene), anyString())).thenReturn("not-json");
+        when(chat.chatOr(eq(scene), anyString(), anyString())).thenAnswer(call -> call.getArgument(2));
         ResearchReportBuilder builder = new ResearchReportBuilder(chat, mapper, new IrValidator());
         SearchSource source = new SearchSource("S1", "来源一", "https://example.test/s1", "测试来源", "摘要");
 

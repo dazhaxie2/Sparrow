@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
-    <div class="modal" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
-      <div class="modal-box">
+    <div class="sparrow-overlay" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
+      <div class="sparrow-modal modal-box">
         <div class="modal-head">
           <div>
             <span class="eyebrow">SPARROW MEMBERSHIP</span>
@@ -63,22 +63,8 @@ async function buy(code: string) {
 </script>
 
 <style scoped>
-.modal {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(2px);
-  z-index: 100;
-}
-
 .modal-box {
   width: min(520px, calc(100vw - 32px));
-  border: 1px solid var(--ink);
-  background: var(--panel);
-  box-shadow: var(--shadow-md);
   padding: 22px;
 }
 

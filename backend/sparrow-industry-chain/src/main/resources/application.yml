@@ -29,6 +29,8 @@ spring:
       port: ${REDIS_PORT:6379}
 
 sparrow:
+  model-pool:
+    internal-token: ${SPARROW_MODEL_POOL_INTERNAL_TOKEN:}
   industry-chain:
     base-url: ${AI_BASE_URL:}
     api-key: ${AI_API_KEY:}

@@ -124,10 +124,15 @@ public class IndustryChainRepository {
                 + "timeout_seconds INT NOT NULL DEFAULT 180,"
                 + "max_retries INT NOT NULL DEFAULT 2,"
                 + "active TINYINT NOT NULL DEFAULT 0,"
+                + "scene VARCHAR(48) NOT NULL DEFAULT 'chain_planning',"
+                + "model_kind VARCHAR(16) NOT NULL DEFAULT 'chat',"
                 + "created_by BIGINT NULL,"
                 + "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
                 + "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
                 + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // 平滑升级：老库补 scene/model_kind 列(模型池场景化)
+        addColumnIfMissing("model_config", "scene", "VARCHAR(48) NOT NULL DEFAULT 'chain_planning' AFTER active");
+        addColumnIfMissing("model_config", "model_kind", "VARCHAR(16) NOT NULL DEFAULT 'chat' AFTER scene");
         jdbc.execute("CREATE TABLE IF NOT EXISTS model_config_audit ("
                 + "id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,"
                 + "config_id BIGINT NULL,"

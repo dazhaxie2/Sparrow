@@ -17,6 +17,20 @@ class IndustryChainAiConfigProviderParametersTest {
     }
 
     @Test
+    void disablesDefaultThinkingForDeepSeekV4() {
+        Map<String, Object> parameters = IndustryChainAiConfig.providerCustomParameters(
+                "https://api.deepseek.com", "deepseek-v4-flash");
+
+        assertThat(parameters).containsEntry("thinking", Map.of("type", "disabled"));
+    }
+
+    @Test
+    void doesNotSendThinkingParameterToLegacyDeepSeekModels() {
+        assertThat(IndustryChainAiConfig.providerCustomParameters(
+                "https://api.deepseek.com", "deepseek-chat")).isEmpty();
+    }
+
+    @Test
     void doesNotSendProviderSpecificParametersToOtherEndpoints() {
         assertThat(IndustryChainAiConfig.providerCustomParameters(
                 "https://api.openai.com/v1", "gpt-4o-mini")).isEmpty();

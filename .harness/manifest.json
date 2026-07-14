@@ -18,7 +18,8 @@
     "docs/harness/failure-playbook.md",
     "docs/harness/runtime-ai-chat.md",
     "docs/harness/admin-agent-config.md",
-    "docs/harness/communication.md"
+    "docs/harness/communication.md",
+    "docs/harness/model-pool-design.md"
   ],
   "backend": {
     "root": "backend",

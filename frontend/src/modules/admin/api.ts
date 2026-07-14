@@ -15,8 +15,8 @@ export function listModelConfigs() {
 }
 
 /** 测试连接(不落库)。 */
-export function testModelConfig(payload: TestConfigPayload) {
-  return post<TestResult>('/api/chains/admin/model-configs/test', payload)
+export function testModelConfig(payload: TestConfigPayload, signal?: AbortSignal) {
+  return post<TestResult>('/api/chains/admin/model-configs/test', payload, { signal })
 }
 
 /** 保存(新增或更新)。 */

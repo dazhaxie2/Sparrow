@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
-    <div class="mask" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
-      <form class="card" @submit.prevent="submit">
+    <div class="sparrow-overlay" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
+      <form class="sparrow-modal card" @submit.prevent="submit">
         <header><div><small>ACCOUNT SECURITY</small><h2>绑定邮箱</h2></div><button type="button" @click="emit('close')">×</button></header>
         <p>绑定后可以使用该邮箱和原密码登录。验证码仅用于本次绑定，不能作为登录验证码使用。</p>
         <label><span>邮箱地址</span><input v-model.trim="email" type="email" maxlength="128" autocomplete="email" placeholder="name@example.com" /></label>
@@ -72,8 +72,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>
-.mask { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.48); }
-.card { width: min(440px, 100%); border: 1px solid var(--ink); border-radius: var(--radius); background: var(--panel); padding: 22px; box-shadow: var(--shadow-md); }
+.card { width: min(440px, 100%); padding: 22px; }
 header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--line); padding-bottom: 13px; }
 header small { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .12em; } h2 { margin-top: 4px; }
 header button { border: 0; background: transparent; font-size: 24px; cursor: pointer; }

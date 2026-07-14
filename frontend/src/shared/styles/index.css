@@ -57,6 +57,39 @@ body {
   }
 }
 
+/**
+ * 自研弹窗统一外壳。所有自研弹窗的遮罩层与卡片引用这两个类,保证视觉一致;
+ * 各弹窗只保留各自宽度(通过 style 或额外类)与内部表单内容。
+ *
+ * 用法:
+ *   <div class="sparrow-overlay" @mousedown="..." @mouseup="...">
+ *     <div class="sparrow-modal" style="width: min(440px, 100%)"> ... </div>
+ *   </div>
+ */
+.sparrow-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+}
+
+/** 弹窗卡片:统一边框/圆角/阴影/背景,宽度由各弹窗自行设置。 */
+.sparrow-modal {
+  width: min(440px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+  padding: 28px;
+}
+
 button,
 input,
 textarea,

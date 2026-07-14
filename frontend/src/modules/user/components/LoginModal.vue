@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
-    <div class="modal" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
-      <form class="login-card" @submit.prevent="handleSubmit">
+    <div class="sparrow-overlay" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
+      <form class="sparrow-modal login-card" @submit.prevent="handleSubmit">
         <button class="close-btn" type="button" aria-label="关闭" @click="$emit('close')">×</button>
 
         <!-- 品牌区 -->
@@ -185,24 +185,8 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.modal {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(6px);
-  z-index: 100;
-  padding: 16px;
-}
-
 .login-card {
-  position: relative;
   width: min(380px, 100%);
-  background: var(--panel);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
   padding: 36px 28px 24px;
   display: flex;
   flex-direction: column;

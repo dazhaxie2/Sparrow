@@ -106,6 +106,23 @@
             <p>{{ detail.detail }}</p>
           </section>
 
+          <section v-if="currentName !== '加载中'" class="source-block">
+            <div class="section-title">
+              <BookOpen :size="15" />
+              <span>知识来源</span>
+            </div>
+            <div class="source-list">
+              <a
+                :href="`https://baike.baidu.com/item/${encodeURIComponent(currentName)}`"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <strong>{{ currentName }}</strong>
+                <span>百度百科</span>
+              </a>
+            </div>
+          </section>
+
           <section v-if="sources.length" class="source-block">
             <div class="section-title">
               <ExternalLink :size="15" />

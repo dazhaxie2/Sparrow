@@ -13,6 +13,7 @@ flowchart LR
     Graph -->|"Feign /internal/ai"| AI
     Graph -->|"Feign /internal/user"| User
     AI -->|"Feign /internal/graph,user"| Graph
+    AI -->|"Feign /internal/chains/model-configs"| Chain
     Chain -->|"Feign /internal/user"| User
     Trade -->|"Feign /internal/user"| User
     Trade -->|"Kafka order-paid"| User
@@ -41,6 +42,13 @@ Harness metadata is shared through `sparrow-common`.
 Administrator-managed Agent prompts and runtime bounds remain in the database of
 the service that executes the Agent. `sparrow-user` alone owns the administrator
 role; downstream services verify it through `/internal/user/{id}/profile`.
+
+Model configuration is owned by `sparrow-industry-chain` in `model_config`.
+Stable scene/kind/data contracts live in `sparrow-common`; `sparrow-ai` reads only
+its chat and embedding scenes through `/internal/chains/model-configs`, authenticated
+with the deployment-provided `SPARROW_MODEL_POOL_INTERNAL_TOKEN`. It never connects
+to the owner database. Missing or invalid internal configuration falls back to the
+existing service-owned environment settings during startup.
 
 ## Enforced constraints
 

@@ -41,8 +41,8 @@
       </section>
     </main>
 
-    <div v-if="editing" class="mask" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
-      <form class="editor" @submit.prevent="save">
+    <div v-if="editing" class="sparrow-overlay" @mousedown="dismiss.onMaskMousedown" @mouseup="dismiss.onMaskMouseup">
+      <form class="sparrow-modal editor" @submit.prevent="save">
         <header>
           <div><small>{{ serviceLabel(editing.service) }}</small><h2>{{ editing.displayName }}</h2></div>
           <button type="button" aria-label="关闭" @click="closeEditor">×</button>
@@ -181,8 +181,7 @@ dt { color: var(--muted); font-size: 9px; } dd { margin-top: 3px; font-size: 12p
 .agent-card footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: auto; }
 .agent-card footer small { color: var(--muted); font-size: 9px; }
 .agent-card footer button, .editor footer button { border: 1px solid var(--line-strong); background: var(--panel); padding: 8px 11px; cursor: pointer; }
-.mask { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 18px; background: rgba(0,0,0,.46); }
-.editor { width: min(720px, 100%); max-height: 92vh; overflow: auto; border: 1px solid var(--ink); background: var(--panel); padding: 22px; }
+.editor { width: min(720px, 100%); padding: 22px; }
 .editor > header { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
 .editor > header button { border: 0; background: transparent; font-size: 25px; cursor: pointer; }
 .switch-row { display: flex; justify-content: space-between; margin: 16px 0; padding: 12px; background: var(--surface); }

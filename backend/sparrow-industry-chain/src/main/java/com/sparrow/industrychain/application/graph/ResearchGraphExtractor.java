@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.application.graph;
 
+import com.sparrow.common.ai.model.ModelScene;
 import com.sparrow.industrychain.application.config.IndustryAgentConfigService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,10 +35,10 @@ public class ResearchGraphExtractor {
     public JsonNode extract(String title, String evidence, List<SearchSource> sources) {
         String configuredPrompt = agentConfigs == null ? "你是产业链关系抽取 Agent。"
                 : agentConfigs.requireEnabled(IndustryAgentConfigService.GRAPH_EXTRACTOR).systemPrompt();
-        String raw = chat.chat(configuredPrompt + "\n\n" + prompt(title, evidence, sources));
+        String raw = chat.chat(ModelScene.CHAIN_EXTRACTION, configuredPrompt + "\n\n" + prompt(title, evidence, sources));
         JsonNode graph = parseJson(raw);
         if (!validator.valid(graph, sources)) {
-            String repaired = chat.chat("修复下面内容为严格符合原 schema 的 JSON。删除无来源关系，"
+            String repaired = chat.chat(ModelScene.CHAIN_EXTRACTION, "修复下面内容为严格符合原 schema 的 JSON。删除无来源关系，"
                     + "不要添加新事实，只输出 JSON：\n" + compact(raw, 8000));
             graph = parseJson(repaired);
         }

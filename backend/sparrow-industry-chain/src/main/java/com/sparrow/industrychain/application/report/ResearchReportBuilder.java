@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.application.report;
 
+import com.sparrow.common.ai.model.ModelScene;
 import com.sparrow.industrychain.application.config.IndustryAgentConfigService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -64,14 +65,14 @@ public class ResearchReportBuilder {
     /** 构建报告。返回 IR JSON 字符串与降级 Markdown。 */
     public ReportResult build(String title, String evidence, JsonNode graphJson,
                               List<SearchSource> sources, String forumDigest) {
-        if (!chat.available()) throw new BizException(503, "AI 服务未配置，无法生成报告");
+        if (!chat.available(ModelScene.CHAIN_REPORT)) throw new BizException(503, "AI 服务未配置，无法生成报告");
         Set<String> validRefs = new HashSet<>(sources.stream().map(SearchSource::sourceRef).toList());
 
-        String irJson = chat.chat(reportPrompt() + "\n\n"
+        String irJson = chat.chat(ModelScene.CHAIN_REPORT, reportPrompt() + "\n\n"
                 + buildIrPrompt(title, evidence, graphJson, sources, forumDigest));
         DocumentIr ir = parseIr(irJson, validRefs);
         if (ir == null) {
-            String repaired = chat.chat("修复下面内容为符合 schema 的 Document IR JSON，"
+            String repaired = chat.chat(ModelScene.CHAIN_REPORT, "修复下面内容为符合 schema 的 Document IR JSON，"
                     + "删除来源编号不在 " + validRefs + " 内的 source 标记，不要新增事实，只输出 JSON：\n"
                     + compact(irJson, 8000));
             ir = parseIr(repaired, validRefs);
@@ -91,7 +92,7 @@ public class ResearchReportBuilder {
         // 降级 Markdown：让 LLM 基于同一证据产出，并附来源附录
         String markdownFallback = "# " + title + "\n\n## 已核验证据\n\n"
                 + (evidence == null || evidence.isBlank() ? "暂无可展示的已核验证据。" : evidence.trim());
-        String markdown = chat.chatOr(reportPrompt() + "\n\n" + """
+        String markdown = chat.chatOr(ModelScene.CHAIN_REPORT, reportPrompt() + "\n\n" + """
                 你是产业链报告 Agent。基于已核验事实和关系图，输出中文 Markdown 深度报告，
                 必须包含：摘要、范围与方法、上游、中游、下游、核心企业与竞争、风险、机会与趋势、待核验事项。
                 所有关键结论都要使用 [S1] 形式引用来源；不得引入材料之外的事实。
