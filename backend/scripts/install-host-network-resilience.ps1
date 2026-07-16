@@ -277,6 +277,19 @@ $desiredRuntime = Add-YamlListEntries -Text $desiredRuntime -Key 'rules' -Entrie
 
 $candidatePath = Join-Path $configHome 'clash-verge.codex-candidate.yaml'
 [IO.File]::WriteAllText($candidatePath, $desiredRuntime, $utf8NoBom)
+if ($AuditOnly) {
+    $previewLine = 0
+    Get-Content -LiteralPath $candidatePath -TotalCount 12 | ForEach-Object {
+        $previewLine++
+        $safeLine = if ($_ -match '(?i)^\s*[^:]*?(secret|password|token|uuid|server|url)\s*:') {
+            '<sensitive-key-redacted>'
+        } else {
+            [string]$_
+        }
+        if ($safeLine.Length -gt 200) { $safeLine = $safeLine.Substring(0, 200) + '<truncated>' }
+        Write-Output ("candidate-line-{0}={1}" -f $previewLine, $safeLine)
+    }
+}
 $validationOutput = & $coreExecutable -d $configHome -f $candidatePath -t 2>&1
 $validationExitCode = $LASTEXITCODE
 if ($validationExitCode -ne 0) {
