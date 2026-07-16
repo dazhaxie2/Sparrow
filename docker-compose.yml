@@ -9,10 +9,10 @@ services:
   mysql:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: sparrow
-      MYSQL_USER: sparrow
-      MYSQL_PASSWORD: sparrow123
+      MYSQL_USER: ${MYSQL_USER:-sparrow}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
       TZ: Asia/Shanghai
     # ⚠️ Windows 下挂载的 my.cnf 因权限 0777 会被 MySQL 忽略("world-writable config file ignored"),
     #    故关键 Phase 3 参数通过 command 行强制注入,与 my.cnf 内容保持一致。
@@ -50,7 +50,7 @@ services:
           cpus: '2.0'
           memory: 1G
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
+      test: ["CMD", "sh", "-c", "mysqladmin ping -h localhost -uroot -p\"$$MYSQL_ROOT_PASSWORD\""]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -126,7 +126,7 @@ services:
   neo4j:
     image: neo4j:5-community
     environment:
-      NEO4J_AUTH: neo4j/sparrow2024
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
       # 16G 机器降配:显式压堆,避免 neo4j 默认吃满容器内存
       NEO4J_server_memory_heap_initial__size: 300m
       NEO4J_server_memory_heap_max__size: 512m
@@ -142,7 +142,7 @@ services:
           cpus: '1.0'
           memory: 700M
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p sparrow2024 'RETURN 1' || exit 1"]
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_PASSWORD}\" 'RETURN 1' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -198,8 +198,8 @@ services:
   minio:                      # AI 层依赖(milvus 对象存储),随核心栈默认启动
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY in .env}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY in .env}
     volumes:
       - minio_data:/minio_data
     command: minio server /minio_data
@@ -303,7 +303,7 @@ services:
       REDIS_HOST: redis
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
-      NEO4J_PASSWORD: sparrow2024
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       GRAPH_MIGRATE_ON_BOOT: "false"
@@ -436,17 +436,17 @@ services:
       SPIDER_DB_HOST: mysql
       SPIDER_DB_PORT: 3306
       SPIDER_DB_USER: root
-      SPIDER_DB_PASSWORD: root123
+      SPIDER_DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
       SPIDER_DB_NAME: techspider
       SPARROW_GRAPH_DB_HOST: mysql
       SPARROW_GRAPH_DB_PORT: 3306
-      SPARROW_GRAPH_DB_USER: sparrow
-      SPARROW_GRAPH_DB_PASSWORD: sparrow123
+      SPARROW_GRAPH_DB_USER: ${MYSQL_USER:-sparrow}
+      SPARROW_GRAPH_DB_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
       SPARROW_GRAPH_DB_NAME: sparrow_graph
       SPARROW_RAG_DB_HOST: mysql
       SPARROW_RAG_DB_PORT: 3306
-      SPARROW_RAG_DB_USER: sparrow
-      SPARROW_RAG_DB_PASSWORD: sparrow123
+      SPARROW_RAG_DB_USER: ${MYSQL_USER:-sparrow}
+      SPARROW_RAG_DB_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
       SPARROW_RAG_DB_NAME: sparrow
       SPARROW_REDIS_HOST: redis
       SPARROW_REDIS_PORT: 6379
@@ -487,7 +487,7 @@ services:
       SPARROW_GRAPH_DB_HOST: mysql
       SPARROW_GRAPH_DB_PORT: 3306
       SPARROW_GRAPH_DB_USER: root
-      SPARROW_GRAPH_DB_PASSWORD: root123
+      SPARROW_GRAPH_DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
       SPARROW_GRAPH_DB_NAME: sparrow_graph
     depends_on:
       mysql: { condition: service_healthy }
