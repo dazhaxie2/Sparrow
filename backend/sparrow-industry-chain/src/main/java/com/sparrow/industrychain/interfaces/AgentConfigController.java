@@ -5,7 +5,7 @@ import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.security.UserContext;
 import com.sparrow.industrychain.application.config.IndustryAgentConfigService;
 import com.sparrow.industrychain.application.config.IndustryAgentConfigService.SaveRequest;
-import com.sparrow.industrychain.infrastructure.persistence.AgentConfigRepository.AuditRow;
+import com.sparrow.common.ai.AbstractAgentConfigRepository.AuditRow;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.validation.annotation.Validated;

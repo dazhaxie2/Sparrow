@@ -2,7 +2,7 @@ package com.sparrow.ai.application.config;
 
 import com.sparrow.ai.infrastructure.client.UserClient;
 import com.sparrow.ai.infrastructure.persistence.AiAgentConfigRepository;
-import com.sparrow.ai.infrastructure.persistence.AiAgentConfigRepository.AuditRow;
+import com.sparrow.common.ai.AbstractAgentConfigRepository.AuditRow;
 import com.sparrow.common.ai.AiAgentProfile;
 import com.sparrow.common.ai.AiAgentProfileRules;
 import com.sparrow.common.api.ApiResponse;

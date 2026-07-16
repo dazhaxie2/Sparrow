@@ -7,7 +7,7 @@ import com.sparrow.common.exception.BizException;
 import com.sparrow.common.security.AdminGuard;
 import com.sparrow.industrychain.infrastructure.client.UserClient;
 import com.sparrow.industrychain.infrastructure.persistence.AgentConfigRepository;
-import com.sparrow.industrychain.infrastructure.persistence.AgentConfigRepository.AuditRow;
+import com.sparrow.common.ai.AbstractAgentConfigRepository.AuditRow;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
