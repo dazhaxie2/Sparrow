@@ -294,72 +294,6 @@ $desiredRuntime = Add-YamlListEntries -Text $desiredRuntime -Key 'rules' -Entrie
 
 $candidatePath = Join-Path $configHome 'clash-verge.codex-candidate.yaml'
 [IO.File]::WriteAllText($candidatePath, $desiredRuntime, $utf8NoBom)
-if ($AuditOnly) {
-    $auditVariants = [ordered]@{
-        'byte-copy' = $null
-        'utf8-rewrite' = $originalRuntime
-        'scalar-only' = (Set-YamlScalar -Text $originalRuntime -Key 'find-process-mode' -Value 'always')
-        'rules-only' = (Add-YamlListEntries -Text $originalRuntime -Key 'rules' -Entries $processRules)
-    }
-    foreach ($variantName in $auditVariants.Keys) {
-        $variantPath = Join-Path $configHome "clash-verge.codex-$variantName.yaml"
-        if ($variantName -eq 'byte-copy') {
-            Copy-Item -LiteralPath $runtimeConfig -Destination $variantPath -Force
-        } else {
-            [IO.File]::WriteAllText($variantPath, [string]$auditVariants[$variantName], $utf8NoBom)
-        }
-        $variantOutput = & $coreExecutable -d $configHome -f $variantPath -t 2>&1
-        $variantExit = $LASTEXITCODE
-        Write-Output "audit-variant=$variantName exit=$variantExit"
-        if ($variantExit -ne 0) {
-            $variantOutput | Select-Object -Last 2 | ForEach-Object { Write-Output "audit-variant-error=$variantName $_" }
-        }
-        Remove-Item -LiteralPath $variantPath -Force -ErrorAction SilentlyContinue
-    }
-    $candidateBytes = [IO.File]::ReadAllBytes($candidatePath)
-    $previewBytes = $candidateBytes | Select-Object -First 96
-    $hexPreview = [BitConverter]::ToString([byte[]]$previewBytes)
-    $doubleCrCount = 0
-    for ($byteIndex = 0; $byteIndex -le $candidateBytes.Length - 3; $byteIndex++) {
-        if ($candidateBytes[$byteIndex] -eq 13 -and
-            $candidateBytes[$byteIndex + 1] -eq 13 -and
-            $candidateBytes[$byteIndex + 2] -eq 10) {
-            $doubleCrCount++
-        }
-    }
-    Write-Output "candidate-prefix-hex=$hexPreview"
-    Write-Output "candidate-double-cr-count=$doubleCrCount"
-    $candidateLines = @(Get-Content -LiteralPath $candidatePath)
-    $processRuleIndex = -1
-    for ($lineIndex = 0; $lineIndex -lt $candidateLines.Count; $lineIndex++) {
-        if ($candidateLines[$lineIndex] -match 'PROCESS-NAME,tailscaled\.exe,DIRECT') {
-            $processRuleIndex = $lineIndex
-            break
-        }
-    }
-    if ($processRuleIndex -ge 0) {
-        $contextStart = [Math]::Max(0, $processRuleIndex - 3)
-        $contextEnd = [Math]::Min($candidateLines.Count - 1, $processRuleIndex + 6)
-        for ($lineIndex = $contextStart; $lineIndex -le $contextEnd; $lineIndex++) {
-            $safeContextLine = [string]$candidateLines[$lineIndex]
-            if ($safeContextLine -match '(?i)(secret|password|token|uuid|server|url)') {
-                $safeContextLine = '<sensitive-line-redacted>'
-            }
-            Write-Output ("candidate-rule-context-{0}={1}" -f ($lineIndex + 1), $safeContextLine)
-        }
-    }
-    $previewLine = 0
-    Get-Content -LiteralPath $candidatePath -TotalCount 12 | ForEach-Object {
-        $previewLine++
-        $safeLine = if ($_ -match '(?i)^\s*[^:]*?(secret|password|token|uuid|server|url)\s*:') {
-            '<sensitive-key-redacted>'
-        } else {
-            [string]$_
-        }
-        if ($safeLine.Length -gt 200) { $safeLine = $safeLine.Substring(0, 200) + '<truncated>' }
-        Write-Output ("candidate-line-{0}={1}" -f $previewLine, $safeLine)
-    }
-}
 $validationOutput = & $coreExecutable -d $configHome -f $candidatePath -t 2>&1
 $validationExitCode = $LASTEXITCODE
 if ($validationExitCode -ne 0) {
@@ -416,7 +350,7 @@ try {
     }
 
     Write-Output "reload-status=$($reloadResponse.StatusCode) egress-status=$egressStatus"
-    tailscale ping --size=1400 --c=5 --timeout=5s $RemoteTailnetAddress
+    tailscale ping --size=1400 --c=3 --timeout=5s --until-direct=false $RemoteTailnetAddress
     $tailnetPingExit = $LASTEXITCODE
     Write-Output "tailnet-ping-exit=$tailnetPingExit"
 
@@ -425,6 +359,9 @@ try {
         Restart-Service -Name Cloudflared -Force
         Start-Sleep -Seconds 12
         $siteStatus = Test-HttpStatus -Url 'https://dazhaxie75.top/'
+    }
+    if ($null -eq $siteStatus -or $siteStatus -ge 500) {
+        throw "Public site failed after Mihomo reload (status=$siteStatus)."
     }
     Write-Output "public-site-status=$siteStatus"
     Write-Output 'host-network-resilience=installed'

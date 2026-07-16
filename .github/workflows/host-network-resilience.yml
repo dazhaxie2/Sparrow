@@ -1,12 +1,6 @@
 name: host-network-resilience
 
 on:
-  push:
-    branches: [codex/network-resilience]
-    paths:
-      - ".github/workflows/host-network-resilience.yml"
-      - "backend/scripts/inspect-host-network-resilience.ps1"
-      - "backend/scripts/install-host-network-resilience.ps1"
   workflow_dispatch:
 
 permissions:
@@ -17,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  inspect:
+  reconcile:
     runs-on: [self-hosted, windows]
     timeout-minutes: 10
     steps:
