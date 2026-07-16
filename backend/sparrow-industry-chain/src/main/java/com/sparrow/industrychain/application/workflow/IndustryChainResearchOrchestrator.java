@@ -152,42 +152,7 @@ public class IndustryChainResearchOrchestrator {
 
         List<SearchSource> merged = current.sources() == null ? List.of() : current.sources();
         if (merged.isEmpty()) {
-            listener.update("searching", 24, "行业 / 检索 / 洞察 Agent 正在并行联网调研");
-        // 共享首轮检索:三角色 Agent 关注的默认查询词相同,统一检索一次后共享给各 Agent,
-        // 避免三个 Agent 各自重复跑同一组默认查询(此前是 3× 冗余网络开销)。
-        List<SearchSource> sharedFirstBatch = webSearch.search(title, brief, planQueries, provided.size());
-        // 思考进度回调:Agent 各子步骤经此推送 thinking 事件,前端实时展示 Agent 当前在做什么。
-        java.util.function.BiConsumer<String, String> thinkingSink =
-                (source, message) -> forum.thinking(cardId, runId, source, message);
-        // 三角色并行反思循环；用户资料优先编号 S1..Sk，联网结果接续
-        AiAgentProfile industryProfile = agent(IndustryAgentConfigService.INDUSTRY_RESEARCHER);
-        AiAgentProfile searchProfile = agent(IndustryAgentConfigService.SEARCH_RESEARCHER);
-        AiAgentProfile insightProfile = agent(IndustryAgentConfigService.INSIGHT_RESEARCHER);
-        IndustryChainResearchAgent industryAgent = new IndustryChainResearchAgent(ForumEvent.INDUSTRY, "行业 Agent",
-                prompt(industryProfile, "你是产业链行业结构调研 Agent。"), chat.model(), webSearch, forum,
-                thinkingSink, chat, steps(industryProfile, 1));
-        IndustryChainResearchAgent queryAgent = new IndustryChainResearchAgent(ForumEvent.QUERY, "检索 Agent",
-                prompt(searchProfile, "你是产业链权威检索调研 Agent。"), chat.model(), webSearch, forum,
-                thinkingSink, chat, steps(searchProfile, 1));
-        IndustryChainResearchAgent insightAgent = new IndustryChainResearchAgent(ForumEvent.INSIGHT, "洞察 Agent",
-                prompt(insightProfile, "你是产业链纵深洞察调研 Agent。"), chat.model(), webSearch, forum,
-                thinkingSink, chat, steps(insightProfile, 1));
-        IndustryChainResearchAgent.PublishContext ctx = new IndustryChainResearchAgent.PublishContext(cardId, runId, userId);
-
-        CompletableFuture<IndustryChainResearchAgent.AgentResult> industryFuture =
-                supply(industryAgent, title, brief, planQueries, provided.size(), ctx, sharedFirstBatch);
-        CompletableFuture<IndustryChainResearchAgent.AgentResult> queryFuture =
-                supply(queryAgent, title, brief, planQueries, provided.size(), ctx, sharedFirstBatch);
-        CompletableFuture<IndustryChainResearchAgent.AgentResult> insightFuture =
-                supply(insightAgent, title, brief, planQueries, provided.size(), ctx, sharedFirstBatch);
-        CompletableFuture.allOf(industryFuture, queryFuture, insightFuture).join();
-
-        IndustryChainResearchAgent.AgentResult industry = industryFuture.join();
-        IndustryChainResearchAgent.AgentResult query = queryFuture.join();
-        IndustryChainResearchAgent.AgentResult insight = insightFuture.join();
-
-        // 合并来源：用户资料 S1..Sk + 联网来源去重接续
-            merged = mergeSources(provided, industry.sources(), query.sources(), insight.sources());
+            merged = runParallelAgentsAndMerge(title, brief, planQueries, provided, cardId, runId, userId, listener);
         }
         if (merged.isEmpty()) throw new BizException(502, "未获得任何可用来源，请稍后重试或补充资料");
 
@@ -245,6 +210,48 @@ public class IndustryChainResearchOrchestrator {
                                                                      List<SearchSource> sharedFirstBatch) {
         return CompletableFuture.supplyAsync(
                 () -> agent.research(title, brief, planQueries, startRefIndex, ctx, sharedFirstBatch), executor);
+    }
+
+    /** 三角色 Agent 并行检索 + 来源合并;仅在 merged 为空(首次/未复用检查点)时执行。 */
+    private List<SearchSource> runParallelAgentsAndMerge(String title, String brief, List<String> planQueries,
+                                                         List<SearchSource> provided, long cardId, long runId,
+                                                         long userId, StageListener listener) {
+        listener.update("searching", 24, "行业 / 检索 / 洞察 Agent 正在并行联网调研");
+        // 共享首轮检索:三角色 Agent 关注的默认查询词相同,统一检索一次后共享给各 Agent,
+        // 避免三个 Agent 各自重复跑同一组默认查询(此前是 3× 冗余网络开销)。
+        List<SearchSource> sharedFirstBatch = webSearch.search(title, brief, planQueries, provided.size());
+        // 思考进度回调:Agent 各子步骤经此推送 thinking 事件,前端实时展示 Agent 当前在做什么。
+        java.util.function.BiConsumer<String, String> thinkingSink =
+                (source, message) -> forum.thinking(cardId, runId, source, message);
+        // 三角色并行反思循环；用户资料优先编号 S1..Sk，联网结果接续
+        AiAgentProfile industryProfile = agent(IndustryAgentConfigService.INDUSTRY_RESEARCHER);
+        AiAgentProfile searchProfile = agent(IndustryAgentConfigService.SEARCH_RESEARCHER);
+        AiAgentProfile insightProfile = agent(IndustryAgentConfigService.INSIGHT_RESEARCHER);
+        IndustryChainResearchAgent industryAgent = new IndustryChainResearchAgent(ForumEvent.INDUSTRY, "行业 Agent",
+                prompt(industryProfile, "你是产业链行业结构调研 Agent。"), chat.model(), webSearch, forum,
+                thinkingSink, chat, steps(industryProfile, 1));
+        IndustryChainResearchAgent queryAgent = new IndustryChainResearchAgent(ForumEvent.QUERY, "检索 Agent",
+                prompt(searchProfile, "你是产业链权威检索调研 Agent。"), chat.model(), webSearch, forum,
+                thinkingSink, chat, steps(searchProfile, 1));
+        IndustryChainResearchAgent insightAgent = new IndustryChainResearchAgent(ForumEvent.INSIGHT, "洞察 Agent",
+                prompt(insightProfile, "你是产业链纵深洞察调研 Agent。"), chat.model(), webSearch, forum,
+                thinkingSink, chat, steps(insightProfile, 1));
+        IndustryChainResearchAgent.PublishContext ctx = new IndustryChainResearchAgent.PublishContext(cardId, runId, userId);
+
+        CompletableFuture<IndustryChainResearchAgent.AgentResult> industryFuture =
+                supply(industryAgent, title, brief, planQueries, provided.size(), ctx, sharedFirstBatch);
+        CompletableFuture<IndustryChainResearchAgent.AgentResult> queryFuture =
+                supply(queryAgent, title, brief, planQueries, provided.size(), ctx, sharedFirstBatch);
+        CompletableFuture<IndustryChainResearchAgent.AgentResult> insightFuture =
+                supply(insightAgent, title, brief, planQueries, provided.size(), ctx, sharedFirstBatch);
+        CompletableFuture.allOf(industryFuture, queryFuture, insightFuture).join();
+
+        IndustryChainResearchAgent.AgentResult industry = industryFuture.join();
+        IndustryChainResearchAgent.AgentResult query = queryFuture.join();
+        IndustryChainResearchAgent.AgentResult insight = insightFuture.join();
+
+        // 合并来源：用户资料 S1..Sk + 联网来源去重接续
+        return mergeSources(provided, industry.sources(), query.sources(), insight.sources());
     }
 
     /** 合并来源：用户资料优先编号 S1..Sk；联网来源按 URL 去重后接续 S(k+1)..Sn。 */

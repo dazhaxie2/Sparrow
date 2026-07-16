@@ -17,6 +17,7 @@ import com.sparrow.graph.infrastructure.persistence.MysqlGraphReader;
 import com.sparrow.graph.infrastructure.persistence.NodeApplicationRepository;
 import com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper;
 import com.sparrow.graph.interfaces.dto.GraphDtos.EdgeBrief;
+import com.sparrow.graph.interfaces.dto.GraphDtos.Neighborhood;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeBrief;
 import com.sparrow.graph.interfaces.dto.GraphDtos.NodeDetail;
 import com.sparrow.graph.interfaces.dto.GraphDtos.SourceBrief;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -393,6 +396,91 @@ class GraphServiceTest {
         assertTrue(apps.isEmpty());
         // AI 降级为空列表后仍会写入缓存(空结果也缓存,避免反复重试)。
         verify(applicationRepository).saveAll(eq(31401L), eq(List.of()));
+    }
+
+    // ===== subgraphBytes:缓存命中 / 未命中查 MySQL / q 非空不缓存 =====
+
+    @Test
+    void subgraphBytesReturnsCachedBodyWhenHit() {
+        when(valueOps.get(anyString())).thenReturn("{\"data\":{\"nodes\":[]}}");
+        byte[] body = service.subgraphBytes(null, null, null, null, 100);
+        assertEquals("{\"data\":{\"nodes\":[]}}", new String(body, StandardCharsets.UTF_8));
+        verify(mysqlReader, never()).subgraph(any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void subgraphBytesQueriesMysqlAndCachesOnMiss() throws Exception {
+        when(valueOps.get(anyString())).thenReturn(null);
+        when(mysqlReader.subgraph(null, null, null, null, 100))
+                .thenReturn(new Tree(List.of(), List.of()));
+        byte[] body = service.subgraphBytes(null, null, null, null, 100);
+        var json = new ObjectMapper().readTree(body);
+        assertTrue(json.has("data"));
+        verify(valueOps).set(anyString(), anyString(), any());
+    }
+
+    @Test
+    void subgraphBytesSkipsCacheWhenQueryProvided() {
+        when(mysqlReader.subgraph(null, null, "蒸汽", null, 100))
+                .thenReturn(new Tree(List.of(), List.of()));
+        service.subgraphBytes(null, null, "蒸汽", null, 100);
+        verify(valueOps, never()).get(anyString());
+        verify(valueOps, never()).set(anyString(), anyString(), any());
+    }
+
+    // ===== neighborhood:Neo4j 命中 / 降级 MySQL / 404 =====
+
+    @Test
+    void neighborhoodReturnsCenterPrereqsAndUnlocksFromNeo() {
+        when(neoRepo.findByNodeId(41L)).thenReturn(Optional.of(neoNode(41L, "steam", "蒸汽机", false, "d")));
+        when(neoRepo.findDirectPrerequisites(41L)).thenReturn(List.of(neoNode(40L, "fire", "火", false, "d")));
+        when(neoRepo.findDirectUnlocks(41L)).thenReturn(List.of(neoNode(42L, "train", "火车", false, "d")));
+
+        Neighborhood n = service.neighborhood(41L);
+
+        assertEquals(41L, n.center().id());
+        assertEquals(3, n.nodes().size());
+        assertEquals(2, n.edges().size());
+        verify(mysqlReader, never()).findNode(any());
+    }
+
+    @Test
+    void neighborhoodFallsBackToMysqlWhenNeo4jDown() {
+        when(neoRepo.findByNodeId(41L)).thenThrow(new RuntimeException("neo4j down"));
+        TechNode mn = mock(TechNode.class);
+        when(mn.getId()).thenReturn(41L);
+        when(mysqlReader.findNode(41L)).thenReturn(mn);
+        when(mysqlReader.directPrerequisites(41L)).thenReturn(List.of(
+                new NodeBrief(40L, "fire", "火", "石器时代", 1, "", "", false, "能源动力", 90)));
+        when(mysqlReader.directUnlocks(41L)).thenReturn(List.of());
+
+        Neighborhood n = service.neighborhood(41L);
+
+        assertEquals(41L, n.center().id());
+        assertEquals(2, n.nodes().size());
+        assertEquals(1, n.edges().size());
+        verify(mysqlReader).findNode(41L);
+    }
+
+    @Test
+    void neighborhoodThrows404WhenMissing() {
+        when(neoRepo.findByNodeId(999L)).thenReturn(Optional.empty());
+        when(mysqlReader.findNode(999L)).thenReturn(null);
+        assertThrows(BizException.class, () -> service.neighborhood(999L));
+    }
+
+    // ===== favoriteFolderId:nodeDetail 暴露收藏夹 ID =====
+
+    @Test
+    void nodeDetailExposesFavoriteFolderIdForLoggedInUser() {
+        when(neoRepo.findByNodeId(41L)).thenReturn(Optional.of(neoNode(41L, "steam", "蒸汽机", false, "d")));
+        when(neoRepo.findDirectPrerequisites(41L)).thenReturn(List.of());
+        when(neoRepo.findDirectUnlocks(41L)).thenReturn(List.of());
+        when(favoriteService.folderIdForNode(42L, 41L)).thenReturn(7L);
+
+        NodeDetail detail = service.nodeDetail(41L, 42L);
+
+        assertEquals(7L, detail.favoriteFolderId());
     }
 
     /** 构造一个已 stub 了 id/name/category 的 TechNode mock(在 when() 外独立 stub,避免嵌套)。 */

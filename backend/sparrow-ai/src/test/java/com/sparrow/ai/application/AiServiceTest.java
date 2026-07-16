@@ -21,6 +21,7 @@ import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.exception.BizException;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -375,7 +377,102 @@ class AiServiceTest {
         assertFalse(events.contains("done"), "持久化失败不得发送 done，事件=" + events);
     }
 
+    // ── 流式 reset 事件与降级链(RAG 路径,mock streamingChatModel 触发 onError)──
+
+    /** t7: RAG 流式 onError 时 answer/thinking 均空 → resetPartialStream 不发 reset,直接降级 rules。 */
+    @Test
+    void t7_ragStreamOnErrorWithEmptyAnswerDoesNotEmitReset() throws Exception {
+        stubMembership(true);
+        when(milvus.ready()).thenReturn(false);
+        when(agentProvider.getIfAvailable()).thenReturn(null); // 跳过 Agent 流式
+        // chat 返回 void,用 doAnswer;同步触发 onError,不吐任何 token → answer 与 thinking 都空
+        doAnswer(inv -> {
+            StreamingChatResponseHandler h = inv.getArgument(1);
+            h.onError(new RuntimeException("rag stream broke"));
+            return null;
+        }).when(streamingChatModel).chat(anyString(), any(StreamingChatResponseHandler.class));
+
+        List<String> events = new ArrayList<>();
+        CountDownLatch done = new CountDownLatch(1);
+        StreamSink sink = recordingSink(events, done);
+
+        aiService.askStream(42L, "蒸汽机是什么?", null, sink);
+
+        assertTrue(done.await(15, TimeUnit.SECONDS), "应完成,事件=" + events);
+        assertFalse(events.contains("reset"), "空 answer 不应发 reset,事件=" + events);
+        assertTrue(events.contains("done"), "应降级到 rules 并完成,事件=" + events);
+    }
+
+    /** t8: RAG 流式 onError 时 answer 有少量内容(<100 非空白字符)→ 发 reset,再降级 rules。 */
+    @Test
+    void t8_ragStreamOnErrorWithShortAnswerEmitsResetThenFallsBackToRules() throws Exception {
+        stubMembership(true);
+        when(milvus.ready()).thenReturn(false);
+        when(agentProvider.getIfAvailable()).thenReturn(null);
+        doAnswer(inv -> {
+            StreamingChatResponseHandler h = inv.getArgument(1);
+            h.onPartialResponse("短回答不足一百非空白字符"); // <100 非空白字符
+            h.onError(new RuntimeException("rag stream broke"));
+            return null;
+        }).when(streamingChatModel).chat(anyString(), any(StreamingChatResponseHandler.class));
+
+        List<String> events = new ArrayList<>();
+        CountDownLatch done = new CountDownLatch(1);
+        StreamSink sink = recordingSink(events, done);
+
+        aiService.askStream(42L, "蒸汽机是什么?", null, sink);
+
+        assertTrue(done.await(15, TimeUnit.SECONDS), "应完成,事件=" + events);
+        assertTrue(events.contains("reset"), "短 answer 应发 reset,事件=" + events);
+        assertTrue(events.contains("done"), "应降级到 rules 并完成,事件=" + events);
+        // reset 应在降级后 rules 的 meta 之前
+        int resetIdx = events.indexOf("reset");
+        int lastMetaIdx = events.lastIndexOf("meta");
+        assertTrue(resetIdx < lastMetaIdx, "reset 应在 rules meta 之前,事件=" + events);
+    }
+
+    /** t9: RAG 流式 onError 时 answer ≥100 非空白字符 → hasSubstantialAnswer=true,不发 reset,保留 rag 回答。 */
+    @Test
+    void t9_ragStreamOnErrorWithSubstantialAnswerKeepsAnswerWithoutReset() throws Exception {
+        stubMembership(true);
+        when(milvus.ready()).thenReturn(false);
+        when(agentProvider.getIfAvailable()).thenReturn(null);
+        // 构造 >100 非空白字符的正文(中文每字算 1)
+        String substantial = "蒸汽机是工业革命的核心动力装置，通过将热能转化为机械能，彻底改变了人类的生产方式。"
+                + "瓦特改良的分离冷凝器使效率大幅提升，推动了纺织、采矿、冶金和交通运输等行业的飞跃发展。"
+                + "蒸汽机的普及标志着从手工劳动向机器大工业的转变，是技术史与经济史上的重要里程碑，"
+                + "其影响深远，直接催生了工厂制度与城市化进程。";
+        doAnswer(inv -> {
+            StreamingChatResponseHandler h = inv.getArgument(1);
+            h.onPartialResponse(substantial);
+            h.onError(new RuntimeException("rag stream broke late"));
+            return null;
+        }).when(streamingChatModel).chat(anyString(), any(StreamingChatResponseHandler.class));
+
+        List<String> events = new ArrayList<>();
+        CountDownLatch done = new CountDownLatch(1);
+        StreamSink sink = recordingSink(events, done);
+
+        aiService.askStream(42L, "蒸汽机是什么?", null, sink);
+
+        assertTrue(done.await(15, TimeUnit.SECONDS), "应完成,事件=" + events);
+        assertFalse(events.contains("reset"), "已有实质正文不应发 reset,事件=" + events);
+        // 保留 rag 回答:只有 1 个 meta(rag),无第二个 meta(rules)
+        long metaCount = events.stream().filter("meta"::equals).count();
+        assertEquals(1, metaCount, "应有且仅有 1 个 meta(rag),事件=" + events);
+        assertTrue(events.contains("done"), "应完成,事件=" + events);
+    }
+
     // ── 辅助 ──
+
+    /** 最小 recording sink:按序记录事件名,complete/completeWithError 时 countDown。 */
+    private StreamSink recordingSink(List<String> events, CountDownLatch done) {
+        return new StreamSink() {
+            @Override public void emit(String event, Map<String, ?> data) { events.add(event); }
+            @Override public void complete() { done.countDown(); }
+            @Override public void completeWithError(Throwable error) { done.countDown(); }
+        };
+    }
 
     private void stubMembership(boolean member) {
         Map<String, Object> m = new HashMap<>();

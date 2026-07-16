@@ -6,19 +6,14 @@ import com.sparrow.ai.application.config.AiAgentConfigService;
 import com.sparrow.ai.infrastructure.agent.TechTreeAgent;
 import com.sparrow.ai.infrastructure.client.GraphClient;
 import com.sparrow.ai.infrastructure.client.GraphViews.NodeBrief;
-import com.sparrow.ai.infrastructure.client.GraphViews.NodeDetail;
-import com.sparrow.ai.infrastructure.client.GraphViews.Tree;
 import com.sparrow.ai.infrastructure.client.UserClient;
 import com.sparrow.ai.infrastructure.config.AiProperties;
 import com.sparrow.ai.infrastructure.persistence.ChatHistoryRepository;
 import com.sparrow.ai.infrastructure.rag.MilvusStore;
-import com.sparrow.common.api.ApiResponse;
 import com.sparrow.common.ai.AiHarness;
 import com.sparrow.common.ai.AiAgentProfile;
 import com.sparrow.common.ai.AiHarness.Metadata;
 import com.sparrow.common.exception.BizException;
-import dev.langchain4j.data.embedding.Embedding;
-import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -33,15 +28,11 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import java.util.HashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -60,7 +51,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class AiService {
 
     private static final Logger log = LoggerFactory.getLogger(AiService.class);
-    private static final String QUOTA_KEY_PREFIX = "sparrow:ai:quota:";
     private static final ExecutorService CHAT_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
     /**
@@ -115,15 +105,6 @@ public class AiService {
                             Metadata harness) {
     }
 
-    /**
-     * 内部检索结果记录。
-     *
-     * @param nodes  匹配的节点列表
-     * @param chunks 匹配的语料块列表
-     */
-    private record Retrieved(List<NodeBrief> nodes, List<MilvusStore.ChunkHit> chunks) {
-    }
-
     private final AiProperties props;
     private final ChatModel chatModel;
     private final StreamingChatModel streamingChatModel;
@@ -134,6 +115,10 @@ public class AiService {
     private final StringRedisTemplate redis;
     private final ObjectProvider<TechTreeAgent> agentProvider;
     private final AiChatHarness chatHarness;
+    private final AiApplicationClassifier applicationClassifier;
+    private final AiQuotaGuard quotaGuard;
+    private final AiRuleAnswerer ruleAnswerer;
+    private final AiRetriever retriever;
     private AiAgentConfigService agentConfigs;
 
     /**
@@ -163,6 +148,10 @@ public class AiService {
         this.redis = redis;
         this.agentProvider = agentProvider;
         this.chatHarness = new AiChatHarness(chatHistory);
+        this.applicationClassifier = new AiApplicationClassifier(chatModel);
+        this.quotaGuard = new AiQuotaGuard(props, redis, userClient);
+        this.ruleAnswerer = new AiRuleAnswerer(graphClient);
+        this.retriever = new AiRetriever(chatModel, embeddingModel, milvus, graphClient);
     }
 
     @Autowired(required = false)
@@ -209,7 +198,7 @@ public class AiService {
             long remaining = consumeQuota(userId);
             String intent = classifyIntent(prepared.question());
 
-            Retrieved retrieved = retrieve(prepared.question(), prepared.profile().maxSteps());
+            AiRetriever.Retrieved retrieved = retrieve(prepared.question(), prepared.profile().maxSteps());
             List<SourceRef> sources = buildSources(retrieved);
             harness.checkpoint(AiHarness.Stage.RETRIEVAL,
                     sources.isEmpty() ? "上下文检索完成，未命中可引用来源" : "上下文检索与来源装配完成");
@@ -329,7 +318,7 @@ public class AiService {
         String intent = classifyIntent(prepared.question());
 
         // 检索上下文(三种模式共用),来源/步骤先于正文推给前端,UI 可先渲染来源卡片。
-        Retrieved retrieved = retrieve(prepared.question(), prepared.profile().maxSteps());
+        AiRetriever.Retrieved retrieved = retrieve(prepared.question(), prepared.profile().maxSteps());
         List<SourceRef> sources = buildSources(retrieved);
         harness.checkpoint(AiHarness.Stage.RETRIEVAL,
                 sources.isEmpty() ? "上下文检索完成，未命中可引用来源" : "上下文检索与来源装配完成");
@@ -460,7 +449,7 @@ public class AiService {
     }
 
     /** 用流式模型直接生成 RAG 回答;逐 token 推 delta,reasoning 推 thinking。返回 true=成功,false=降级。 */
-    private boolean streamRag(Prepared prepared, Retrieved retrieved, StreamSink sink,
+    private boolean streamRag(Prepared prepared, AiRetriever.Retrieved retrieved, StreamSink sink,
                               StringBuilder answer, StringBuilder thinking) {
         String prompt = prepared.profile().systemPrompt() + "\n\n"
                 + ragUserMessage(prepared.question(), retrieved.nodes(), retrieved.chunks(),
@@ -572,44 +561,19 @@ public class AiService {
     }
 
     /**
-     * 将文本列表转换为向量嵌入。
-     * 分批处理(每批 10 条)以避免超出模型限制。
+     * 将文本列表转换为向量嵌入(委托 retriever)。
+     * 保留 public 签名:RagIndexer / VectorSearchTool 通过 AiService 调用。
      *
      * @param texts 待嵌入的文本列表
      * @return 向量列表
      */
     public List<float[]> embed(List<String> texts) {
-        if (embeddingModel == null) {
-            throw new BizException(503, "AI 服务未配置");
-        }
-        List<float[]> result = new ArrayList<>(texts.size());
-        for (int i = 0; i < texts.size(); i += 10) {
-            List<String> batch = texts.subList(i, Math.min(i + 10, texts.size()));
-            List<TextSegment> segments = batch.stream().map(TextSegment::from).toList();
-            List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
-            for (Embedding emb : embeddings) {
-                result.add(emb.vector());
-            }
-        }
-        return result;
+        return retriever.embed(texts);
     }
 
-    /**
-     * 构建 Agent 模式的用户消息模板。
-     *
-     * @param question 用户问题
-     * @param intent   识别的意图
-     * @return 格式化后的用户消息
-     */
+    /** Agent 模式用户消息(委托 ruleAnswerer)。 */
     private String agentUserMessage(String question, String intent, String conversationContext) {
-        String history = conversationContext == null || conversationContext.isBlank()
-                ? "" : conversationContext + "\n\n";
-        return history + "用户问题:\n" + question + "\n\n" +
-                "请用中文自然、口语化地回答,直接讲重点,把相关的技术依赖与历史脉络说清楚;" +
-                "内容要充分、有信息量,给足背景和关键的年代、数字、事实与例子,把「为什么」讲透,宁可多展开也别敷衍带过;" +
-                "可以顺着内容自然分层,必要时用小标题或列表理清脉络," +
-                "但不要套用「结论/关键依据/学习路径/下一步」之类与内容无关的固定模板;" +
-                "不要使用 emoji,不要输出代码块。";
+        return ruleAnswerer.agentUserMessage(question, intent, conversationContext);
     }
 
     /**
@@ -686,249 +650,46 @@ public class AiService {
     }
 
     /**
-     * 检索与问题相关的上下文。
-     * 优先使用向量检索,失败时降级为关键词匹配。
+     * 检索与问题相关的上下文(委托 retriever)。
+     * 向量检索优先,失败降级为关键词匹配。
      *
      * @param question 用户问题
      * @return 检索结果(节点和语料块)
      */
-    private Retrieved retrieve(String question, int configuredLimit) {
-        int limit = Math.max(1, Math.min(configuredLimit, 20));
-        if (llmConfigured() && milvus.ready()) {
-            try {
-                float[] vec = embed(List.of(question)).get(0);
-                List<Long> ids = milvus.search(vec, limit);
-                List<MilvusStore.ChunkHit> chunks = milvus.searchChunks(vec, limit);
-
-                Map<Long, NodeBrief> byId = nodesById();
-                List<NodeBrief> nodes = new ArrayList<>(
-                        ids.stream().map(byId::get).filter(n -> n != null).toList());
-                Map<String, NodeBrief> byCode = new LinkedHashMap<>();
-                byId.values().forEach(n -> byCode.put(n.code(), n));
-                for (MilvusStore.ChunkHit c : chunks) {
-                    NodeBrief n = byCode.get(c.code());
-                    if (n != null && nodes.stream().noneMatch(x -> x.id().equals(n.id()))) {
-                        nodes.add(n);
-                    }
-                }
-                return new Retrieved(nodes, chunks);
-            } catch (Exception e) {
-                log.warn("向量检索失败,降级为关键词匹配: {}", AiHarness.safeFailure(e));
-            }
-        }
-        return new Retrieved(keywordMatch(question), List.of());
+    private AiRetriever.Retrieved retrieve(String question, int configuredLimit) {
+        return retriever.retrieve(question, configuredLimit);
     }
 
     /**
-     * 构建来源引用列表。
+     * 构建来源引用列表(委托 retriever)。
      *
      * @param retrieved 检索结果
      * @return 来源引用列表
      */
-    private List<SourceRef> buildSources(Retrieved retrieved) {
-        Map<String, String> urlByCode = new LinkedHashMap<>();
-        for (MilvusStore.ChunkHit c : retrieved.chunks()) {
-            if (c.url() != null && !c.url().isBlank()) {
-                urlByCode.putIfAbsent(c.code(), c.url());
-            }
-        }
-        return retrieved.nodes().stream()
-                .map(n -> new SourceRef(n.id(), n.name(), urlByCode.get(n.code())))
-                .toList();
+    private List<SourceRef> buildSources(AiRetriever.Retrieved retrieved) {
+        return retriever.buildSources(retrieved);
     }
 
-    /**
-     * 获取所有节点的 ID 映射。
-     *
-     * @return 节点 ID 到 NodeBrief 的映射
-     */
-    private Map<Long, NodeBrief> nodesById() {
-        Map<Long, NodeBrief> map = new LinkedHashMap<>();
-        Tree tree = graphClient.tree().data();
-        if (tree != null) {
-            tree.nodes().forEach(n -> map.put(n.id(), n));
-        }
-        return map;
-    }
-
-    /**
-     * 关键词匹配节点。
-     * 从节点名称中提取关键词进行匹配,按名称长度倒序排序,最多返回 3 个匹配结果。
-     *
-     * @param question 用户问题
-     * @return 匹配的节点列表
-     */
-    private List<NodeBrief> keywordMatch(String question) {
-        Tree tree = graphClient.tree().data();
-        if (tree == null) {
-            return List.of();
-        }
-        List<NodeBrief> matched = new ArrayList<>();
-        for (NodeBrief n : tree.nodes()) {
-            String key = n.name().split("[((]")[0];
-            if (key.length() >= 2 && question.contains(key)) {
-                matched.add(n);
-            }
-        }
-        matched.sort(Comparator.comparingInt((NodeBrief n) -> n.name().length()).reversed());
-        return matched.size() > 3 ? matched.subList(0, 3) : matched;
-    }
-
-    /**
-     * 获取 RAG 模式的系统提示词。
-     *
-     * @return 系统提示词
-     */
-    /**
-     * 构建 RAG 模式的用户消息,包含科技图资料和相关词条。
-     *
-     * @param question 用户问题
-     * @param hits     匹配的节点列表
-     * @param chunks   匹配的语料块列表
-     * @return 格式化后的用户消息
-     */
+    /** RAG 模式用户消息(委托 ruleAnswerer)。 */
     private String ragUserMessage(String question, List<NodeBrief> hits,
                                   List<MilvusStore.ChunkHit> chunks,
                                   String conversationContext) {
-        StringBuilder sb = new StringBuilder("### 科技图资料\n");
-        if (hits.isEmpty()) {
-            sb.append("(未检索到直接相关节点)\n");
-        }
-        for (NodeBrief n : hits) {
-            sb.append("- 【").append(n.name()).append("】").append(n.era())
-                    .append(" · ").append(n.yearLabel()).append("\n  ").append(n.summary()).append("\n");
-            try {
-                NodeDetail detail = graphClient.nodeDetail(n.id(), null).data();
-                if (detail != null && !detail.prerequisites().isEmpty()) {
-                    sb.append("  直接前置:");
-                    sb.append(String.join("、", detail.prerequisites().stream().map(NodeBrief::name).toList()));
-                    sb.append("\n");
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        if (!chunks.isEmpty()) {
-            sb.append("\n### 相关词条摘录\n");
-            for (MilvusStore.ChunkHit c : chunks) {
-                sb.append("- ").append(c.text()).append("\n");
-                if (c.url() != null && !c.url().isBlank()) {
-                    sb.append("  (来源: ").append(c.url()).append(")\n");
-                }
-            }
-        }
-        if (conversationContext != null && !conversationContext.isBlank()) {
-            sb.append("\n").append(conversationContext).append("\n");
-        }
-        sb.append("\n### 用户问题\n").append(question);
-        return sb.toString();
+        return ruleAnswerer.ragUserMessage(question, hits, chunks, conversationContext);
     }
 
-    /**
-     * 规则引擎模式生成回答。
-     * 直接基于图谱数据生成结构化回答,不调用大模型。
-     *
-     * @param question 用户问题
-     * @param hits     匹配的节点列表
-     * @return 规则生成的回答
-     */
+    /** 规则引擎回答(委托 ruleAnswerer)。 */
     private String rulesAnswer(String question, List<NodeBrief> hits) {
-        if (hits.isEmpty()) {
-            return "### 结论\n我没有在科技图中找到与问题直接相关的技术节点。\n\n" +
-                    "### 关键依据\n- 当前检索没有命中明确节点。\n" +
-                    "- 问题可以改成具体技术名、时代名或关系问题。\n\n" +
-                    "### 学习路径\n1. 先选择图谱上的一个节点。\n" +
-                    "2. 再询问它的前置技术、重要性或解锁方向。\n\n" +
-                    "### 下一步\n- 可以试试: 蒸汽机的前置技术有哪些? 互联网解锁了什么? 文字是什么时候出现的?";
-        }
-        NodeBrief top = hits.get(0);
-        NodeDetail detail = graphClient.nodeDetail(top.id(), null).data();
-        List<NodeBrief> chain = graphClient.prerequisites(top.id()).data();
-        if (chain == null) {
-            chain = List.of();
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("### 结论\n")
-                .append("【").append(top.name()).append("】属于 ").append(top.era())
-                .append(" · ").append(top.yearLabel()).append("。")
-                .append(top.summary()).append("\n\n");
-
-        sb.append("### 关键依据\n")
-                .append("- 命中节点: ").append(top.name()).append("\n")
-                .append("- 时代位置: ").append(top.era()).append(" · ").append(top.yearLabel()).append("\n");
-        if (detail != null && detail.detail() != null && !detail.detail().isBlank()) {
-            sb.append("- 图谱详情: ").append(detail.detail()).append("\n");
-        }
-
-        sb.append("\n### 前置链\n");
-        if (!chain.isEmpty()) {
-            sb.append("- 完整前置技术链共 ").append(chain.size()).append(" 项。\n");
-            Map<String, List<String>> byEra = new LinkedHashMap<>();
-            for (NodeBrief n : chain) {
-                byEra.computeIfAbsent(n.era(), k -> new ArrayList<>()).add(n.name());
-            }
-            byEra.forEach((era, names) ->
-                    sb.append("- ").append(era).append(": ").append(String.join("、", names)).append("\n"));
-        } else {
-            sb.append("- 图谱中暂未记录它的完整前置链,可把它视作当前命中的基础或孤立节点。\n");
-        }
-
-        sb.append("\n### 解锁方向\n");
-        if (detail != null && !detail.unlocks().isEmpty()) {
-            sb.append("- 它直接解锁: ")
-                    .append(String.join("、", detail.unlocks().stream().map(NodeBrief::name).toList()))
-                    .append("\n");
-        } else {
-            sb.append("- 图谱中暂未记录直接解锁节点。\n");
-        }
-
-        sb.append("\n### 下一步\n");
-        if (detail != null && !detail.unlocks().isEmpty()) {
-            sb.append("- 可以沿着「").append(detail.unlocks().get(0).name()).append("」继续探索它带来的技术演化。\n");
-        } else {
-            sb.append("- 可以追问它为什么重要,或让 AI 继续补齐可学习的前置技术。\n");
-        }
-        return sb.toString();
+        return ruleAnswerer.rulesAnswer(question, hits);
     }
 
     /**
-     * 消耗用户免费配额。
-     * 会员用户不受配额限制,免费用户每日有固定配额。
+     * 消耗用户免费配额(委托 quotaGuard)。
      *
      * @param userId 用户 ID
      * @return 剩余配额(-1 表示会员无限)
      */
     private long consumeQuota(Long userId) {
-        if (isMember(userId)) {
-            return -1;
-        }
-        String key = QUOTA_KEY_PREFIX + userId + ":" + LocalDate.now();
-        Long used = redis.opsForValue().increment(key);
-        if (used != null && used == 1L) {
-            redis.expire(key, Duration.ofDays(1));
-        }
-        long remaining = props.freeQuotaPerDay() - (used == null ? 0 : used);
-        if (remaining < 0) {
-            throw new BizException(429, "今日免费问答次数已用完,开通会员畅享无限次 AI 问答");
-        }
-        return remaining;
-    }
-
-    /**
-     * 检查用户是否为会员。
-     *
-     * @param userId 用户 ID
-     * @return true 表示会员
-     */
-    private boolean isMember(Long userId) {
-        try {
-            ApiResponse<Map<String, Object>> resp = userClient.membership(userId);
-            return resp != null && resp.data() != null
-                    && Boolean.TRUE.equals(resp.data().get("member"));
-        } catch (Exception e) {
-            log.warn("会员校验失败,按非会员处理: userId={} err={}", userId, AiHarness.safeFailure(e));
-            return false;
-        }
+        return quotaGuard.consume(userId);
     }
 
     // ── 「应用与产业链」判定(供 sparrow-graph 反向调用) ──
@@ -955,73 +716,6 @@ public class AiService {
         if (!llmConfigured() || req == null || req.neighbors() == null || req.neighbors().isEmpty()) {
             return List.of();
         }
-        String prompt = buildApplicationPrompt(req);
-        try {
-            String answer = chatModel.chat(prompt);
-            return parseApplicationIds(answer, req.neighbors());
-        } catch (Exception e) {
-            log.warn("应用判定 LLM 调用失败 [nodeId={}]: {}", req.nodeId(), AiHarness.safeFailure(e));
-            return List.of();
-        }
-    }
-
-    private String buildApplicationPrompt(ApplicationClassifyRequest req) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("你是材料与化工领域的知识图谱编辑。下面是材料「")
-                .append(req.nodeName()).append("」(领域:").append(req.category()).append(")的直接关联条目清单。\n");
-        sb.append("请从中挑出属于「").append(req.nodeName())
-                .append("」的【下游应用 / 产业链 / 制成品 / 工业用途】的条目")
-                .append("(例如:用它制成的产品、器件,以它为关键原料的工业流程或终端应用)。\n");
-        sb.append("必须排除以下类型的条目:化学式、CAS号、摩尔量/焓/密度/沸点等物理化学属性、")
-                .append("同位素、晶系、族/周期分类、可见光/光学性质、纯度量纲、命名空间词条等纯属性或分类条目。\n\n");
-        sb.append("条目清单(每行一条):\n");
-        for (NeighborBrief n : req.neighbors()) {
-            sb.append("- id=").append(n.id()).append(" 名称=").append(n.name());
-            if (n.category() != null && !n.category().isBlank()) sb.append(" 领域=").append(n.category());
-            if (n.summary() != null && !n.summary().isBlank()) sb.append(" 摘要=").append(n.summary());
-            sb.append("\n");
-        }
-        sb.append("\n只返回一个 JSON 数组,元素为被判为应用的条目的 id(数字),不要任何解释文字。")
-                .append("若无任何应用条目,返回 []。例如:[123, 456, 789]");
-        return sb.toString();
-    }
-
-    /** 解析 LLM 返回的 JSON 数组,并把 name/id 回填校验后返回 id。 */
-    private List<Long> parseApplicationIds(String answer, List<NeighborBrief> neighbors) {
-        if (answer == null) return List.of();
-        // 容错:LLM 可能附带前后文字,提取第一个 [ ... ] 片段。
-        int start = answer.indexOf('[');
-        int end = answer.lastIndexOf(']');
-        if (start < 0 || end <= start) return List.of();
-        String json = answer.substring(start, end + 1).trim();
-        // name→id 映射(LLM 偶尔返回 name 而非 id 时也能兜底)。
-        Map<String, Long> nameToId = new LinkedHashMap<>();
-        Set<Long> validIds = new HashSet<>();
-        for (NeighborBrief n : neighbors) {
-            if (n.id() != null) validIds.add(n.id());
-            if (n.name() != null) nameToId.put(n.name(), n.id());
-        }
-        List<Long> result = new ArrayList<>();
-        try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            List<String> tokens = mapper.readValue(json,
-                    mapper.getTypeFactory().constructCollectionType(List.class, String.class));
-            for (String t : tokens) {
-                if (t == null) continue;
-                String s = t.trim();
-                if (s.isEmpty()) continue;
-                try {
-                    long id = Long.parseLong(s);
-                    if (validIds.contains(id)) result.add(id);
-                } catch (NumberFormatException nfe) {
-                    Long id = nameToId.get(s);
-                    if (id != null) result.add(id);
-                }
-            }
-        } catch (Exception e) {
-            log.warn("应用判定响应解析失败,降级为空列表: raw={}", json);
-            return List.of();
-        }
-        return result;
+        return applicationClassifier.classify(req);
     }
 }
