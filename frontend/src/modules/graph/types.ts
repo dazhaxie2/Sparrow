@@ -1,31 +1,7 @@
-export interface NodeBrief {
-  id: number
-  code: string
-  name: string
-  era: string
-  eraRank: number
-  yearLabel: string
-  summary: string
-  premium: boolean
-  category?: string | null
-  importance?: number | null
-  /** 服务端预计算布局坐标；普通详情/搜索响应可不提供。 */
-  x?: number
-  y?: number
-  /** LOD 瓦片元数据，用于从远景代表点下钻。 */
-  clusterId?: number
-  lodLevel?: number
-  /** 聚簇代表点覆盖的真实节点数；普通节点为空。 */
-  clusterSize?: number
-}
-
-export interface EdgeBrief {
-  from: number
-  to: number
-  /** 关系类型:0=依赖/前置(默认),1=结构/分类归属。 */
-  relation?: number
-  label?: string | null
-}
+// NodeBrief / EdgeBrief 是跨模块共享的基础节点契约,定义在 shared/types/graph,
+// 这里 re-export 以保持 graph 内部与既有引用的连续性。
+export type { NodeBrief, EdgeBrief } from '../../../shared/types/graph'
+import type { NodeBrief, EdgeBrief } from '../../../shared/types/graph'
 
 export interface Tree {
   nodes: NodeBrief[]

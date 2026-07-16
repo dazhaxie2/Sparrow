@@ -39,9 +39,9 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue'
 import { History, PanelRightClose, Sparkles, Trash2, Bot } from '@lucide/vue'
-import { useUserStore } from '../../user/store'
+import { useUserState } from '../../../shared/store/user-state'
 import { useChat } from '../composables/useChat'
-import type { NodeBrief } from '../../graph/types'
+import type { NodeBrief } from '../../../shared/types/graph'
 import AiMessageList from './AiMessageList.vue'
 import AiComposer from './AiComposer.vue'
 import ChatHistoryDrawer from './ChatHistoryDrawer.vue'
@@ -60,7 +60,7 @@ const props = withDefaults(defineProps<{
 
 defineEmits<{ (e: 'toggle'): void }>()
 
-const user = useUserStore()
+const user = useUserState()
 const { messages, loading, phase, ask, clearMessages, loadHistory, store: chatStore } = useChat()
 
 // 注意:本组件并未被 <keep-alive> 缓存(keep-alive 只包 <router-view>),

@@ -264,12 +264,30 @@ if (manifest) {
     for (const moduleName of expectedFrontend) {
       const moduleRoot = `${modulesPath}/${moduleName}`
       for (const file of walk(moduleRoot, candidate => /\.(ts|tsx|vue|js|jsx)$/.test(candidate))) {
-        const references = [...read(file).matchAll(/@\/modules\/([^/'"`)]+)/g)]
+        // F002: business modules must not import another business module.
+        // Match both the @/modules/<x> alias and relative-path imports like
+        // `../../user/store`. A bare specifier (npm package) is ignored.
+        const importSpecs = [...read(file).matchAll(/(?:from|import)\s*['"]([^'"]+)['"]/g)]
           .map(match => match[1])
-        for (const target of references) {
-          check(target === moduleName, 'F002', file,
-            `Business module ${moduleName} imports business module ${target}.`,
-            'Move shared code to `frontend/src/shared` or compose both modules from `src/app`.')
+          .filter(spec => spec.startsWith('@/') || spec.startsWith('.'))
+        for (const spec of importSpecs) {
+          let target
+          if (spec.startsWith('@/modules/')) {
+            target = spec.slice('@/modules/'.length).split('/')[0]
+          } else {
+            // Resolve the relative specifier against this file, then map it back
+            // to a module under modulesPath (if it lands in one).
+            const resolved = path.relative(absolute(modulesPath),
+              path.resolve(absolute(path.dirname(file)), spec))
+            if (resolved && !resolved.startsWith('..') && !path.isAbsolute(resolved)) {
+              target = normalize(resolved).split('/')[0]
+            }
+          }
+          if (target && target !== moduleName && expectedFrontend.includes(target)) {
+            check(false, 'F002', file,
+              `Business module ${moduleName} imports business module ${target} (${spec}).`,
+              'Move shared code to `frontend/src/shared` or compose both modules from `src/app`.')
+          }
         }
       }
     }

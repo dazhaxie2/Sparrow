@@ -14,21 +14,38 @@
   />
   <main class="app-content">
     <router-view v-slot="{ Component }">
-      <keep-alive>
-        <component :is="Component" />
-      </keep-alive>
+      <template v-if="route.name === 'home'">
+        <HomeShell>
+          <keep-alive>
+            <component :is="Component" />
+          </keep-alive>
+        </HomeShell>
+      </template>
+      <template v-else>
+        <keep-alive>
+          <component :is="Component" />
+        </keep-alive>
+      </template>
     </router-view>
   </main>
 </template>
 
 <script setup lang="ts">
+import { provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from './components/AppHeader.vue'
+import HomeShell from './components/HomeShell.vue'
 import { useUiStore } from '../shared/store/ui'
+import { USER_STORE_KEY } from '../shared/store/user-state'
+import { useUserStore } from '../modules/user/store'
 
 const ui = useUiStore()
 const route = useRoute()
 const router = useRouter()
+
+// 在根组件 provide 用户认证状态,供各业务模块 inject 取用,
+// 避免 business module 之间互相 import user/store。
+provide(USER_STORE_KEY, useUserStore())
 
 /** 图谱导航:回到首页地图视图(AppHeader 在非首页时自身已会 router.push('/'))。 */
 function goGraph() {

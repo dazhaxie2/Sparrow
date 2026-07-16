@@ -188,7 +188,7 @@
 import { computed, defineAsyncComponent, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { AlertTriangle, ArrowLeft, BookOpenCheck, Bot, BrainCircuit, ExternalLink, FileDown, FileText, LoaderCircle, MessagesSquare, Network, PanelRightClose, Plus, SearchCheck, Upload } from '@lucide/vue'
-import { renderMarkdown } from '../../ai/utils/markdown'
+import { renderMarkdown } from '../../../shared/utils/markdown'
 import {
   cancelResearchRun,
   fetchForumEvents,
@@ -202,7 +202,7 @@ import {
   uploadResearchAttachment,
 } from '../api'
 import type { ForumEventView, ForumSsePayload, ResearchCardDetail } from '../model/types'
-import type { NodeBrief } from '../../graph/types'
+import type { NodeBrief } from '../../../shared/types/graph'
 import type { AiHarnessMetadata } from '../../../shared/ai/harness'
 
 const DialogWorkbench = defineAsyncComponent(() => import('../../graph/components/DialogWorkbench.vue'))

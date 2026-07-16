@@ -38,7 +38,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Send } from '@lucide/vue'
-import type { NodeBrief } from '../../graph/types'
+import type { NodeBrief } from '../../../shared/types/graph'
 
 const props = defineProps<{
   contextNode: NodeBrief | null

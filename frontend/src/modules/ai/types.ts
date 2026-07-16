@@ -1,17 +1,10 @@
 import type { AiHarnessMetadata } from '../../shared/ai/harness'
 export type { AiHarnessEvent, AiHarnessMetadata } from '../../shared/ai/harness'
 
-export interface SourceRef {
-  id: number
-  name: string
-  url?: string | null
-}
-
-export interface AgentStep {
-  key: string
-  label: string
-  status: 'done' | 'partial' | 'skipped' | 'failed' | string
-}
+// SourceRef / AgentStep / AskResult 已下沉到 shared/ai/chat(跨模块共享契约),
+// 这里 re-export 以保持 ai 模块内部既有引用的连续性。
+export type { SourceRef, AgentStep, AskResult } from '../../shared/ai/chat'
+import type { SourceRef, AgentStep, AskResult } from '../../shared/ai/chat'
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -30,17 +23,6 @@ export interface ChatMessage {
   id?: number
   /** 服务端运行时 Harness 摘要，用于阶段展示和故障追踪。 */
   harness?: AiHarnessMetadata
-}
-
-export interface AskResult {
-  answer: string
-  mode: string
-  format: string
-  intent: string
-  sources: SourceRef[]
-  steps: AgentStep[]
-  remainingQuota: number
-  harness: AiHarnessMetadata
 }
 
 export interface ChatSession {

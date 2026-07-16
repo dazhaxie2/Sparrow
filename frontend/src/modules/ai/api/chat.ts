@@ -1,10 +1,10 @@
-import { get, post, request } from '../../../shared/api/request'
+import { get, request } from '../../../shared/api/request'
 import { createSSEConnection } from '../../../shared/utils/sse'
-import type { AgentStep, AiHarnessMetadata, AskResult, SourceRef } from '../types'
+import type { AgentStep, AiHarnessMetadata, SourceRef } from '../types'
 
-export function askAi(question: string, surface = 'graph-dialog', sessionId?: number | null) {
-  return post<AskResult>('/api/ai/ask', { question, surface, sessionId: sessionId ?? null })
-}
+// askAi / createSession / AskResult 等共享契约已下沉到 shared/ai/chat(跨模块复用)。
+export { askAi, createSession } from '../../../shared/ai/chat'
+import type { AskResult } from '../../../shared/ai/chat'
 
 // ==================== 历史会话管理 ====================
 
@@ -15,11 +15,6 @@ export interface SessionItem {
   messageCount: number
   createdAt: string
   updatedAt: string
-}
-
-/** 创建会话的响应。 */
-export interface CreateSessionResponse {
-  sessionId: number
 }
 
 /** 历史消息项(后端 MessageItem),用于回放历史会话。 */
@@ -33,10 +28,6 @@ export interface MessageItem {
 
 export function listSessions() {
   return get<SessionItem[]>('/api/ai/sessions')
-}
-
-export function createSession(question: string) {
-  return post<CreateSessionResponse>('/api/ai/sessions', { question })
 }
 
 export function getSessionMessages(id: number) {

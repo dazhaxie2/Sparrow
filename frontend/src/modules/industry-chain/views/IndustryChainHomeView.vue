@@ -53,13 +53,13 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { AlertTriangle, ArrowRight, LoaderCircle, Pencil, Plus, Sparkles, Trash2, X } from '@lucide/vue'
-import { useUserStore } from '../../user/store'
+import { useUserState } from '../../../shared/store/user-state'
 import { createResearchCard, deleteResearchCard, fetchResearchCards, updateResearchCard } from '../api'
 import type { ResearchCardSummary } from '../model/types'
 import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 
 const router = useRouter()
-const user = useUserStore()
+const user = useUserState()
 const researchCards = ref<ResearchCardSummary[]>([])
 const researchLoading = ref(false)
 const researchError = ref('')

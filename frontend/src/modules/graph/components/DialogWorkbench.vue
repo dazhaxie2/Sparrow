@@ -80,8 +80,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { BrainCircuit, LoaderCircle, MessageSquareText, SendHorizontal, ShieldCheck, X } from '@lucide/vue'
-import { renderMarkdown } from '../../ai/utils/markdown'
-import QuestionCursor from '../../ai/components/QuestionCursor.vue'
+import { renderMarkdown } from '../../../shared/utils/markdown'
+import QuestionCursor from '../../../shared/components/QuestionCursor.vue'
 import type { DialogMessage } from '../composables/useDialogMode'
 
 const props = withDefaults(defineProps<{

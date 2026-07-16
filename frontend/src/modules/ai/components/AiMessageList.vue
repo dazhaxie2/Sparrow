@@ -76,8 +76,8 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Brain, ChevronDown, LoaderCircle, ShieldCheck } from '@lucide/vue'
-import { renderMarkdown } from '../utils/markdown'
-import QuestionCursor from './QuestionCursor.vue'
+import { renderMarkdown } from '../../../shared/utils/markdown'
+import QuestionCursor from '../../../shared/components/QuestionCursor.vue'
 import type { AiHarnessMetadata } from '../types'
 
 interface ChatStep {

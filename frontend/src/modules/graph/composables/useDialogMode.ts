@@ -1,7 +1,7 @@
 import { computed, nextTick, ref, type Ref } from 'vue'
 import { fetchSubgraph, fetchNeighborhood, searchNodes } from '../api'
 import type { Tree, NodeBrief, NodeDetail, EdgeBrief } from '../types'
-import { askAi, createSession } from '../../ai/api/chat'
+import { askAi, createSession } from '../../../shared/ai/chat'
 import type { AiHarnessMetadata } from '../../../shared/ai/harness'
 
 const DIALOG_NODE_LIMIT = 140

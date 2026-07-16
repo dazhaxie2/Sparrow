@@ -39,12 +39,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { createOrder } from '../api'
-import { useUserStore } from '../../user/store'
+import { useUserState } from '../../../shared/store/user-state'
 import { useDismissableOverlay } from '../../../shared/composables/useDismissableOverlay'
 
 const emit = defineEmits<{ close: [] }>()
 const dismiss = useDismissableOverlay(() => emit('close'))
-const user = useUserStore()
+const user = useUserState()
 const errorMessage = ref('')
 
 async function buy(code: string) {

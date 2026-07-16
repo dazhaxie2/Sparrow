@@ -89,15 +89,10 @@
       @clear="clearCompare"
     />
 
-    <aside v-if="!graphFullScreen" class="ai-rail" :class="{ collapsed: aiRailCollapsed }">
-      <AiChatPanel surface="graph-rail" :context-node="aiContextNode" :collapsed="aiRailCollapsed" @toggle="aiRailCollapsed = !aiRailCollapsed" />
-    </aside>
   </main>
 
-  <LoginModal v-if="showLogin" @close="showLogin = false" />
-  <MemberModal v-if="showMember" @close="showMember = false" />
-  <BindEmailModal v-if="showBindEmail" @close="showBindEmail = false" @bound="showBindEmail = false" />
-  <SetPasswordModal v-if="showSetPassword" @done="onSetPasswordDone" @skip="onSetPasswordSkip" />
+  <!-- LoginModal/MemberModal/BindEmailModal/SetPasswordModal 由 app 层 HomeShell 装配,
+       通过 useHomeChrome() 控制器触发;此处不再直接渲染跨模块组件。 -->
 
   <GraphModals
     :show-learning="showLearning"
@@ -129,14 +124,10 @@ import GraphCanvas from '../components/GraphCanvas.vue'
 import DialogWorkbench from '../components/DialogWorkbench.vue'
 import CompareDock from '../components/CompareDock.vue'
 import GraphModals from '../components/GraphModals.vue'
-import AiChatPanel from '../../ai/components/AiChatPanel.vue'
-import LoginModal from '../../user/components/LoginModal.vue'
-import BindEmailModal from '../../user/components/BindEmailModal.vue'
-import SetPasswordModal from '../../user/components/SetPasswordModal.vue'
-import MemberModal from '../../trade/components/MemberModal.vue'
+import { useHomeChrome } from '../../../shared/store/home-chrome'
 import { fetchClusterOverview, fetchSubgraph, fetchTile, fetchOverview, fetchNeighborhood, fetchNode, fetchPrerequisites, fetchApplications } from '../api'
 import type { Tree, NodeBrief, NodeDetail, Overview, EdgeBrief, GraphTile, ClusterOverview, ClusterNode } from '../types'
-import { useUserStore } from '../../user/store'
+import { useUserState } from '../../../shared/store/user-state'
 import { colorForCategory, createCategoryLegend } from '../composables/graphOption'
 import { useSigmaGraph as useGraphChart } from '../composables/useSigmaGraph'
 import { useDialogMode } from '../composables/useDialogMode'
@@ -149,12 +140,12 @@ const LIMIT_OPTIONS = [200, 400, 800, 1500, 3000]
 const RAW_NODE_LIMIT = 3000
 const COMMUNITY_NODE_LIMIT = 30000
 
-const user = useUserStore()
+const user = useUserState()
 const route = useRoute()
 const router = useRouter()
 // 图谱视图/AI 栏/全屏状态由共享 UI store 持有:App.vue 的 header 也需要读写它们。
 const ui = useUiStore()
-const { graphMode, graphFullScreen, aiRailCollapsed } = storeToRefs(ui)
+const { graphMode, graphFullScreen } = storeToRefs(ui)
 
 // ── 页面级状态 ──
 const treeData = ref<Tree | null>(null)
@@ -178,12 +169,20 @@ const treeLoading = ref(false)
 const treeError = ref('')
 const nodeLoading = ref(false)
 const nodeError = ref('')
-const showLogin = ref(false)
-const showMember = ref(false)
-const showBindEmail = ref(false)
 const showLearning = ref(false)
 const showSettings = ref(false)
-const showSetPassword = ref(false)
+
+// 跨模块业务弹窗由 app 层 HomeShell 装配;此处只拿控制器触发开关。
+const chrome = useHomeChrome()
+const { showLogin, showMember, showBindEmail, showSetPassword } = chrome
+
+// SetPassword 的 done/skip 业务逻辑(刷新登录态/写跳过标记)注册回壳层,
+// 由 HomeShell 在 Modal 事件触发时回调。
+chrome.onSetPasswordDone = () => { showSetPassword.value = false }
+chrome.onSetPasswordSkip = () => {
+  showSetPassword.value = false
+  if (user.profile) localStorage.setItem(`sparrow_pwd_skip_${user.profile.id}`, '1')
+}
 
 let latestNodeRequest = 0
 let latestTreeRequest = 0
@@ -240,6 +239,9 @@ const currentNodeColor = computed(() => {
 const aiContextNode = computed<NodeBrief | null>(() => (
   selectedDetail.value ? detailToBrief(selectedDetail.value) : selectedPreview.value
 ))
+
+// 同步图谱上下文到壳层 AiChatPanel(壳层持有组件,通过 chrome 透传 context)。
+watch(aiContextNode, v => chrome.aiContextNode.value = v ?? null, { immediate: true })
 
 // 仅当详情/预览属于材料类时,把当前 applications 透传给面板;否则恒为空(不显示区块)。
 const MATERIAL_CATEGORIES = new Set(['材料冶金', '化学化工'])
@@ -795,14 +797,6 @@ watch(() => user.profile, profile => {
   const dismissed = localStorage.getItem(`sparrow_pwd_skip_${profile.id}`)
   if (!dismissed) showSetPassword.value = true
 })
-
-function onSetPasswordDone() {
-  showSetPassword.value = false
-}
-function onSetPasswordSkip() {
-  showSetPassword.value = false
-  if (user.profile) localStorage.setItem(`sparrow_pwd_skip_${user.profile.id}`, '1')
-}
 
 onMounted(async () => {
   const el = canvasRef.value?.getChartEl()
