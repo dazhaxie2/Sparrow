@@ -4,7 +4,7 @@
       v-if="graphMode === 'map' && !graphFullScreen"
       :total-nodes="totalNodes"
       :total-edges="totalEdges"
-      :mastered-count="progressCounts.mastered"
+      :favorite-count="totalFavorites"
       :premium-count="premiumCount"
       :categories="categories"
       :active-category="activeCategory"
@@ -56,15 +56,16 @@
       :preview="selectedPreview"
       :loading="nodeLoading"
       :error="nodeError"
-      :progress="currentProgress"
-      :progress-map="progressMap"
+      :folders="folders"
+      :favorite-folder-id="currentFavoriteFolderId"
+      :folder-id-by-node-id="folderIdByNodeId"
       :accent-color="currentNodeColor"
       :applications="currentApplications"
       :applications-loading="applicationsLoading"
       :floating="true"
       @select="selectFromPanel"
       @retry="retrySelectedNode"
-      @set-progress="setCurrentProgress"
+      @set-favorite-folder="setCurrentFavoriteFolder"
       @add-compare="addCurrentToCompare"
       @open-member="showMemberModal"
     />
@@ -101,14 +102,18 @@
   <GraphModals
     :show-learning="showLearning"
     :show-settings="showSettings"
-    :learning-groups="learningGroups"
+    :folders="folders"
+    :folder-details="folderDetails"
     :show-edge-labels="showEdgeLabels"
     @update:show-learning="value => (showLearning = value)"
     @update:show-settings="value => (showSettings = value)"
     @update:show-edge-labels="value => (showEdgeLabels = value)"
-    @open-learning-node="openLearningNode"
-    @remove-progress="removeProgress"
-    @clear-all-progress="clearAllProgress"
+    @open-favorite-node="openFavoriteNode"
+    @move-favorite-node="moveFavoriteNode"
+    @remove-favorite-node="removeFavoriteNode"
+    @add-folder="addFolder"
+    @rename-folder="renameFolder"
+    @remove-folder="removeFolder"
   />
 </template>
 
@@ -135,7 +140,7 @@ import { useUserStore } from '../../user/store'
 import { colorForCategory, createCategoryLegend } from '../composables/graphOption'
 import { useSigmaGraph as useGraphChart } from '../composables/useSigmaGraph'
 import { useDialogMode } from '../composables/useDialogMode'
-import { useLearningProgress, type ProgressState } from '../composables/useLearningProgress'
+import { useFavorites } from '../composables/useFavorites'
 import { useCompare } from '../composables/useCompare'
 
 type DisplayMode = 'raw' | 'community' | 'lod'
@@ -187,7 +192,7 @@ const loadedLodLevels = new Map<number, number>()
 let clusterOverviewPromise: Promise<ClusterOverview> | null = null
 
 // ── 逻辑 composable ──
-const { progressMap, loadProgress, setProgress, removeProgress, clearAllProgress, progressCounts, learningGroups } = useLearningProgress()
+const { folders, folderDetails, folderIdByNodeId, favoriteCounts, totalFavorites, load: loadFavorites, addNode: addFavoriteNode, moveNode: moveFavoriteNode, removeNode: removeFavoriteNode, addFolder, renameFolder, removeFolder } = useFavorites()
 const { compareNodes, addToCompare, refreshCompareEntry, removeCompare, clearCompare, commonPrerequisites, branchSummary } = useCompare()
 
 // ── 派生状态(图表/对话之前定义,供其依赖) ──
@@ -222,9 +227,9 @@ const totalEdges = computed(() => overview.value?.totalEdges ?? edgeCount.value)
 const categories = computed(() => overview.value?.categories ?? [])
 const premiumCount = computed(() => treeData.value?.nodes.filter(node => node.premium).length ?? 0)
 const nodeById = computed(() => new Map((treeData.value?.nodes ?? []).map(node => [node.id, node])))
-const currentProgress = computed(() => {
+const currentFavoriteFolderId = computed(() => {
   const id = selectedDetail.value?.id ?? selectedPreview.value?.id
-  return id ? progressMap.value[id] ?? null : null
+  return id ? folderIdByNodeId.value.get(id) ?? null : null
 })
 
 const categoryLegend = computed(() => createCategoryLegend(treeData.value?.nodes ?? [], categories.value))
@@ -398,13 +403,30 @@ function nodeHighlight(selectedId: number, chain: NodeBrief[]) {
   return { selectedId, chainIds: highlightIdsFor(chain) }
 }
 
-function setCurrentProgress(state: ProgressState) {
+async function setCurrentFavoriteFolder(folderId: number | null) {
   const current = selectedDetail.value ?? selectedPreview.value
   if (!current) return
-  setProgress({ id: current.id, name: current.name, era: current.era, yearLabel: current.yearLabel }, state)
+  if (!user.isLoggedIn()) {
+    showLogin.value = true
+    return
+  }
+  if (folderId == null) {
+    await removeFavoriteNode(current.id)
+  } else {
+    await addFavoriteNode(folderId, current.id, {
+      id: current.id,
+      name: current.name,
+      era: current.era,
+      yearLabel: current.yearLabel,
+    })
+  }
+  // 后端详情里 favoriteFolderId 不会自动更新，手动刷新详情以保持状态一致
+  if (selectedDetail.value) {
+    selectedDetail.value = { ...selectedDetail.value, favoriteFolderId: folderId }
+  }
 }
 
-function openLearningNode(id: number) {
+function openFavoriteNode(id: number) {
   showLearning.value = false
   void showNode(id, { focus: true })
 }
@@ -783,13 +805,15 @@ function onSetPasswordSkip() {
 }
 
 onMounted(async () => {
-  loadProgress()
   const el = canvasRef.value?.getChartEl()
   if (el) graphChart.init(el)
   window.addEventListener('resize', handleResize)
   window.addEventListener('focus', handleFocus)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
   await user.loadProfile()
+  if (user.isLoggedIn()) {
+    await loadFavorites().catch(() => {})
+  }
   consumeHeaderIntent()
   await Promise.all([loadOverview(), loadTree()])
 })

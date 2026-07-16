@@ -80,6 +80,7 @@ public class GraphService {
     private final com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper layoutMapper;
     private final NodeApplicationRepository applicationRepository;
     private final AiClient aiClient;
+    private final FavoriteService favoriteService;
 
     public GraphService(NeoTechNodeRepository neoRepo, MysqlGraphReader mysqlReader,
                         StringRedisTemplate redis, ObjectMapper objectMapper,
@@ -87,7 +88,8 @@ public class GraphService {
                         Neo4jMigrator neo4jMigrator,
                         KnowledgeMetaRepository knowledgeMetaRepository,
                         com.sparrow.graph.infrastructure.persistence.NodeLayoutMapper layoutMapper,
-                        NodeApplicationRepository applicationRepository, AiClient aiClient) {
+                        NodeApplicationRepository applicationRepository, AiClient aiClient,
+                        FavoriteService favoriteService) {
         this.neoRepo = neoRepo;
         this.mysqlReader = mysqlReader;
         this.redis = redis;
@@ -99,6 +101,7 @@ public class GraphService {
         this.layoutMapper = layoutMapper;
         this.applicationRepository = applicationRepository;
         this.aiClient = aiClient;
+        this.favoriteService = favoriteService;
     }
 
     public Tree tree() {
@@ -514,9 +517,10 @@ public class GraphService {
                                    List<NodeBrief> prerequisites, List<NodeBrief> unlocks, Long userId) {
         boolean locked = premium && (userId == null || !isMember(userId));
         List<SourceBrief> sources = loadSources(code);
+        Long favoriteFolderId = userId == null ? null : favoriteService.folderIdForNode(userId, id);
         return new NodeDetail(id, code, name, era, eraRank, yearLabel, summary,
                 locked ? null : detail, premium, locked, prerequisites, unlocks, List.of(), sources,
-                category, importance);
+                category, importance, favoriteFolderId);
     }
 
     private List<SourceBrief> loadSources(String code) {

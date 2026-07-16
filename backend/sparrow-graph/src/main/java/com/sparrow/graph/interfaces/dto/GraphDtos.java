@@ -69,7 +69,7 @@ public final class GraphDtos {
                              String yearLabel, String summary, String detail, boolean premium,
                              boolean locked, List<NodeBrief> prerequisites, List<NodeBrief> unlocks,
                              List<NodeBrief> applications, List<SourceBrief> sources,
-                             String category, Integer importance) {
+                             String category, Integer importance, Long favoriteFolderId) {
     }
 
     /** 总览端点:领域×时代格子的聚合计数 + 该格代表节点(按重要度取 top)。 */

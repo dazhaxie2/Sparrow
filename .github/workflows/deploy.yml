@@ -93,7 +93,10 @@ jobs:
               }
 
               if ($attempt -lt $MaxAttempts) {
-                Start-Sleep -Seconds ([Math]::Min(5 * $attempt, 20))
+                # Exponential backoff capped at 60s: survives Mihomo restart windows
+                # and GitHub-side transient outages that linear backoff could not.
+                $delay = [Math]::Min(10 * [Math]::Pow(2, $attempt - 1), 60)
+                Start-Sleep -Seconds $delay
               }
             }
 
@@ -102,10 +105,34 @@ jobs:
 
           # Force-refresh the remote tracking ref. HTTP/1.1 avoids intermittent HTTP/2
           # connection resets observed on this Windows host.
-          Invoke-GitChecked -MaxAttempts 5 -GitArgs @(
-            '-c', 'http.version=HTTP/1.1', 'fetch', '--no-tags', '--prune', 'origin',
-            '+refs/heads/main:refs/remotes/origin/main'
-          )
+          #
+          # Route through the Mihomo HTTP proxy (mixed-port 7897) when it is up, so the
+          # background runner service does not depend on TUN takeover of system traffic.
+          # Fall back to direct/TUN when the proxy is down (e.g. Mihomo restarting), then
+          # rely on the exponential backoff above to ride out the gap.
+          $proxyPort = 7897
+          $proxyUp = $false
+          try {
+            $probe = New-Object System.Net.Sockets.TcpClient
+            $iar = $probe.BeginConnect('127.0.0.1', $proxyPort, $null, $null)
+            $proxyUp = $iar.AsyncWaitHandle.WaitOne(800, $false) -and $probe.Connected
+            $probe.Close()
+          } catch { $proxyUp = $false }
+
+          $fetchArgs = @('-c', 'http.version=HTTP/1.1')
+          if ($proxyUp) {
+            Write-Host "Mihomo proxy up on 127.0.0.1:$proxyPort; routing fetch via proxy."
+            $fetchArgs += @(
+              '-c', "http.proxy=http://127.0.0.1:$proxyPort",
+              '-c', "https.proxy=http://127.0.0.1:$proxyPort"
+            )
+          } else {
+            Write-Host "Mihomo proxy not listening on 127.0.0.1:$proxyPort; fetching direct/TUN."
+          }
+          $fetchArgs += @('fetch', '--no-tags', '--prune', 'origin',
+                           '+refs/heads/main:refs/remotes/origin/main')
+
+          Invoke-GitChecked -MaxAttempts 8 -GitArgs $fetchArgs
           Invoke-GitChecked -GitArgs @('cat-file', '-e', "$expected^{commit}")
           Invoke-GitChecked -GitArgs @('reset', '--hard', $expected)
 

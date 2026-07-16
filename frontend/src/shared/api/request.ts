@@ -38,3 +38,15 @@ export function post<T>(
 export function get<T>(path: string): Promise<T> {
   return request<T>(path)
 }
+
+export function put<T>(
+  path: string,
+  data: unknown,
+  options?: Omit<RequestInit, 'method' | 'body'>,
+): Promise<T> {
+  return request<T>(path, { ...options, method: 'PUT', body: JSON.stringify(data) })
+}
+
+export function del<T>(path: string, options?: Omit<RequestInit, 'method'>): Promise<T> {
+  return request<T>(path, { ...options, method: 'DELETE' })
+}

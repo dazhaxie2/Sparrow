@@ -18,7 +18,7 @@
       <div class="rail-stats" aria-label="图谱指标">
         <div><strong>{{ totalNodes }}</strong><span>节点</span></div>
         <div><strong>{{ totalEdges }}</strong><span>关系</span></div>
-        <div><strong>{{ masteredCount }}</strong><span>已掌握</span></div>
+        <div><strong>{{ favoriteCount }}</strong><span>收藏</span></div>
         <div><strong>{{ premiumCount }}</strong><span>深度</span></div>
       </div>
 
@@ -73,7 +73,7 @@ import { Layers, SlidersHorizontal, X } from '@lucide/vue'
 const props = defineProps<{
   totalNodes: number
   totalEdges: number
-  masteredCount: number
+  favoriteCount: number
   premiumCount: number
   categories: string[]
   activeCategory: string | null

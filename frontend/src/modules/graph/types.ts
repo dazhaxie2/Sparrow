@@ -76,6 +76,8 @@ export interface NodeDetail {
   sources: SourceBrief[]
   category?: string | null
   importance?: number | null
+  /** 当前登录用户已将该节点收藏到的收藏夹 id；未登录或未收藏为 null。 */
+  favoriteFolderId?: number | null
 }
 
 export interface EraBrief {

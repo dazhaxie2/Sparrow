@@ -80,7 +80,7 @@ defineEmits<{
   top: 50%;
   transform: translateY(-50%);
   z-index: 20;
-  max-width: 320px;
+  max-width: 520px;
   padding: 8px 11px;
   border-radius: 6px;
   background: var(--ink);

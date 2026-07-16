@@ -48,18 +48,47 @@
           <h2 class="node-title">{{ currentName }}</h2>
           <p class="node-summary">{{ currentSummary }}</p>
           <div class="node-actions">
-            <button type="button" :class="{ active: progress === 'want' }" @click="$emit('setProgress', 'want')">
-              <BookmarkPlus :size="14" />
-              想学
-            </button>
-            <button type="button" :class="{ active: progress === 'read' }" @click="$emit('setProgress', 'read')">
-              <CircleCheck :size="14" />
-              已读
-            </button>
-            <button type="button" :class="{ active: progress === 'mastered' }" @click="$emit('setProgress', 'mastered')">
-              <Target :size="14" />
-              掌握
-            </button>
+            <div class="favorite-control" :class="{ open: folderMenuOpen }">
+              <button
+                type="button"
+                class="favorite-btn"
+                :class="{ active: favoriteFolderId != null }"
+                :disabled="!current"
+                @click="toggleFolderMenu"
+              >
+                <Bookmark :size="14" />
+                {{ favoriteLabel }}
+              </button>
+              <div v-if="folderMenuOpen" class="folder-menu" @click.stop>
+                <button
+                  v-for="folder in folders"
+                  :key="folder.id"
+                  type="button"
+                  :class="{ active: folder.id === favoriteFolderId }"
+                  @click="selectFolder(folder.id)"
+                >
+                  <Check :size="12" v-if="folder.id === favoriteFolderId" />
+                  <span v-else class="menu-spacer"></span>
+                  {{ folder.name }}
+                </button>
+                <button type="button" class="menu-divider" @click="selectFolder(null)">
+                  <span class="menu-spacer"></span>
+                  取消收藏
+                </button>
+                <div class="folder-add">
+                  <input
+                    v-model="newFolderName"
+                    type="text"
+                    placeholder="新建收藏夹"
+                    maxlength="64"
+                    @keydown.enter.prevent="createFolderAndSelect"
+                  />
+                  <button type="button" :disabled="!newFolderName.trim()" @click="createFolderAndSelect">
+                    <Plus :size="12" />
+                  </button>
+                </div>
+              </div>
+            </div>
             <button type="button" class="compare-btn" @click="$emit('addCompare')">
               <GitCompare :size="14" />
               加入对比
@@ -154,13 +183,12 @@
                 v-for="item in recommendations"
                 :key="item.id"
                 type="button"
-                :class="{ learned: item.state === 'mastered' || item.state === 'read' }"
+                :class="{ learned: item.isFavorite }"
                 @click="$emit('select', item.id)"
               >
                 {{ item.name }}
                 <span class="rel-tag" :class="item.direction">{{ item.direction === 'pre' ? '前置' : '后续' }}</span>
-                <span v-if="item.state === 'mastered'" class="rel-tag learned-tag">已掌握</span>
-                <span v-else-if="item.state === 'read'" class="rel-tag learned-tag">已读</span>
+                <span v-if="item.isFavorite" class="rel-tag learned-tag">已收藏</span>
               </button>
             </div>
           </section>
@@ -199,50 +227,53 @@ import { computed, nextTick, ref, watch } from 'vue'
 import {
   AlertTriangle,
   BookOpen,
+  Bookmark,
   Boxes,
+  Check,
   FileText,
   GitCompare,
   Lightbulb,
   LoaderCircle,
   LockKeyhole,
-  BookmarkPlus,
+  Plus,
   ChevronDown,
   ChevronUp,
-  CircleCheck,
   ExternalLink,
   PanelRightClose,
   PanelRightOpen,
-  Target,
 } from '@lucide/vue'
 import type { NodeBrief, NodeDetail } from '../types'
-
-type ProgressState = 'want' | 'read' | 'mastered' | null
+import type { FavoriteFolder } from '../api'
 
 const props = defineProps<{
   detail: NodeDetail | null
   preview: NodeBrief | null
   loading: boolean
   error: string
-  progress: ProgressState
-  /** 全局学习进度(节点 id → 状态),供推荐算法对已学节点降权。 */
-  progressMap?: Record<number, Exclude<ProgressState, null>>
+  folders: FavoriteFolder[]
+  favoriteFolderId: number | null
+  /** 全局收藏映射(节点 id → 收藏夹 id),供推荐算法对已收藏节点降权。 */
+  folderIdByNodeId: Map<number, number>
   accentColor: string
   applications: NodeBrief[]
   applicationsLoading: boolean
   floating?: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   select: [id: number]
   retry: []
   openMember: []
-  setProgress: [state: Exclude<ProgressState, null>]
+  setFavoriteFolder: [folderId: number | null]
   addCompare: []
+  addFolder: [name: string]
 }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
 const drawerCollapsed = ref(false)
 const sheetExpanded = ref(false)
+const folderMenuOpen = ref(false)
+const newFolderName = ref('')
 const current = computed(() => props.detail ?? props.preview)
 const currentName = computed(() => current.value?.name ?? '加载中')
 const currentEra = computed(() => current.value?.era ?? '未知时代')
@@ -251,6 +282,34 @@ const currentSummary = computed(() => current.value?.summary ?? '正在整理该
 const currentCategory = computed(() => current.value?.category ?? '')
 const currentPremium = computed(() => Boolean(current.value?.premium))
 const sources = computed(() => props.detail?.sources ?? [])
+
+const favoriteLabel = computed(() => {
+  if (props.favoriteFolderId == null) return '收藏'
+  const folder = props.folders.find(f => f.id === props.favoriteFolderId)
+  return folder ? `已收藏 · ${folder.name}` : '已收藏'
+})
+
+function toggleFolderMenu() {
+  folderMenuOpen.value = !folderMenuOpen.value
+}
+
+function selectFolder(folderId: number | null) {
+  emit('setFavoriteFolder', folderId)
+  folderMenuOpen.value = false
+}
+
+async function createFolderAndSelect() {
+  const name = newFolderName.value.trim()
+  if (!name) return
+  emit('addFolder', name)
+  newFolderName.value = ''
+  folderMenuOpen.value = false
+}
+
+watch(() => current.value?.id, () => {
+  folderMenuOpen.value = false
+  newFolderName.value = ''
+})
 
 type RecDirection = 'pre' | 'post'
 
@@ -268,10 +327,8 @@ const RECOMMEND_LIMIT = 10
  */
 function scoreCandidate(node: NodeBrief, direction: RecDirection, maxImportance: number) {
   let score = direction === 'pre' ? 1 : 0.72
-  const state = props.progressMap?.[node.id]
-  if (state === 'mastered') score *= 0.18
-  else if (state === 'read') score *= 0.55
-  else if (state === 'want') score *= 1.12
+  const isFavorite = props.folderIdByNodeId.has(node.id)
+  if (isFavorite) score *= 0.55
   const importance = Math.max(0, node.importance ?? 0)
   score *= 1 + 0.5 * (maxImportance > 0 ? importance / maxImportance : 0)
   if (node.category && current.value?.category && node.category === current.value.category) score *= 1.15
@@ -293,7 +350,7 @@ const recommendations = computed(() => {
     .map(({ node, direction }) => ({
       ...node,
       direction,
-      state: props.progressMap?.[node.id] ?? null,
+      isFavorite: props.folderIdByNodeId.has(node.id),
       score: scoreCandidate(node, direction, maxImportance),
     }))
     .sort((a, b) => b.score - a.score)
@@ -541,6 +598,113 @@ watch(() => props.floating, value => {
 
 .node-actions .compare-btn {
   margin-left: auto;
+}
+
+.favorite-control {
+  position: relative;
+}
+
+.favorite-btn {
+  min-width: 84px;
+}
+
+.folder-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  width: 200px;
+  display: grid;
+  gap: 1px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+  box-shadow: 0 10px 28px rgba(20, 24, 29, 0.12);
+  overflow: hidden;
+  padding: 0;
+}
+
+.folder-menu > button {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0 11px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.folder-menu > button:hover {
+  background: var(--surface-2);
+}
+
+.folder-menu > button.active {
+  color: var(--accent);
+  background: rgba(255, 87, 34, 0.06);
+}
+
+.menu-spacer {
+  display: inline-block;
+  width: 12px;
+}
+
+.menu-divider {
+  border-top: 1px solid var(--line) !important;
+  color: var(--ink-2) !important;
+}
+
+.folder-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.folder-add input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+  padding: 0 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+.folder-add input:focus {
+  border-color: var(--accent);
+}
+
+.folder-add button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.folder-add button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.folder-add button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .section-title {
