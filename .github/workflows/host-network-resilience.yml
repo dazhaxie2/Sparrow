@@ -31,3 +31,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Host network inspection failed (rc=$LASTEXITCODE)"
           }
+      - name: Audit host network resilience candidate
+        shell: powershell
+        run: |
+          # Validate the candidate and the local Mihomo API without changing the host.
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+            -File backend\scripts\install-host-network-resilience.ps1 -AuditOnly
+          if ($LASTEXITCODE -ne 0) {
+            throw "Host network resilience audit failed (rc=$LASTEXITCODE)"
+          }
