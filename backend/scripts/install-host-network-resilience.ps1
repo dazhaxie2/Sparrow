@@ -278,6 +278,27 @@ $desiredRuntime = Add-YamlListEntries -Text $desiredRuntime -Key 'rules' -Entrie
 $candidatePath = Join-Path $configHome 'clash-verge.codex-candidate.yaml'
 [IO.File]::WriteAllText($candidatePath, $desiredRuntime, $utf8NoBom)
 if ($AuditOnly) {
+    $auditVariants = [ordered]@{
+        'byte-copy' = $null
+        'utf8-rewrite' = $originalRuntime
+        'scalar-only' = (Set-YamlScalar -Text $originalRuntime -Key 'find-process-mode' -Value 'always')
+        'rules-only' = (Add-YamlListEntries -Text $originalRuntime -Key 'rules' -Entries $processRules)
+    }
+    foreach ($variantName in $auditVariants.Keys) {
+        $variantPath = Join-Path $configHome "clash-verge.codex-$variantName.yaml"
+        if ($variantName -eq 'byte-copy') {
+            Copy-Item -LiteralPath $runtimeConfig -Destination $variantPath -Force
+        } else {
+            [IO.File]::WriteAllText($variantPath, [string]$auditVariants[$variantName], $utf8NoBom)
+        }
+        $variantOutput = & $coreExecutable -d $configHome -f $variantPath -t 2>&1
+        $variantExit = $LASTEXITCODE
+        Write-Output "audit-variant=$variantName exit=$variantExit"
+        if ($variantExit -ne 0) {
+            $variantOutput | Select-Object -Last 2 | ForEach-Object { Write-Output "audit-variant-error=$variantName $_" }
+        }
+        Remove-Item -LiteralPath $variantPath -Force -ErrorAction SilentlyContinue
+    }
     $candidateBytes = [IO.File]::ReadAllBytes($candidatePath)
     $previewBytes = $candidateBytes | Select-Object -First 96
     $hexPreview = [BitConverter]::ToString([byte[]]$previewBytes)
