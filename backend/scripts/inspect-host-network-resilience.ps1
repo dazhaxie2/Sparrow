@@ -111,7 +111,7 @@ if ($configHome -and (Test-Path -LiteralPath $configHome)) {
     $profilesIndex = Join-Path $configHome 'profiles.yaml'
     if (Test-Path -LiteralPath $profilesIndex) {
         Write-Output "profiles-index=$profilesIndex"
-        Select-String -LiteralPath $profilesIndex -Pattern '^\s*(current|merge|rules)\s*:' |
+        Select-String -LiteralPath $profilesIndex -Pattern '^\s*(?:-\s+)?(?:uid|type|current|merge|rules)\s*:' |
             ForEach-Object Line
     } else {
         Write-Output 'profiles-index=not-found'
@@ -173,6 +173,11 @@ Write-Objects (Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue |
 
 Write-Section 'TAILSCALE'
 try {
+    $tailscaleService = Get-CimInstance Win32_Service -Filter "Name='Tailscale'"
+    if ($tailscaleService -and $tailscaleService.ProcessId) {
+        Write-Objects (Get-Process -Id $tailscaleService.ProcessId |
+            Select-Object Id, ProcessName, Path, StartTime)
+    }
     $tailscaleStatus = tailscale status --json | ConvertFrom-Json
     Write-Objects ([pscustomobject]@{
         BackendState = $tailscaleStatus.BackendState
