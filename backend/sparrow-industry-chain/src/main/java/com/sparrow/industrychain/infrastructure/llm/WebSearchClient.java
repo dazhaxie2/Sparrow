@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.infrastructure.llm;
 
+import com.sparrow.common.ai.Texts;
 import com.sparrow.industrychain.infrastructure.config.IndustryChainProperties;
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
@@ -64,7 +65,7 @@ public class WebSearchClient {
                 title + " 产业链 中游 制造 代工 核心企业",
                 title + " 下游 客户 应用 市场",
                 title + " 竞争格局 市场份额 行业报告",
-                title + " 供应链 风险 政策 技术趋势 " + compact(brief, 80)));
+                title + " 供应链 风险 政策 技术趋势 " + Texts.compact(brief, 80)));
         if (extraQueries != null) {
             for (String query : extraQueries) {
                 String trimmed = query == null ? "" : query.trim();
@@ -109,9 +110,9 @@ public class WebSearchClient {
             } catch (Exception ignored) {
                 continue;
             }
-            sources.add(new SearchSource("S" + index++, compact(enriched.title(), 300),
-                    compact(enriched.url(), 1200), compact(enriched.publisher(), 160),
-                    compact(enriched.snippet(), 1200)));
+            sources.add(new SearchSource("S" + index++, Texts.compact(enriched.title(), 300),
+                    Texts.compact(enriched.url(), 1200), Texts.compact(enriched.publisher(), 160),
+                    Texts.compact(enriched.snippet(), 1200)));
         }
         return sources;
     }
@@ -133,19 +134,19 @@ public class WebSearchClient {
                 Element link = block.selectFirst("h3 a[href], .vr-title a[href], a[href]");
                 if (link == null) continue;
                 String href = absoluteUrl(link);
-                String text = clean(block.text());
-                String linkTitle = clean(link.text());
+                String text = Texts.collapse(block.text());
+                String linkTitle = Texts.collapse(link.text());
                 if (!isPublicHttpUrl(href) || text.length() < 35) continue;
-                result.add(new Candidate(linkTitle.isBlank() ? compact(text, 100) : linkTitle,
-                        href, hostOf(href), compact(text, 850)));
+                result.add(new Candidate(linkTitle.isBlank() ? Texts.compact(text, 100) : linkTitle,
+                        href, hostOf(href), Texts.compact(text, 850)));
                 if (result.size() >= 4) break;
             }
 
             // 搜索站点结构调整时仍保留联网证据，而不是悄悄退化成模型常识。
             if (result.isEmpty()) {
-                String text = clean(document.body() == null ? "" : document.body().text());
+                String text = Texts.collapse(document.body() == null ? "" : document.body().text());
                 if (!text.isBlank()) {
-                    result.add(new Candidate(query + " - 联网检索", url, hostOf(url), compact(text, 850)));
+                    result.add(new Candidate(query + " - 联网检索", url, hostOf(url), Texts.compact(text, 850)));
                 }
             }
         } catch (Exception ignored) {
@@ -167,10 +168,10 @@ public class WebSearchClient {
             String finalUrl = response.url().toString();
             if (!isPublicHttpUrl(finalUrl)) return source;
             Document document = response.parse();
-            String title = clean(document.title());
-            String body = clean(document.body() == null ? "" : document.body().text());
+            String title = Texts.collapse(document.title());
+            String body = Texts.collapse(document.body() == null ? "" : document.body().text());
             return new Candidate(title.isBlank() ? source.title() : title, finalUrl,
-                    hostOf(finalUrl), body.length() < 80 ? source.snippet() : compact(body, 900));
+                    hostOf(finalUrl), body.length() < 80 ? source.snippet() : Texts.compact(body, 900));
         } catch (Exception ignored) {
             return source;
         }
@@ -204,15 +205,6 @@ public class WebSearchClient {
         } catch (Exception ignored) {
             return "互联网来源";
         }
-    }
-
-    private String clean(String value) {
-        return value == null ? "" : value.replaceAll("\\s+", " ").trim();
-    }
-
-    private String compact(String value, int max) {
-        String clean = clean(value);
-        return clean.length() <= max ? clean : clean.substring(0, max);
     }
 
     private record Candidate(String title, String url, String publisher, String snippet) {

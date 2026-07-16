@@ -1,6 +1,7 @@
 package com.sparrow.industrychain.application.graph;
 
 import com.sparrow.common.ai.model.ModelScene;
+import com.sparrow.common.ai.Texts;
 import com.sparrow.industrychain.application.config.IndustryAgentConfigService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,7 +40,7 @@ public class ResearchGraphExtractor {
         JsonNode graph = parseJson(raw);
         if (!validator.valid(graph, sources)) {
             String repaired = chat.chat(ModelScene.CHAIN_EXTRACTION, "修复下面内容为严格符合原 schema 的 JSON。删除无来源关系，"
-                    + "不要添加新事实，只输出 JSON：\n" + compact(raw, 8000));
+                    + "不要添加新事实，只输出 JSON：\n" + Texts.compact(raw, 8000));
             graph = parseJson(repaired);
         }
         if (!validator.valid(graph, sources)) throw new BizException(502, "关系图 Agent 返回的数据无法验证");
@@ -61,7 +62,7 @@ public class ResearchGraphExtractor {
 
                 研究对象：%s
                 核验证据：%s
-                """.formatted(refs, title, compact(evidence, 7500));
+                """.formatted(refs, title, Texts.compact(evidence, 7500));
     }
 
     private JsonNode parseJson(String raw) {
@@ -73,10 +74,5 @@ public class ResearchGraphExtractor {
         } catch (Exception error) {
             return null;
         }
-    }
-
-    private String compact(String value, int max) {
-        String clean = value == null ? "" : value.replaceAll("\\s+", " ").trim();
-        return clean.length() <= max ? clean : clean.substring(0, max);
     }
 }

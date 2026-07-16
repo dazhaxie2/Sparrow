@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.infrastructure.pdf;
 
+import com.sparrow.common.ai.Texts;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -31,17 +32,11 @@ public class PdfTextExtractor {
         if (bytes == null || bytes.length == 0) return "";
         try (PDDocument document = Loader.loadPDF(bytes)) {
             String text = new PDFTextStripper().getText(document);
-            return clean(text);
+            return Texts.compact(text, MAX_CHARS);
         } catch (Exception error) {
             log.warn("PDF 文本抽取失败，将跳过该文件作为来源: {}", error.getMessage());
             return "";
         }
-    }
-
-    private String clean(String value) {
-        if (value == null) return "";
-        String collapsed = value.replaceAll("\\s+", " ").trim();
-        return collapsed.length() <= MAX_CHARS ? collapsed : collapsed.substring(0, MAX_CHARS);
     }
 }
 

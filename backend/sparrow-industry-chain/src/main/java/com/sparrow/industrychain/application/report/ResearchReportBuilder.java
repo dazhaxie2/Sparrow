@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.application.report;
 
+import com.sparrow.common.ai.Texts;
 import com.sparrow.common.ai.model.ModelScene;
 import com.sparrow.industrychain.application.config.IndustryAgentConfigService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -74,7 +75,7 @@ public class ResearchReportBuilder {
         if (ir == null) {
             String repaired = chat.chat(ModelScene.CHAIN_REPORT, "修复下面内容为符合 schema 的 Document IR JSON，"
                     + "删除来源编号不在 " + validRefs + " 内的 source 标记，不要新增事实，只输出 JSON：\n"
-                    + compact(irJson, 8000));
+                    + Texts.compact(irJson, 8000));
             ir = parseIr(repaired, validRefs);
         }
         if (ir == null) {
@@ -99,7 +100,7 @@ public class ResearchReportBuilder {
 
                 核验证据：%s
                 关系图 JSON：%s
-                """.formatted(compact(evidence, 8000), compact(graphJson == null ? "" : graphJson.toString(), 5000)),
+                """.formatted(Texts.compact(evidence, 8000), Texts.compact(graphJson == null ? "" : graphJson.toString(), 5000)),
                 markdownFallback);
         if (markdown == null || markdown.isBlank()) markdown = markdownFallback;
         markdown = markdown.trim() + sourceAppendix(sources);
@@ -111,7 +112,7 @@ public class ResearchReportBuilder {
     private DocumentIr fallbackIr(String title, String evidence, Set<String> validRefs) {
         String anchor = "verified-evidence";
         List<InlineRun> evidenceRuns = evidenceInlines(
-                evidence == null || evidence.isBlank() ? "暂无可展示的已核验证据。" : compact(evidence, 8000),
+                evidence == null || evidence.isBlank() ? "暂无可展示的已核验证据。" : Texts.compact(evidence, 8000),
                 validRefs);
         Block notice = Block.callout("warning", "结构化报告已降级",
                 List.of(Block.paragraph(List.of(new InlineRun(
@@ -185,7 +186,7 @@ public class ResearchReportBuilder {
                 研究对象：%s
                 核验证据：%s
                 多 Agent 论坛记录摘要：%s
-                """.formatted(refs, title, compact(evidence, 7000), compact(forumDigest, 2000));
+                """.formatted(refs, title, Texts.compact(evidence, 7000), Texts.compact(forumDigest, 2000));
     }
 
     private DocumentIr parseIr(String raw, Set<String> validRefs) {
@@ -219,10 +220,6 @@ public class ResearchReportBuilder {
         return sb.toString();
     }
 
-    private String compact(String value, int max) {
-        String clean = value == null ? "" : value.replaceAll("\\s+", " ").trim();
-        return clean.length() <= max ? clean : clean.substring(0, max);
-    }
 
     /** 报告构建结果：IR JSON + 降级 Markdown。 */
     public record ReportResult(String irJson, String markdown) {

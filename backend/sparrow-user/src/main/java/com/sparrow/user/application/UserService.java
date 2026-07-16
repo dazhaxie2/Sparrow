@@ -1,5 +1,6 @@
 package com.sparrow.user.application;
 
+import com.sparrow.common.ai.Texts;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sparrow.common.exception.BizException;
 import com.sparrow.common.security.TokenKeys;
@@ -123,7 +124,7 @@ public class UserService {
             throw new BizException("两次输入的密码不一致");
         }
         User user = getById(userId);
-        if (hasText(user.getPasswordHash())
+        if (Texts.hasText(user.getPasswordHash())
                 && (currentPassword == null || !encoder.matches(currentPassword, user.getPasswordHash()))) {
             throw new BizException("当前密码不正确");
         }
@@ -144,7 +145,7 @@ public class UserService {
     /** Sends a purpose-scoped binding code after checking current account and ownership. */
     public void sendBindEmailCode(long userId, String email) {
         User user = getById(userId);
-        if (hasText(user.getEmail())) {
+        if (Texts.hasText(user.getEmail())) {
             throw new BizException("当前账号已经绑定邮箱");
         }
         String normalized = requireValidEmail(email);
@@ -191,7 +192,7 @@ public class UserService {
         consumeCode(EMAIL_BIND_CODE_KEY, "bind:", normalized, code);
 
         User user = getById(userId);
-        if (hasText(user.getEmail())) {
+        if (Texts.hasText(user.getEmail())) {
             if (normalized.equalsIgnoreCase(user.getEmail())) {
                 return user;
             }
@@ -329,10 +330,6 @@ public class UserService {
 
     private boolean isBootstrapAdmin(String email) {
         return !bootstrapAdminEmail.isBlank() && bootstrapAdminEmail.equals(normalizeEmail(email));
-    }
-
-    private static boolean hasText(String value) {
-        return value != null && !value.isBlank();
     }
 
     public record PasswordChange(User user, String token) {

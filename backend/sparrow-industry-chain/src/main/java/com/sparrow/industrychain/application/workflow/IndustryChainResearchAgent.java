@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.application.workflow;
 
+import com.sparrow.common.ai.Texts;
 import com.sparrow.common.ai.model.ModelScene;
 import com.sparrow.industrychain.application.forum.ForumBus;
 import com.sparrow.industrychain.application.forum.ForumEvent;
@@ -167,10 +168,10 @@ public class IndustryChainResearchAgent {
         StringBuilder ctx = new StringBuilder();
         for (SearchSource s : batch) {
             ctx.append(s.sourceRef()).append(" | ").append(s.title()).append(" | ").append(s.publisher())
-                    .append('\n').append(compact(s.snippet(), 600)).append("\n\n");
+                    .append('\n').append(Texts.compact(s.snippet(), 600)).append("\n\n");
         }
         String hostBlock = hostSpeech == null || hostSpeech.isBlank() ? "" :
-                "\n\n论坛主持人最新引导(可参考其观点与待核验问题):\n" + compact(hostSpeech, 800);
+                "\n\n论坛主持人最新引导(可参考其观点与待核验问题):\n" + Texts.compact(hostSpeech, 800);
         return chatStream((systemPrompt + """
 
                 研究对象：%s
@@ -186,7 +187,7 @@ public class IndustryChainResearchAgent {
     /** 反思：分析当前结论的缺口，输出下一步该查什么(「补充查询：」段每行一个查询词)。 */
     private String reflect(String title, String findings, int round, String hostSpeech) {
         String hostBlock = hostSpeech == null || hostSpeech.isBlank() ? "" :
-                "\n\n论坛主持人最新引导:\n" + compact(hostSpeech, 600);
+                "\n\n论坛主持人最新引导:\n" + Texts.compact(hostSpeech, 600);
         return chatStream((systemPrompt + """
 
                 研究对象：%s
@@ -195,7 +196,7 @@ public class IndustryChainResearchAgent {
 
                 这是第 %d 轮反思。指出当前结论的缺口与待核验问题，并用「补充查询：」单独成段，
                 每行一个查询词，用于下一轮深挖检索。不要重复已有结论。
-                """).formatted(title, compact(findings, 2500), hostBlock, round), "反思分析");
+                """).formatted(title, Texts.compact(findings, 2500), hostBlock, round), "反思分析");
     }
 
     /** 从反思结论中提取「补充查询：」段的查询词(对照 Orchestrator 原有逻辑)。 */
@@ -277,10 +278,6 @@ public class IndustryChainResearchAgent {
         return (stage, message) -> { /* 进度由 Orchestrator 统一推进，此处保留钩子 */ };
     }
 
-    private String compact(String value, int max) {
-        String clean = value == null ? "" : value.replaceAll("\\s+", " ").trim();
-        return clean.length() <= max ? clean : clean.substring(0, max);
-    }
 
     /** Agent 调研结果：结论文本 + 检索到的来源(已编号)。 */
     public record AgentResult(String findings, List<SearchSource> sources) {

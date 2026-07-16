@@ -1,5 +1,6 @@
 package com.sparrow.industrychain.application.workflow;
 
+import com.sparrow.common.ai.Texts;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sparrow.industrychain.application.forum.ForumBus;
@@ -97,7 +98,7 @@ public class IndustryChainResearchOrchestrator {
         int contextChars = profile == null ? 8000 : profile.maxContextChars();
         int perMessage = Math.max(200, contextChars / Math.max(1, maxMessages));
         history.stream().skip(Math.max(0, history.size() - (long) maxMessages)).forEach(message -> context
-                .append(message.role()).append(": ").append(compact(message.content(), perMessage)).append('\n'));
+                .append(message.role()).append(": ").append(Texts.compact(message.content(), perMessage)).append('\n'));
         String prompt = profile == null
                 ? "你是产业链深度调研工作台的规划 Agent。帮助用户明确调研范围，不编造事实。"
                 : profile.systemPrompt();
@@ -138,7 +139,7 @@ public class IndustryChainResearchOrchestrator {
                 : "新一轮 Multi-Agent 调研启动");
         String plan = current.plan();
         List<String> planQueries = current.planQueries() == null ? List.of() : current.planQueries();
-        if (!hasText(plan)) {
+        if (!Texts.hasText(plan)) {
             listener.update("planning", 8, "规划 Agent 正在拆解调研范围");
             forum.thinking(cardId, runId, "SYSTEM", "规划 Agent · 拆解调研范围");
             plan = chat.chat(planningPrompt(title, brief, provided, history));
@@ -190,7 +191,7 @@ public class IndustryChainResearchOrchestrator {
         }
         if (merged.isEmpty()) throw new BizException(502, "未获得任何可用来源，请稍后重试或补充资料");
 
-        String forumDigest = hasText(current.forumDigest()) ? current.forumDigest() : forumDigest(cardId, runId);
+        String forumDigest = Texts.hasText(current.forumDigest()) ? current.forumDigest() : forumDigest(cardId, runId);
         if (current.sources() == null || current.sources().isEmpty()) {
             current = new ResearchCheckpoint(plan, planQueries, merged, forumDigest,
                     null, null, null, null);
@@ -198,7 +199,7 @@ public class IndustryChainResearchOrchestrator {
         }
 
         String evidence = current.evidence();
-        if (!hasText(evidence)) {
+        if (!Texts.hasText(evidence)) {
             listener.update("verifying", 58, "证据 Agent 正在交叉核验来源");
             forum.thinking(cardId, runId, "SYSTEM", "证据 Agent · 交叉核验来源");
             evidence = chat.chat(evidencePrompt(plan, merged, forumDigest));
@@ -209,7 +210,7 @@ public class IndustryChainResearchOrchestrator {
 
         String graphJson = current.graphJson();
         JsonNode graph;
-        if (!hasText(graphJson)) {
+        if (!Texts.hasText(graphJson)) {
             listener.update("mapping", 74, "产业链 Agent 正在构建节点与关系");
             forum.thinking(cardId, runId, "SYSTEM", "图谱 Agent · 构建节点与关系");
             graph = graphExtractor.extract(title, evidence, merged);
@@ -222,7 +223,7 @@ public class IndustryChainResearchOrchestrator {
         }
 
         ResearchReportBuilder.ReportResult report;
-        if (!hasText(current.reportIrJson()) || !hasText(current.reportMarkdown())) {
+        if (!Texts.hasText(current.reportIrJson()) || !Texts.hasText(current.reportMarkdown())) {
             listener.update("writing", 88, "报告 Agent 正在生成带引用的深度报告");
             forum.thinking(cardId, runId, "SYSTEM", "报告 Agent · 生成深度报告");
             report = reportBuilder.build(title, evidence, graph, merged, forumDigest);
@@ -288,7 +289,7 @@ public class IndustryChainResearchOrchestrator {
         int count = 0;
         for (ForumEvent event : events) {
             if (ForumEvent.HOST.equals(event.source()) || isAgent(event.source())) {
-                sb.append(event.sourceText()).append(": ").append(compact(event.content(), 300)).append('\n');
+                sb.append(event.sourceText()).append(": ").append(Texts.compact(event.content(), 300)).append('\n');
                 if (++count >= 12) break;
             }
         }
@@ -325,7 +326,7 @@ public class IndustryChainResearchOrchestrator {
                 调研计划：%s
                 多 Agent 论坛记录：%s
                 来源：%s
-                """.formatted(compact(plan, 3000), compact(forumDigest, 1500), sourceContext(sources));
+                """.formatted(Texts.compact(plan, 3000), Texts.compact(forumDigest, 1500), sourceContext(sources));
     }
 
     private String writeJson(JsonNode value) {
@@ -344,9 +345,6 @@ public class IndustryChainResearchOrchestrator {
         }
     }
 
-    private boolean hasText(String value) {
-        return value != null && !value.isBlank();
-    }
 
     private AiAgentProfile agent(String agentKey) {
         return agentConfigs == null ? null : agentConfigs.requireEnabled(agentKey);
@@ -365,7 +363,7 @@ public class IndustryChainResearchOrchestrator {
         for (SearchSource source : sources) {
             result.append(source.sourceRef()).append(" | ").append(source.title()).append(" | ")
                     .append(source.publisher()).append(" | ").append(source.url()).append('\n')
-                    .append(compact(source.snippet(), 800)).append("\n\n");
+                    .append(Texts.compact(source.snippet(), 800)).append("\n\n");
         }
         return result.toString();
     }
@@ -374,14 +372,10 @@ public class IndustryChainResearchOrchestrator {
         StringBuilder result = new StringBuilder();
         history.stream().skip(Math.max(0, history.size() - 16L)).forEach(message -> result
                 .append(message.role()).append('/').append(message.agent() == null ? "" : message.agent())
-                .append(": ").append(compact(message.content(), 600)).append('\n'));
+                .append(": ").append(Texts.compact(message.content(), 600)).append('\n'));
         return result.toString();
     }
 
-    private String compact(String value, int max) {
-        String clean = value == null ? "" : value.replaceAll("\\s+", " ").trim();
-        return clean.length() <= max ? clean : clean.substring(0, max);
-    }
 }
 
 
