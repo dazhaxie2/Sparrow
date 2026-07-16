@@ -1,0 +1,33 @@
+name: host-network-resilience
+
+on:
+  push:
+    branches: [codex/network-resilience]
+    paths:
+      - ".github/workflows/host-network-resilience.yml"
+      - "backend/scripts/inspect-host-network-resilience.ps1"
+      - "backend/scripts/install-host-network-resilience.ps1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-network-resilience
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect host network resilience
+        shell: powershell
+        run: |
+          # Keep this block ASCII-only for Windows PowerShell 5.1 on the zh-CN host.
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+            -File backend\scripts\inspect-host-network-resilience.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "Host network inspection failed (rc=$LASTEXITCODE)"
+          }
