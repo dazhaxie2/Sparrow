@@ -182,22 +182,38 @@ connectivity.
    and `3478` is STUN; both being routed through `GLOBAL` is the bug. Confirm
    the route is not direct: `Find-NetRoute -RemoteIPAddress <tailscale-ip>`
    should resolve on the `Tailscale` interface, not `Mihomo`.
-3. Force Tailscale traffic to bypass the proxy via Clash Verge's **rules
-   override** (`profiles/*.yaml` bound through `profiles.yaml` ->
-   `option.rules`), using `prepend` rather than editing the generated
-   `clash-verge.yaml`:
+3. Global mode ignores the rule table. Set `mode: rule` and
+   `find-process-mode: always`, then force Tailscale traffic to bypass the
+   proxy via Clash Verge's **rules override** (`profiles/*.yaml` bound through
+   `profiles.yaml` -> `option.rules`). Use `prepend` rather than editing only
+   the generated `clash-verge.yaml`:
    ```yaml
+   mode: rule
+   find-process-mode: always
    prepend:
+     - PROCESS-NAME,tailscaled.exe,DIRECT
+     - PROCESS-NAME,tailscale-ipn.exe,DIRECT
+     - PROCESS-NAME,tailscale.exe,DIRECT
      - DOMAIN-SUFFIX,ts.net,DIRECT
      - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
      - IP-CIDR,fd7a:115c:a1e0::/48,DIRECT,no-resolve
    ```
+   Confirm the existing rule table has a proxy catch-all such as
+   `MATCH,<main-proxy-group>` before leaving global mode. This preserves the
+   host's normal proxy egress while allowing only the Tailscale process to use
+   `DIRECT`.
    After the airport fails completely, the SSH rescue channel then stays up
    even though the public site (which needs the proxy to reach Cloudflare)
    does not — that trade-off is unavoidable on a single-outbound host.
-4. The same prepend belongs in the merge profile (`option.merge`) as a backup;
-   `prepend-rules:` is the merge-file key, `prepend:` is the rules-override
-   key. Keep both consistent.
+4. The same process rules and scalar settings belong in the merge profile
+   (`option.merge`) as a backup; `prepend-rules:` is the merge-file key,
+   `prepend:` is the rules-override key. Keep both consistent. The deploy
+   workflow runs `backend/scripts/install-host-network-resilience.ps1`, which
+   finds the active bound overrides, validates a candidate with the running
+   core, creates last-known-good backups, reloads through the local named-pipe
+   API, checks egress/site health and rolls back on failure. Validate success
+   in the Mihomo log: Tailscale entries must say
+   `match ProcessName(tailscaled.exe) using DIRECT`, not `using GLOBAL`.
 
 ## Editing Clash Verge / Mihomo config without corrupting it
 
@@ -210,11 +226,12 @@ making the core refuse to start (`yaml: line N: did not find expected key`).
 1. Never hand-edit `clash-verge.yaml`. Put changes in the Verge-managed
    override/merge files (`profiles/*.yaml`) and let the GUI merge them. That
    path preserves encoding and survives subscription updates.
-2. To make a change take effect without the GUI, the only reliable trigger is
-   a Verge profile reload/update from the GUI — there is no controller TCP API
-   by default (`external-controller: ''`), and a hand-started `verge-mihomo -f`
-   reads a static file without re-running the merge. Use a remote-desktop tool
-   (e.g. AweSun) to reach the GUI when SSH is the only other channel.
+2. `external-controller: ''` disables the controller TCP listener, but Clash
+   Verge exposes the running core through its local `verge-mihomo` Windows
+   named pipe. The host-resilience installer uses that pipe to call
+   `PUT /configs?force=true` after validating the candidate, so a GUI profile
+   reload is not required. Keep a remote-desktop tool (e.g. AweSun) only as a
+   rescue path if both SSH and the self-hosted runner are unavailable.
 3. Before swapping any hand-built config into the running core, validate it
    with `verge-mihomo -d <home> -f <file> -t`. A failed `test` must never be
    loaded — keep the last known-good file untouched as the rollback point and

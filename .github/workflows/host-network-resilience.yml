@@ -1,0 +1,36 @@
+name: host-network-resilience
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-network-resilience
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect host network resilience
+        shell: powershell
+        run: |
+          # Keep this block ASCII-only for Windows PowerShell 5.1 on the zh-CN host.
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+            -File backend\scripts\inspect-host-network-resilience.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "Host network inspection failed (rc=$LASTEXITCODE)"
+          }
+      - name: Install host network resilience
+        shell: powershell
+        run: |
+          # Validate, install atomically, and roll back if post-reload checks fail.
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+            -File backend\scripts\install-host-network-resilience.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "Host network resilience install failed (rc=$LASTEXITCODE)"
+          }

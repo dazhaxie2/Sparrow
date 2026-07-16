@@ -153,6 +153,17 @@ jobs:
             throw "Cloudflared watchdog installation failed (rc=$LASTEXITCODE)"
           }
 
+      - name: Ensure Tailscale bypasses the Mihomo upstream
+        shell: powershell
+        run: |
+          # Keep this block ASCII-only for Windows PowerShell 5.1 on the zh-CN host.
+          Set-Location $env:DEPLOY_DIR
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+            -File backend\scripts\install-host-network-resilience.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "Host network resilience installation failed (rc=$LASTEXITCODE)"
+          }
+
       # Path detection: did this push touch AI-related code? Rebuild sparrow-ai only if so,
       # otherwise skip - saves build time and avoids repeated large-image builds on a 16G machine.
       # workflow_dispatch (manual) has no before/after; defaults to "changed", gated by the Deploy AI tier toggle.
