@@ -18,8 +18,9 @@ $commonArgs = @(
     "-B",
     "-ntp",
     "-Daether.connector.basic.threads=4",
-    "-Daether.connector.connectTimeout=10000",
-    "-Daether.connector.requestTimeout=30000"
+    "-Daether.connector.connectTimeout=30000",
+    "-Daether.connector.requestTimeout=120000",
+    "-Daether.transport.http.retryHandler.count=5"
 )
 
 docker run --rm `

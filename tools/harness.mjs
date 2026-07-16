@@ -112,7 +112,17 @@ function backendTest(modules = []) {
     }
   }
   const selection = modules.length > 0 ? ['-pl', modules.join(','), '-am'] : []
-  const mavenArgs = ['-f', path.join('backend', 'pom.xml'), '-B', '-ntp', ...selection, 'clean', 'test']
+  const resolverArgs = [
+    '-Daether.connector.basic.threads=4',
+    '-Daether.connector.connectTimeout=30000',
+    '-Daether.connector.requestTimeout=120000',
+    '-Daether.transport.http.retryHandler.count=5',
+  ]
+  const mavenArgs = [
+    '-f', path.join('backend', 'pom.xml'),
+    '-s', path.join('backend', 'docker', 'maven-settings.xml'),
+    '-B', '-ntp', ...resolverArgs, ...selection, 'clean', 'test',
+  ]
   if (probe('mvn').available) {
     run('mvn', mavenArgs, {
       label: modules.length > 0 ? `Backend tests: ${modules.join(', ')}` : 'Full backend tests',
@@ -131,9 +141,7 @@ function backendTest(modules = []) {
     '-w', '/workspace',
     'maven:3.9-eclipse-temurin-21',
     'mvn', '-s', 'docker/maven-settings.xml', '-B', '-ntp',
-    '-Daether.connector.basic.threads=4',
-    '-Daether.connector.connectTimeout=10000',
-    '-Daether.connector.requestTimeout=30000',
+    ...resolverArgs,
     ...(modules.length > 0 ? ['-pl', modules.join(','), '-am'] : []),
     'clean', 'test',
   ]

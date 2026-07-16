@@ -2,9 +2,11 @@
 # 通过 docker compose 的 build.target 选择最终运行 stage。
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
-COPY backend/docker/maven-settings.xml /root/.m2/settings.xml
+# Keep settings outside /root/.m2: the BuildKit cache mount below replaces that
+# directory at RUN time and would otherwise hide the configured mirror.
+COPY backend/docker/maven-settings.xml /opt/sparrow/maven-settings.xml
 
-# 先单独拷 pom,go-offline 吃缓存层,源码改动不会触发重新下载依赖
+# 先单独拷 pom,go-offline 尽量预热缓存层,源码改动不会触发重新下载依赖
 COPY backend/pom.xml .
 COPY backend/sparrow-common/pom.xml sparrow-common/pom.xml
 COPY backend/sparrow-gateway/pom.xml sparrow-gateway/pom.xml
@@ -14,10 +16,11 @@ COPY backend/sparrow-trade/pom.xml sparrow-trade/pom.xml
 COPY backend/sparrow-ai/pom.xml sparrow-ai/pom.xml
 COPY backend/sparrow-industry-chain/pom.xml sparrow-industry-chain/pom.xml
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -e -ntp \
+    mvn -s /opt/sparrow/maven-settings.xml -B -e -ntp \
     -Daether.connector.basic.threads=4 \
-    -Daether.connector.connectTimeout=10000 \
-    -Daether.connector.requestTimeout=30000 \
+    -Daether.connector.connectTimeout=30000 \
+    -Daether.connector.requestTimeout=120000 \
+    -Daether.transport.http.retryHandler.count=5 \
     -DskipTests dependency:go-offline || true
 
 # 全量拷源码 + 打包
@@ -29,10 +32,11 @@ COPY backend/sparrow-trade/src sparrow-trade/src
 COPY backend/sparrow-ai/src sparrow-ai/src
 COPY backend/sparrow-industry-chain/src sparrow-industry-chain/src
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -ntp \
+    mvn -s /opt/sparrow/maven-settings.xml -B -ntp \
     -Daether.connector.basic.threads=4 \
-    -Daether.connector.connectTimeout=10000 \
-    -Daether.connector.requestTimeout=30000 \
+    -Daether.connector.connectTimeout=30000 \
+    -Daether.connector.requestTimeout=120000 \
+    -Daether.transport.http.retryHandler.count=5 \
     -DskipTests package
 
 # 前端构建(仅 gateway 镜像用)

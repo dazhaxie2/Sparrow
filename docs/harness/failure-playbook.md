@@ -71,6 +71,26 @@ If Maven reports "Nothing to compile" and then fails on an API that the configur
 Java version supports, suspect stale `target` output from another JDK/compiler. The
 Harness uses `clean test` deliberately; do not weaken it to reuse ambiguous classes.
 
+## Docker image build times out downloading a Maven artifact
+
+`Could not transfer artifact ... Read timed out` is a repository transport failure,
+not evidence that the dependency version is invalid. `Could not find artifact` is the
+corresponding signal for a missing version.
+
+1. Check the repository ID and URL in the error. Container builds must report the
+   mirror from `backend/docker/maven-settings.xml`; a report for Maven Central means
+   the repository settings were not loaded.
+2. Keep the settings file outside `/root/.m2`. Dockerfile steps mount the BuildKit
+   dependency cache on that entire directory, so a settings file copied there in an
+   earlier layer is hidden while Maven runs.
+3. Keep `dependency:go-offline` as a best-effort cache warm-up. It resolves report
+   and site plugins that `package` does not need, so its failure must not block a
+   valid build. The following `package` command is authoritative and must preserve
+   its exit code.
+4. Preserve bounded transport retries and connect/read timeouts in the Dockerfile,
+   `backend/scripts/mvn17.ps1` and `tools/harness.mjs`. Re-run the failed image build;
+   do not change a valid dependency version to work around a timeout.
+
 ## Self-hosted deploy fetch fails to reach GitHub
 
 The `deploy` job runs on a self-hosted Windows runner behind a Mihomo/Clash TUN
