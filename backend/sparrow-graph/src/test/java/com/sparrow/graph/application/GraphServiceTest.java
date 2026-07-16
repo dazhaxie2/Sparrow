@@ -58,6 +58,7 @@ class GraphServiceTest {
     private NodeLayoutMapper nodeLayoutMapper;
     private NodeApplicationRepository applicationRepository;
     private AiClient aiClient;
+    private FavoriteService favoriteService;
     private GraphService service;
 
     @BeforeEach
@@ -74,10 +75,11 @@ class GraphServiceTest {
         nodeLayoutMapper = mock(NodeLayoutMapper.class);
         applicationRepository = mock(NodeApplicationRepository.class);
         aiClient = mock(AiClient.class);
+        favoriteService = mock(FavoriteService.class);
         when(redis.opsForValue()).thenReturn(valueOps);
         service = new GraphService(neoRepo, mysqlReader, redis, new ObjectMapper(),
                 userClient, eventPublisher, neo4jMigrator, knowledgeMetaRepository, nodeLayoutMapper,
-                applicationRepository, aiClient);
+                applicationRepository, aiClient, favoriteService);
     }
 
     @Test
