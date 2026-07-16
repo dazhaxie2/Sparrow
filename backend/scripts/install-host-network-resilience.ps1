@@ -284,10 +284,12 @@ $originalMerge = [IO.File]::ReadAllText($mergePath, $utf8NoBom)
 $originalRules = [IO.File]::ReadAllText($rulesPath, $utf8NoBom)
 $originalRuntime = [IO.File]::ReadAllText($runtimeConfig, $utf8NoBom)
 
-$desiredMerge = Set-YamlScalar -Text $originalMerge -Key 'find-process-mode' -Value 'always'
+$desiredMerge = Set-YamlScalar -Text $originalMerge -Key 'mode' -Value 'rule'
+$desiredMerge = Set-YamlScalar -Text $desiredMerge -Key 'find-process-mode' -Value 'always'
 $desiredMerge = Add-YamlListEntries -Text $desiredMerge -Key 'prepend-rules' -Entries $processRules
 $desiredRules = Add-YamlListEntries -Text $originalRules -Key 'prepend' -Entries $processRules
-$desiredRuntime = Set-YamlScalar -Text $originalRuntime -Key 'find-process-mode' -Value 'always'
+$desiredRuntime = Set-YamlScalar -Text $originalRuntime -Key 'mode' -Value 'rule'
+$desiredRuntime = Set-YamlScalar -Text $desiredRuntime -Key 'find-process-mode' -Value 'always'
 $desiredRuntime = Add-YamlListEntries -Text $desiredRuntime -Key 'rules' -Entries $processRules
 
 $candidatePath = Join-Path $configHome 'clash-verge.codex-candidate.yaml'
