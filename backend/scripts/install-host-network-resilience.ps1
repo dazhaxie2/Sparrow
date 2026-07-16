@@ -48,7 +48,7 @@ function Set-YamlScalar {
         [Parameter(Mandatory = $true)][string]$Value
     )
 
-    $pattern = '(?m)^' + [regex]::Escape($Key) + '\s*:\s*[^\r\n]*(?:\r?$)'
+    $pattern = '(?m)^' + [regex]::Escape($Key) + '[ \t]*:[^\r\n]*(?=\r?$)'
     $replacement = "$Key`: $Value"
     if ([regex]::IsMatch($Text, $pattern)) {
         return [regex]::Replace($Text, $pattern, $replacement, 1)
@@ -65,7 +65,7 @@ function Add-YamlListEntries {
 
     $missing = New-Object System.Collections.Generic.List[string]
     foreach ($entry in $Entries) {
-        $entryPattern = '(?m)^\s*-\s*' + [regex]::Escape($entry) + '\s*$'
+        $entryPattern = '(?m)^[ \t]*-[ \t]*' + [regex]::Escape($entry) + '[ \t]*(?=\r?$)'
         if (-not [regex]::IsMatch($Text, $entryPattern)) {
             $missing.Add($entry)
         }
@@ -74,7 +74,8 @@ function Add-YamlListEntries {
 
     $newLine = Get-NewLine -Text $Text
     $listLines = ($missing | ForEach-Object { "  - $_" }) -join $newLine
-    $keyPattern = '(?m)^' + [regex]::Escape($Key) + '\s*:\s*(?<empty>\[\s*\])?\s*$'
+    $keyPattern = '(?m)^' + [regex]::Escape($Key) +
+        '[ \t]*:[ \t]*(?<empty>\[[ \t]*\])?[ \t]*(?<lineEnd>\r?\n|\z)'
     $keyMatch = [regex]::Match($Text, $keyPattern)
 
     if (-not $keyMatch.Success) {
@@ -87,7 +88,10 @@ function Add-YamlListEntries {
     }
 
     $insertAt = $keyMatch.Index + $keyMatch.Length
-    return $Text.Insert($insertAt, $newLine + $listLines)
+    if ($keyMatch.Groups['lineEnd'].Length -eq 0) {
+        return $Text.Insert($insertAt, $newLine + $listLines + $newLine)
+    }
+    return $Text.Insert($insertAt, $listLines + $newLine)
 }
 
 function Write-AtomicUtf8 {
@@ -224,17 +228,26 @@ if (-not (Test-Path -LiteralPath $profilesIndex)) {
     throw "Clash Verge profile index not found: $profilesIndex"
 }
 $indexText = [IO.File]::ReadAllText($profilesIndex, $utf8NoBom)
-$currentMatch = [regex]::Match($indexText, '(?m)^current:\s*(?<uid>[A-Za-z0-9_-]+)\s*$')
+$currentMatch = [regex]::Match(
+    $indexText,
+    '(?m)^current:[ \t]*(?<uid>[A-Za-z0-9_-]+)[ \t]*(?=\r?$)'
+)
 if (-not $currentMatch.Success) { throw 'The current Clash Verge profile UID was not found.' }
 $currentUid = $currentMatch.Groups['uid'].Value
-$profilePattern = '(?ms)^-\s+uid:\s*' + [regex]::Escape($currentUid) +
-    '\s*$' + '(?<body>.*?)(?=^-\s+uid:|\z)'
+$profilePattern = '(?ms)^-[ \t]+uid:[ \t]*' + [regex]::Escape($currentUid) +
+    '[ \t]*(?:\r?\n)' + '(?<body>.*?)(?=^-[ \t]+uid:|\z)'
 $profileMatch = [regex]::Match($indexText, $profilePattern)
 if (-not $profileMatch.Success) { throw "Current profile entry not found: $currentUid" }
 $profileBody = $profileMatch.Groups['body'].Value
 
-$mergeMatch = [regex]::Match($profileBody, '(?m)^\s+merge:\s*(?<uid>[A-Za-z0-9_-]+)\s*$')
-$rulesMatch = [regex]::Match($profileBody, '(?m)^\s+rules:\s*(?<uid>[A-Za-z0-9_-]+)\s*$')
+$mergeMatch = [regex]::Match(
+    $profileBody,
+    '(?m)^[ \t]+merge:[ \t]*(?<uid>[A-Za-z0-9_-]+)[ \t]*(?=\r?$)'
+)
+$rulesMatch = [regex]::Match(
+    $profileBody,
+    '(?m)^[ \t]+rules:[ \t]*(?<uid>[A-Za-z0-9_-]+)[ \t]*(?=\r?$)'
+)
 if (-not $mergeMatch.Success -or -not $rulesMatch.Success) {
     throw "Current profile $currentUid is not bound to both merge and rules overrides."
 }

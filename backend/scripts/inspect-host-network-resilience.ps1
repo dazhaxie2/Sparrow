@@ -197,11 +197,14 @@ foreach ($path in @(
 )) {
     if (Test-Path $path) {
         $proxy = Get-ItemProperty $path
+        $proxyEnable = if ($proxy.PSObject.Properties['ProxyEnable']) { $proxy.ProxyEnable } else { $null }
+        $proxyServer = if ($proxy.PSObject.Properties['ProxyServer']) { $proxy.ProxyServer } else { $null }
+        $autoConfigUrl = if ($proxy.PSObject.Properties['AutoConfigURL']) { $proxy.AutoConfigURL } else { $null }
         Write-Objects ([pscustomobject]@{
             Path = $path
-            ProxyEnable = $proxy.ProxyEnable
-            ProxyServer = $proxy.ProxyServer
-            AutoConfigURL = $proxy.AutoConfigURL
+            ProxyEnable = $proxyEnable
+            ProxyServer = $proxyServer
+            AutoConfigURL = $autoConfigUrl
         })
     }
 }
