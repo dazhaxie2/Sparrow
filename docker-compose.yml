@@ -142,7 +142,8 @@ services:
           cpus: '1.0'
           memory: 700M
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_PASSWORD}\" 'RETURN 1' || exit 1"]
+      # Neo4j 镜像会把任意 NEO4J_* 变量解析为配置；从其已识别的 NEO4J_AUTH 中提取密码。
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_AUTH#neo4j/}\" 'RETURN 1' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30
