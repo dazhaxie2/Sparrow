@@ -312,6 +312,25 @@ if ($AuditOnly) {
     }
     Write-Output "candidate-prefix-hex=$hexPreview"
     Write-Output "candidate-double-cr-count=$doubleCrCount"
+    $candidateLines = @(Get-Content -LiteralPath $candidatePath)
+    $processRuleIndex = -1
+    for ($lineIndex = 0; $lineIndex -lt $candidateLines.Count; $lineIndex++) {
+        if ($candidateLines[$lineIndex] -match 'PROCESS-NAME,tailscaled\.exe,DIRECT') {
+            $processRuleIndex = $lineIndex
+            break
+        }
+    }
+    if ($processRuleIndex -ge 0) {
+        $contextStart = [Math]::Max(0, $processRuleIndex - 3)
+        $contextEnd = [Math]::Min($candidateLines.Count - 1, $processRuleIndex + 6)
+        for ($lineIndex = $contextStart; $lineIndex -le $contextEnd; $lineIndex++) {
+            $safeContextLine = [string]$candidateLines[$lineIndex]
+            if ($safeContextLine -match '(?i)(secret|password|token|uuid|server|url)') {
+                $safeContextLine = '<sensitive-line-redacted>'
+            }
+            Write-Output ("candidate-rule-context-{0}={1}" -f ($lineIndex + 1), $safeContextLine)
+        }
+    }
     $previewLine = 0
     Get-Content -LiteralPath $candidatePath -TotalCount 12 | ForEach-Object {
         $previewLine++
