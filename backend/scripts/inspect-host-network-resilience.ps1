@@ -139,7 +139,7 @@ if ($configHome -and (Test-Path -LiteralPath $configHome)) {
     Write-Section 'RUNTIME RELEVANT CONFIG'
     if ($runtimeConfig -and (Test-Path -LiteralPath $runtimeConfig)) {
         Select-String -LiteralPath $runtimeConfig -Pattern `
-            '^\s*(mode|mixed-port|external-controller|find-process-mode|auto-route|strict-route|interface-name|route-exclude-address)\s*:|PROCESS-NAME.*tailscale|ts\.net|100\.64\.0\.0/10|fd7a:115c:a1e0' `
+            '^\s*(mode|mixed-port|external-controller|find-process-mode|auto-route|strict-route|interface-name|route-exclude-address)\s*:|^\s*-\s*(MATCH|FINAL),|PROCESS-NAME.*tailscale|ts\.net|100\.64\.0\.0/10|fd7a:115c:a1e0' `
             -ErrorAction SilentlyContinue | ForEach-Object Line
     } else {
         Write-Output 'runtime-config=not-found'
