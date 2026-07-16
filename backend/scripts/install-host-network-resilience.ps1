@@ -278,6 +278,19 @@ $desiredRuntime = Add-YamlListEntries -Text $desiredRuntime -Key 'rules' -Entrie
 $candidatePath = Join-Path $configHome 'clash-verge.codex-candidate.yaml'
 [IO.File]::WriteAllText($candidatePath, $desiredRuntime, $utf8NoBom)
 if ($AuditOnly) {
+    $candidateBytes = [IO.File]::ReadAllBytes($candidatePath)
+    $previewBytes = $candidateBytes | Select-Object -First 96
+    $hexPreview = [BitConverter]::ToString([byte[]]$previewBytes)
+    $doubleCrCount = 0
+    for ($byteIndex = 0; $byteIndex -le $candidateBytes.Length - 3; $byteIndex++) {
+        if ($candidateBytes[$byteIndex] -eq 13 -and
+            $candidateBytes[$byteIndex + 1] -eq 13 -and
+            $candidateBytes[$byteIndex + 2] -eq 10) {
+            $doubleCrCount++
+        }
+    }
+    Write-Output "candidate-prefix-hex=$hexPreview"
+    Write-Output "candidate-double-cr-count=$doubleCrCount"
     $previewLine = 0
     Get-Content -LiteralPath $candidatePath -TotalCount 12 | ForEach-Object {
         $previewLine++
