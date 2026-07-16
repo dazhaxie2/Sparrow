@@ -158,6 +158,13 @@ seen from a different edge. Both are tunnel-side, not origin-side.
    `sc.exe failure Cloudflared reset= 86400 actions= restart/5000/restart/10000/restart/30000`.
    Note this only fires when the process exits; a "Running but disconnected"
    state needs the health-probe approach, not `sc failure`.
+6. The deploy workflow installs the `Sparrow Cloudflared Watchdog` scheduled
+   task as `SYSTEM`. It probes the local origin, the public hostname and an
+   independent Cloudflare egress URL once per minute. During a Mihomo outage it
+   waits without restart-looping; when egress returns but the public tunnel is
+   still down, it restarts `Cloudflared`. Inspect
+   `C:\ProgramData\Sparrow\cloudflared-watchdog\watchdog.log` and the task's
+   `LastTaskResult` when validating recovery.
 
 ## Intermittent total outage: SSH (Tailscale) and the site drop together
 
