@@ -73,10 +73,25 @@ function Add-YamlListEntries {
     if ($missing.Count -eq 0) { return $Text }
 
     $newLine = Get-NewLine -Text $Text
-    $listLines = ($missing | ForEach-Object { "  - $_" }) -join $newLine
     $keyPattern = '(?m)^' + [regex]::Escape($Key) +
         '[ \t]*:[ \t]*(?<empty>\[[ \t]*\])?[ \t]*(?<lineEnd>\r?\n|\z)'
     $keyMatch = [regex]::Match($Text, $keyPattern)
+
+    $itemIndent = '  '
+    if ($keyMatch.Success -and -not $keyMatch.Groups['empty'].Success) {
+        $contentStart = $keyMatch.Index + $keyMatch.Length
+        $contentAfterKey = $Text.Substring($contentStart)
+        $firstListItem = [regex]::Match(
+            $contentAfterKey,
+            '(?m)^(?<indent>[ \t]*)-[ \t]+'
+        )
+        if ($firstListItem.Success) {
+            $itemIndent = $firstListItem.Groups['indent'].Value
+        }
+    }
+    $listLines = ($missing | ForEach-Object {
+        '{0}- {1}' -f $itemIndent, $_
+    }) -join $newLine
 
     if (-not $keyMatch.Success) {
         return "$Key`:$newLine$listLines$newLine$Text"
