@@ -17,7 +17,7 @@ $commonArgs = @(
     "-s", "docker/maven-settings.xml",
     "-B",
     "-ntp",
-    "-Daether.connector.basic.threads=1",
+    "-Daether.connector.basic.threads=4",
     "-Daether.connector.connectTimeout=10000",
     "-Daether.connector.requestTimeout=30000"
 )

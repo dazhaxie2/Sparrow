@@ -131,7 +131,7 @@ function backendTest(modules = []) {
     '-w', '/workspace',
     'maven:3.9-eclipse-temurin-21',
     'mvn', '-s', 'docker/maven-settings.xml', '-B', '-ntp',
-    '-Daether.connector.basic.threads=1',
+    '-Daether.connector.basic.threads=4',
     '-Daether.connector.connectTimeout=10000',
     '-Daether.connector.requestTimeout=30000',
     ...(modules.length > 0 ? ['-pl', modules.join(','), '-am'] : []),

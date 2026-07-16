@@ -15,7 +15,7 @@ COPY backend/sparrow-ai/pom.xml sparrow-ai/pom.xml
 COPY backend/sparrow-industry-chain/pom.xml sparrow-industry-chain/pom.xml
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -e -ntp \
-    -Daether.connector.basic.threads=1 \
+    -Daether.connector.basic.threads=4 \
     -Daether.connector.connectTimeout=10000 \
     -Daether.connector.requestTimeout=30000 \
     -DskipTests dependency:go-offline || true
@@ -30,7 +30,7 @@ COPY backend/sparrow-ai/src sparrow-ai/src
 COPY backend/sparrow-industry-chain/src sparrow-industry-chain/src
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -ntp \
-    -Daether.connector.basic.threads=1 \
+    -Daether.connector.basic.threads=4 \
     -Daether.connector.connectTimeout=10000 \
     -Daether.connector.requestTimeout=30000 \
     -DskipTests package

@@ -70,3 +70,63 @@ runtime check with an invented success statement.
 If Maven reports "Nothing to compile" and then fails on an API that the configured
 Java version supports, suspect stale `target` output from another JDK/compiler. The
 Harness uses `clean test` deliberately; do not weaken it to reuse ambiguous classes.
+
+## Self-hosted deploy fetch fails to reach GitHub
+
+The `deploy` job runs on a self-hosted Windows runner behind a Mihomo/Clash TUN
+proxy. Two distinct failure modes look the same (`Failed to connect to github.com
+port 443`) but need different fixes. Diagnose before changing the workflow.
+
+1. Distinguish the failure layer first: if the `verify` job (GitHub-hosted
+   ubuntu) passes but `deploy` (self-hosted) fails on `git fetch`, the repo and
+   workflow logic are fine; the problem is the runner host's network path to
+   GitHub.
+2. The runner service runs under a specific Windows account. Confirm it before
+   trusting any `git config --global` fix: `Get-CimInstance Win32_Service |
+   Where-Object { $_.PathName -match 'actions.runner' } | Select StartName`.
+   Only the `~/.gitconfig` of that account (here `.\hai`) is read by the runner;
+   a global config set under another account is inert.
+3. The Mihomo HTTP proxy port is whatever `verge-mihomo` actually listens on,
+   not the value cached in the registry `ProxyServer`. List real listeners:
+   `Get-NetTCPConnection -State Listen | ... OwningProcess -> verge-mihomo`.
+   On this host the live mixed-port is `7897`; the registry `ProxyServer` held a
+   stale `7993` that no process serves.
+4. Do not commit `git config --global http.proxy` as the fix. A global proxy
+   breaks all `git` whenever Mihomo is off or restarting. The workflow itself
+   probes `127.0.0.1:7897` per run and routes `fetch` through it only when up,
+   falling back to direct/TUN otherwise. See the `Sync repo to triggering
+   commit` step in `.github/workflows/deploy.yml`.
+5. If fetch still fails after the probe logic, verify Mihomo itself can reach
+   GitHub from the runner: `Test-NetConnection github.com -Port 443` and a
+   manual `git ls-remote`. A proxy that cannot reach GitHub cannot be fixed in
+   the workflow.
+
+## Deploy job stalls at "Waiting for a runner to pick up this job"
+
+A healthy self-hosted runner claims a queued job within seconds. Minutes of
+"Waiting" means the runner service lost its long-poll session to GitHub while
+the process stayed "Running". The broker reconnect loop is visible in the
+runner log, not the Actions UI.
+
+1. Read the newest runner log, not the service status:
+   `Get-ChildItem ...\actions-runner\_diag -Filter 'Runner_*.log' | sort
+   LastWriteTime -Descending | select -First 1`. `Get-Service` showing `Running`
+   only proves the process is alive, not that it is polling GitHub.
+2. Look for the broker retry loop: `BrokerMessageListener` lines such as
+   `Retriable exception: ... 无法连接 (127.0.0.1:<port>)` followed by
+   `Sleeping for 30 seconds before retrying`. The `<port>` is the culprit — the
+   runner's .NET stack is routing its GitHub connection through a dead local
+   proxy port and retrying every 30s.
+3. That port comes from `HKCU\...\Internet Settings` `ProxyServer`, which can
+   hold a stale value (e.g. `7993`) from a previous proxy configuration even
+   when `ProxyEnable` is `0`; the runner caches it at start. Clear it:
+   `Set-ItemProperty ...\Internet Settings -Name ProxyServer -Value ''`. Also
+   check and reset the WinHTTP layer: `netsh winhttp show proxy` /
+   `netsh winhttp reset proxy`.
+4. Restart the service so it re-reads the cleared proxy and rebuilds the
+   session: `Restart-Service actions.runner.dazhaxie2-Sparrow.14120DA`. Within
+   ~10s the log should show `Running job:` and no further `127.0.0.1:<port>`
+   refusals; the queued job then leaves "Waiting" on the Actions UI.
+5. Watch for recurrence: if `ProxyServer` repopulates, some proxy GUI is writing
+   it back on startup. Fix that tool's configuration rather than re-clearing the
+   registry repeatedly.

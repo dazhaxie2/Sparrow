@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
   <mirrors>
+    <!-- 统一走阿里云国内镜像。此前 fast-ci profile 显式把 central 指回国外官方、与
+         mirror 互相打架,导致较新/冷门 artifact 回源慢。现删 profile,只保留 mirror,
+         mirrorOf=central 精确拦截默认中央仓库(reactor pom 未声明其他仓库)。 -->
     <mirror>
       <id>aliyun</id>
       <name>Aliyun Maven Mirror</name>
@@ -8,38 +11,4 @@
       <mirrorOf>central</mirrorOf>
     </mirror>
   </mirrors>
-  <profiles>
-    <profile>
-      <id>fast-ci</id>
-      <repositories>
-        <repository>
-          <id>central</id>
-          <url>https://repo.maven.apache.org/maven2</url>
-          <releases>
-            <enabled>true</enabled>
-            <checksumPolicy>warn</checksumPolicy>
-          </releases>
-          <snapshots>
-            <enabled>false</enabled>
-          </snapshots>
-        </repository>
-      </repositories>
-      <pluginRepositories>
-        <pluginRepository>
-          <id>central</id>
-          <url>https://repo.maven.apache.org/maven2</url>
-          <releases>
-            <enabled>true</enabled>
-            <checksumPolicy>warn</checksumPolicy>
-          </releases>
-          <snapshots>
-            <enabled>false</enabled>
-          </snapshots>
-        </pluginRepository>
-      </pluginRepositories>
-    </profile>
-  </profiles>
-  <activeProfiles>
-    <activeProfile>fast-ci</activeProfile>
-  </activeProfiles>
 </settings>
