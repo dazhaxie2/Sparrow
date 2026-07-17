@@ -91,6 +91,25 @@ corresponding signal for a missing version.
    `backend/scripts/mvn17.ps1` and `tools/harness.mjs`. Re-run the failed image build;
    do not change a valid dependency version to work around a timeout.
 
+## Deploy succeeds but the browser receives an old frontend
+
+Treat this as a provenance break, not as a reason to disable every Docker cache.
+The deploy is complete only when the triggering commit, gateway image label,
+container environment, local `version.json` and public `version.json` agree.
+
+1. The self-hosted worktree must be reset to the triggering `github.sha`; never
+   continue after a failed fetch with a stale local `origin/main`.
+2. The gateway image receives that SHA as `SPARROW_BUILD_SHA`. It is declared after
+   the npm dependency layer, so a new revision rebuilds the Vite output without
+   discarding Maven or npm caches.
+3. `docker compose up -d` should activate the new image. If its OCI revision label
+   still differs, the workflow performs one bounded `--force-recreate` recovery.
+4. Health checks read `/version.json` and `X-Sparrow-Deploy-Sha` through both
+   `localhost:8080` and the public Cloudflare URL. A stale container, edge route or
+   cached HTML shell therefore fails deployment instead of producing a false green.
+5. HTML shells and version metadata use `no-store`; content-hashed `/assets/**`
+   remain `immutable` for fast repeat visits. Do not restore gateway `--no-cache`.
+
 ## Self-hosted deploy fetch fails to reach GitHub
 
 The `deploy` job runs on a self-hosted Windows runner behind a Mihomo/Clash TUN

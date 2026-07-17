@@ -242,9 +242,12 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       target: gateway-runtime
+      args:
+        SPARROW_BUILD_SHA: ${SPARROW_DEPLOY_SHA:-unknown}
     environment:
       NACOS_ADDR: nacos:8848
       REDIS_HOST: redis
+      SPARROW_DEPLOY_SHA: ${SPARROW_DEPLOY_SHA:-unknown}
       MALLOC_ARENA_MAX: "2"
     ports:
       - "8080:8080"

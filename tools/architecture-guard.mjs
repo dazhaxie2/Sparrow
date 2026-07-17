@@ -72,6 +72,35 @@ const deploy = read('.github/workflows/deploy.yml')
 assert(deploy.includes('sparrow-industry-chain'), 'deploy workflow 必须构建/部署 sparrow-industry-chain')
 assert(!deploy.includes('sparrow-chain'), 'deploy workflow 不允许构建/部署 sparrow-chain')
 
+const frontendStage = dockerfile.indexOf('FROM node:20-alpine AS frontend-build')
+const frontendPackageCopy = dockerfile.indexOf('COPY frontend/package.json frontend/package-lock.json ./', frontendStage)
+const frontendNpmCi = dockerfile.indexOf('npm ci ', frontendStage)
+const frontendSourceCopy = dockerfile.indexOf('COPY frontend/ ./', frontendStage)
+const frontendRevisionArg = dockerfile.indexOf('ARG SPARROW_BUILD_SHA=unknown', frontendStage)
+assert(
+  frontendStage >= 0
+    && frontendPackageCopy > frontendStage
+    && frontendNpmCi > frontendPackageCopy
+    && frontendSourceCopy > frontendNpmCi
+    && frontendRevisionArg > frontendSourceCopy,
+  'gateway frontend build must cache npm dependencies before copying source and injecting the deploy revision',
+)
+assert(dockerfile.includes('id=sparrow-npm,target=/root/.npm'), 'gateway frontend build must persist the npm download cache')
+assert(dockerfile.includes('dist/version.json'), 'gateway image must contain traceable frontend version metadata')
+
+const gatewayComposeStart = compose.indexOf('\n  sparrow-gateway:')
+const gatewayComposeEnd = compose.indexOf('\n  sparrow-user:', gatewayComposeStart)
+const gatewayCompose = compose.slice(gatewayComposeStart, gatewayComposeEnd)
+assert(gatewayCompose.includes('SPARROW_BUILD_SHA: ${SPARROW_DEPLOY_SHA:-unknown}'), 'gateway build must receive SPARROW_DEPLOY_SHA')
+assert(gatewayCompose.includes('SPARROW_DEPLOY_SHA: ${SPARROW_DEPLOY_SHA:-unknown}'), 'gateway runtime must expose SPARROW_DEPLOY_SHA')
+assert(!deploy.includes('docker compose build --no-cache sparrow-gateway'), 'gateway deploy must preserve incremental Docker caches')
+assert(deploy.includes('Wait-FrontendRevision'), 'deploy health check must verify the served frontend revision')
+assert(deploy.includes('org.opencontainers.image.revision'), 'deploy must verify the active gateway image revision')
+
+const frontendCacheFilter = read('backend/sparrow-gateway/src/main/java/com/sparrow/gateway/FrontendCacheControlFilter.java')
+assert(frontendCacheFilter.includes('no-store, no-cache, must-revalidate'), 'frontend HTML and version metadata must not be served stale')
+assert(frontendCacheFilter.includes('public, max-age=31536000, immutable'), 'hashed frontend assets should retain long-lived caching')
+
 const activeFiles = [
   ...walk('backend').filter(file => !file.includes('/scripts/migrate-industry-chain.sql')),
   ...walk('frontend/src'),

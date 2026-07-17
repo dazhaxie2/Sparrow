@@ -42,14 +42,27 @@ RUN --mount=type=cache,target=/root/.m2 \
 # 前端构建(仅 gateway 镜像用)
 FROM node:20-alpine AS frontend-build
 WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,id=sparrow-npm,target=/root/.npm,sharing=locked \
+    npm ci --prefer-offline --no-audit --no-fund \
+    --fetch-retries=5 \
+    --fetch-retry-mintimeout=10000 \
+    --fetch-retry-maxtimeout=120000
 COPY frontend/ ./
-RUN npm ci && npm run build
+# The revision is deliberately declared after npm ci: every deploy produces a
+# traceable frontend without invalidating the dependency layer.
+ARG SPARROW_BUILD_SHA=unknown
+RUN npm run build && \
+    printf '{"sha":"%s"}\n' "$SPARROW_BUILD_SHA" > dist/version.json
 
 # ===== 6 个运行 stage =====
 # JDK 21 + G1GC(默认)。堆上限统一压低,适配 16G 机器全栈同机部署(RSS≈堆×1.4,需留足元空间+off-heap 给容器 limit)。
 # 每个服务开 GC 日志(写 /app/gc.log,2 个文件轮转各 10M),便于排查 Full GC / 内存压力。
 FROM eclipse-temurin:21-jre AS gateway-runtime
 WORKDIR /app
+ARG SPARROW_BUILD_SHA=unknown
+LABEL org.opencontainers.image.revision="$SPARROW_BUILD_SHA"
+ENV SPARROW_DEPLOY_SHA="$SPARROW_BUILD_SHA"
 COPY --from=build /build/sparrow-gateway/target/sparrow-gateway.jar app.jar
 COPY --from=frontend-build /build/dist /app/static
 EXPOSE 8080
