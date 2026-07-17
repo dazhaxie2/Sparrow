@@ -27,7 +27,7 @@
 <script setup lang="ts">
 // 按需引入 echarts:仅注册力导向关系图所需的图表/组件/渲染器,
 // 避免 `import * as echarts from 'echarts'` 把整个库(~1MB)打进 bundle。
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Network, X } from '@lucide/vue'
 import type { ResearchGraph, ResearchSource } from '../model/types'
 
@@ -125,6 +125,12 @@ watch(() => props.graph, () => void refresh(), { deep: true })
 onMounted(() => {
   window.addEventListener('resize', resize)
   void refresh()
+})
+// keep-alive 复活时(tab 切回 graph,或跨路由返回工作台)容器尺寸可能已变,
+// 强制 resize 让 ECharts 重算 canvas 视口,避免画布错位/空白。
+// 复用已有的 resize()(chart?.resize()),无 chart 时为空操作。
+onActivated(() => {
+  chart?.resize()
 })
 onUnmounted(() => {
   window.removeEventListener('resize', resize)

@@ -58,8 +58,13 @@
           </nav>
 
           <div v-if="researching" class="run-progress"><i :style="{ width: `${progress}%` }"></i></div>
-          <ResearchGraph v-if="tab === 'graph'" :graph="detail.graph" :sources="detail.sources" />
-          <article v-else-if="tab === 'report'" class="report-view">
+          <!-- keep-alive 保活 ResearchGraph:tab 切走时不销毁 ECharts 实例,
+               切回时跳过 init + force 布局重跑,避免图谱反复加载耗时。
+               注意 keep-alive 会隔断 v-else-if 链,故 report/forum/sources 改为独立 v-if。 -->
+          <keep-alive>
+            <ResearchGraph v-if="tab === 'graph'" :graph="detail.graph" :sources="detail.sources" />
+          </keep-alive>
+          <article v-if="tab === 'report'" class="report-view">
             <div v-if="detail.reportIr" class="report-toolbar">
               <button class="export-btn" type="button" :disabled="exporting" @click="exportReportPdf">
                 <LoaderCircle v-if="exporting" class="spin" :size="14" />
@@ -77,14 +82,14 @@
             <div v-else class="result-empty"><FileText :size="30" /><strong>报告尚未生成</strong><span>启动联网调研后，报告 Agent 会在这里交付带引用的分析。</span></div>
           </article>
           <AgentForum
-            v-else-if="tab === 'forum'"
+            v-if="tab === 'forum'"
             :researching="researching"
             :events="forumEvents"
             :live-thinking="liveThinking"
             :stream-bubbles="streamBubbles"
             :error="detail.card.status === 'FAILED' ? detail.card.lastError : null"
           />
-          <div v-else-if="tab === 'sources'" class="source-list">
+          <div v-if="tab === 'sources'" class="source-list">
             <a v-for="source in detail.sources" :key="source.id" :href="source.url" target="_blank" rel="noreferrer" class="source-card">
               <span>{{ source.sourceRef }}</span>
               <div><strong>{{ source.title }}</strong><small>{{ source.publisher || source.url }}</small><p>{{ source.snippet }}</p></div>

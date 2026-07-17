@@ -113,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUiStore, type GraphMode } from '../../../shared/store/ui'
@@ -815,6 +815,22 @@ onMounted(async () => {
 // keep-alive 复用组件时,onMounted 不会再触发;从其它路由带 ?open= 回到首页时在此补消费。
 onActivated(() => {
   consumeHeaderIntent()
+  // keep-alive 复活时,容器 DOM 从缓存移回视口,尺寸可能已变(如设备旋转、
+  // 从全屏返回),强制 resize 让 sigma canvas 重算视口,避免画布错位/空白。
+  nextTick(() => graphChart.resize())
+})
+
+// keep-alive 下离开首页(切到产业链等)时 onUnmounted 不触发,组件仅被缓存。
+// 此时若仍处于全屏态必须复位:否则回首页时 AI 栏与 AI 按钮(均 v-if="!graphFullScreen")
+// 会被永久隐藏,用户无入口恢复。同时退出原生全屏,避免游离的全屏连接。
+// 参照 IndustryChainWorkbenchView 的 onDeactivated 模式。
+onDeactivated(() => {
+  if (graphFullScreen.value) {
+    graphFullScreen.value = false
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => { /* 忽略:可能已被路由切换自动退出 */ })
+    }
+  }
 })
 
 // 已在首页时(如 App.vue 的 header openIntent),?open= 变化也要消费。intent 为空时早退,不会空转。
@@ -834,6 +850,10 @@ onUnmounted(() => {
 .layout {
   position: relative;
   display: flex;
+  /* 作为 HomeShell .home-shell(flex 容器)的子项:占据 AI 栏之外的剩余主区。
+     flex:1 让它填充横向剩余空间,min-width:0 允许内部内容(flex 子项)收缩。 */
+  flex: 1;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   background: #fbfbfa;
@@ -856,19 +876,8 @@ onUnmounted(() => {
   flex: 1 1 auto;
 }
 
-/* 右侧常驻 AI 对话栏：宽 390px，折叠态收为 44px 竖条 */
-.ai-rail {
-  flex: 0 0 390px;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  transition: flex-basis 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.2s ease;
-}
-/* 折叠态：容器透明融入背景，避免突兀的纯黑色块 */
-.ai-rail.collapsed {
-  flex: 0 0 44px;
-  background: transparent;
-}
+/* 注:.ai-rail 的样式已移到 HomeShell.vue —— 该 aside 由 HomeShell 渲染,
+   scoped 属性选择器无法跨组件匹配,留在本组件里不生效(曾导致侧栏掉到页面底部)。 */
 
 .graph-shell {
   position: relative;
@@ -900,10 +909,7 @@ onUnmounted(() => {
     inset: 48px 0 0;
   }
 
-  /* 移动端隐藏常驻 AI 栏(屏宽不足，避免挤压图谱)；用户改用全屏沉浸外的其它入口 */
-  .ai-rail {
-    display: none;
-  }
+  /* 移动端 .ai-rail { display: none } 已随 .ai-rail 样式一起移到 HomeShell.vue */
 
   .layout.dialog-layout {
     overflow: hidden;

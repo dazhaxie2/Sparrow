@@ -14,18 +14,11 @@
   />
   <main class="app-content">
     <router-view v-slot="{ Component }">
-      <template v-if="route.name === 'home'">
-        <HomeShell>
-          <keep-alive>
-            <component :is="Component" />
-          </keep-alive>
-        </HomeShell>
-      </template>
-      <template v-else>
+      <HomeShell>
         <keep-alive>
           <component :is="Component" />
         </keep-alive>
-      </template>
+      </HomeShell>
     </router-view>
   </main>
 </template>
