@@ -277,9 +277,20 @@ jobs:
             $container = $containers | Select-Object -First 1
             if ($composeExit -ne 0 -or -not $container) { return '' }
 
-            $revision = docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' $container
+            # Windows PowerShell strips the nested double quotes from a native
+            # command argument, so read the labels as JSON before selecting the key.
+            $labelsJson = docker inspect --format '{{ json .Config.Labels }}' $container
             if ($LASTEXITCODE -ne 0) { return '' }
-            return (($revision | Out-String).Trim())
+
+            try {
+              $labels = (($labelsJson | Out-String).Trim() | ConvertFrom-Json -ErrorAction Stop)
+              $revision = $labels.'org.opencontainers.image.revision'
+              if ($null -eq $revision) { return '' }
+              return ([string]$revision).Trim()
+            } catch {
+              Write-Warning "gateway image label parse failed: $($_.Exception.Message)"
+              return ''
+            }
           }
 
           $actual = Get-GatewayRevision
